@@ -41,15 +41,23 @@ let heatLayer = null;
 let heatmap = false;
 let baseBeforeHeatmap = null;
 
+// Opacity per line, scaled to how many tracks are shown: where all of them
+// overlap, the stacked lines reach ~90% opacity (1 - (1 - a)^n = 0.9).
+// Clamped so a lone track isn't harsh and a one-off route never vanishes.
+function heatOpacity(n) {
+  return Math.min(0.6, Math.max(0.06, 1 - Math.pow(0.1, 1 / Math.max(n, 1))));
+}
+
 function drawHeatmap() {
   if (heatLayer) heatLayer.remove();
   heatLayer = L.layerGroup();
-  for (const { track } of loaded.values()) {
-    if (!track.visible) continue;
+  const visible = [...loaded.values()].filter(({ track }) => track.visible);
+  const opacity = heatOpacity(visible.length);
+  for (const { track } of visible) {
     for (const seg of track.segments) {
       // A wide, very faint halo plus a thin core line.
-      L.polyline(seg, { renderer: heatRenderer, interactive: false, color: HEAT_COLOR, weight: 8, opacity: 0.03 }).addTo(heatLayer);
-      L.polyline(seg, { renderer: heatRenderer, interactive: false, color: HEAT_COLOR, weight: 2.5, opacity: 0.15 }).addTo(heatLayer);
+      L.polyline(seg, { renderer: heatRenderer, interactive: false, color: HEAT_COLOR, weight: 8, opacity: opacity / 5 }).addTo(heatLayer);
+      L.polyline(seg, { renderer: heatRenderer, interactive: false, color: HEAT_COLOR, weight: 2.5, opacity }).addTo(heatLayer);
     }
   }
   heatLayer.addTo(map);
