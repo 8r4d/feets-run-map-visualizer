@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="feets-sample" xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata><name>Sample loop</name><time>2026-10-01T08:00:00Z</time></metadata>
+  <wpt lat="49.2990" lon="-123.1430"><name>Start</name></wpt>
+  <trk><name>Stanley Park sample loop</name><trkseg>
+    <trkpt lat="49.2990" lon="-123.1430"/><trkpt lat="49.3040" lon="-123.1440"/>
+    <trkpt lat="49.3100" lon="-123.1350"/><trkpt lat="49.3120" lon="-123.1430"/>
+    <trkpt lat="49.3080" lon="-123.1550"/><trkpt lat="49.3000" lon="-123.1530"/>
+    <trkpt lat="49.2990" lon="-123.1430"/>
+  </trkseg></trk>
+</gpx>
