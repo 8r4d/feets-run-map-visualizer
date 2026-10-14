@@ -40,6 +40,12 @@ const Store = (() => {
     logout: () => json('POST', '?action=logout'),
     createInvite: async () => (await json('POST', '?action=invite')).code,
 
+    // Strava. Connecting is a page navigation (the link in index.html), not a fetch.
+    stravaStatus: () => json('GET', '?action=strava_status'),
+    // Imports the next batch: resolves to { tracks, done, rateLimited }.
+    stravaSync: () => json('POST', '?action=strava_sync'),
+    stravaDisconnect: () => json('POST', '?action=strava_disconnect'),
+
     // Tracks
     all: () => json('GET', ''),
     // track includes the original file text as track.gpx; resolves to the new id.

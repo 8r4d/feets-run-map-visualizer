@@ -15,10 +15,24 @@
 //   POST api.php?action=add            body: track JSON, returns {id}
 //   POST api.php?action=update&id=ID   body: {visible, color}
 //   POST api.php?action=delete&id=ID
+//
+// Strava (each user connects their own account)
+//   GET  api.php?action=strava_status      {configured, connected, athlete}
+//   GET  api.php?action=strava_connect     page navigation: redirects to Strava's approval screen
+//   GET  api.php?action=strava_callback    Strava redirects back here, then on to the app
+//   POST api.php?action=strava_sync        imports the next batch, returns {tracks, done, rateLimited}
+//   POST api.php?action=strava_disconnect
 
 const SESSION_COOKIE = 'feets_session';
 const SESSION_DAYS = 30;
 const INVITE_DAYS = 7;
+
+const STRAVA_STATE_COOKIE = 'feets_strava_state';
+const STRAVA_BATCH = 10;          // activities imported per strava_sync request
+const STRAVA_TIME_BUDGET = 20;    // seconds; stay under shared hosting's execution limit
+
+// Same palette as app.js, used for tracks imported on the server.
+const TRACK_COLORS = ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6', '#9a6324', '#000075', '#808000'];
 
 const SCHEMA = [
     <<<SQL
@@ -47,9 +61,28 @@ const SCHEMA = [
     ) CHARACTER SET utf8mb4
     SQL,
     <<<SQL
+    CREATE TABLE IF NOT EXISTS strava_accounts (
+      user_id       INT          PRIMARY KEY,
+      athlete_id    BIGINT       NOT NULL,
+      athlete_name  VARCHAR(255) NOT NULL,
+      access_token  VARCHAR(255) NOT NULL,
+      refresh_token VARCHAR(255) NOT NULL,
+      expires_at    INT          NOT NULL,
+      synced_until  INT          NOT NULL DEFAULT 0  -- start time (epoch) of the last activity looked at
+    ) CHARACTER SET utf8mb4
+    SQL,
+    <<<SQL
+    CREATE TABLE IF NOT EXISTS strava_states (
+      state       CHAR(32)  PRIMARY KEY,
+      user_id     INT       NOT NULL,
+      created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    ) CHARACTER SET utf8mb4
+    SQL,
+    <<<SQL
     CREATE TABLE IF NOT EXISTS tracks (
       id          INT AUTO_INCREMENT PRIMARY KEY,
       user_id     INT          NULL,
+      strava_id   BIGINT       NULL,
       name        VARCHAR(255) NOT NULL,
       file_name   VARCHAR(255) NOT NULL,
       color       VARCHAR(16)  NOT NULL,
@@ -59,7 +92,8 @@ const SCHEMA = [
       added_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
       geometry    LONGTEXT     NOT NULL,
       gpx         LONGTEXT     NOT NULL,
-      INDEX (user_id)
+      INDEX (user_id),
+      UNIQUE (user_id, strava_id)
     ) CHARACTER SET utf8mb4
     SQL,
 ];
@@ -111,6 +145,10 @@ function db(): PDO {
         // Tracks uploaded before accounts existed have no owner column yet.
         if (!$pdo->query("SHOW COLUMNS FROM tracks LIKE 'user_id'")->fetch()) {
             $pdo->exec('ALTER TABLE tracks ADD COLUMN user_id INT NULL AFTER id, ADD INDEX (user_id)');
+        }
+        // ...nor a link back to the Strava activity they were imported from.
+        if (!$pdo->query("SHOW COLUMNS FROM tracks LIKE 'strava_id'")->fetch()) {
+            $pdo->exec('ALTER TABLE tracks ADD COLUMN strava_id BIGINT NULL AFTER user_id, ADD UNIQUE (user_id, strava_id)');
         }
     }
     return $pdo;
@@ -278,26 +316,28 @@ function create_invite(array $user): array {
 
 // --- Tracks ---
 
+function track_json(array $row): array {
+    $geometry = json_decode($row['geometry'], true);
+    return [
+        'id' => (int) $row['id'],
+        'name' => $row['name'],
+        'fileName' => $row['file_name'],
+        'color' => $row['color'],
+        'visible' => (bool) $row['visible'],
+        'distance' => (float) $row['distance_m'],
+        'time' => $row['track_time'],
+        'segments' => $geometry['segments'],
+        'waypoints' => $geometry['waypoints'],
+    ];
+}
+
 function list_tracks(int $userId): array {
     $stmt = db()->prepare(
         'SELECT id, name, file_name, color, visible, distance_m, track_time, geometry
          FROM tracks WHERE user_id = ? ORDER BY id'
     );
     $stmt->execute([$userId]);
-    return array_map(function ($row) {
-        $geometry = json_decode($row['geometry'], true);
-        return [
-            'id' => (int) $row['id'],
-            'name' => $row['name'],
-            'fileName' => $row['file_name'],
-            'color' => $row['color'],
-            'visible' => (bool) $row['visible'],
-            'distance' => (float) $row['distance_m'],
-            'time' => $row['track_time'],
-            'segments' => $geometry['segments'],
-            'waypoints' => $geometry['waypoints'],
-        ];
-    }, $stmt->fetchAll());
+    return array_map('track_json', $stmt->fetchAll());
 }
 
 function add_track(int $userId, array $t): array {
@@ -344,6 +384,329 @@ function download_gpx(int $userId, int $id): void {
     exit;
 }
 
+// --- Strava ---
+// OAuth2 docs: https://developers.strava.com/docs/authentication/
+
+function strava_config(): ?array {
+    global $config;
+    $s = $config['strava'] ?? [];
+    return !empty($s['client_id']) && !empty($s['client_secret']) ? $s : null;
+}
+
+// Absolute URL of a file next to api.php, e.g. app_url('') for the app itself.
+function app_url(string $path): string {
+    $dir = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'])), '/');
+    return (is_https() ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . $dir . '/' . $path;
+}
+
+function redirect(string $url): void {
+    header('Location: ' . $url, true, 302);
+    exit;
+}
+
+// Returns [status, decoded JSON body].
+function strava_http(string $method, string $url, array $params = [], array $headers = []): array {
+    if ($method === 'GET' && $params) {
+        $url .= '?' . http_build_query($params);
+    }
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 20,
+        CURLOPT_HTTPHEADER => $headers,
+    ]);
+    if ($method === 'POST') {
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($params));
+    }
+    $body = curl_exec($ch);
+    if ($body === false) {
+        throw new RuntimeException('Could not reach Strava: ' . curl_error($ch));
+    }
+    return [curl_getinfo($ch, CURLINFO_HTTP_CODE), json_decode($body, true)];
+}
+
+function strava_status(int $userId): array {
+    $stmt = db()->prepare('SELECT athlete_name FROM strava_accounts WHERE user_id = ?');
+    $stmt->execute([$userId]);
+    $row = $stmt->fetch();
+    return ['configured' => strava_config() !== null, 'connected' => (bool) $row, 'athlete' => $row['athlete_name'] ?? null];
+}
+
+function strava_connect(int $userId): void {
+    $strava = strava_config();
+    if (!$strava) {
+        fail('Strava is not set up in feets-config.php', 400);
+    }
+    // The state ties Strava's reply to this user and this browser (via the cookie).
+    $state = bin2hex(random_bytes(16));
+    db()->exec('DELETE FROM strava_states WHERE created_at < NOW() - INTERVAL 15 MINUTE');
+    db()->prepare('INSERT INTO strava_states (state, user_id) VALUES (?, ?)')->execute([$state, $userId]);
+    setcookie(STRAVA_STATE_COOKIE, $state, [
+        'expires' => time() + 900,
+        'path' => '/',
+        'secure' => is_https(),
+        'httponly' => true,
+        'samesite' => 'Lax',  // must survive the redirect back from strava.com
+    ]);
+    redirect('https://www.strava.com/oauth/authorize?' . http_build_query([
+        'client_id' => $strava['client_id'],
+        'redirect_uri' => app_url('api.php?action=strava_callback'),
+        'response_type' => 'code',
+        'approval_prompt' => 'auto',
+        'scope' => 'activity:read_all',
+        'state' => $state,
+    ]));
+}
+
+// Strava sends the browser here after the approval screen. The feets session
+// cookie is SameSite=Strict, so it isn't sent on this cross-site redirect; the
+// user comes from the stored state instead.
+function strava_callback(): void {
+    $back = function (string $status, string $message = '') {
+        redirect(app_url('') . '?' . http_build_query(['strava' => $status, 'message' => $message]));
+    };
+
+    $state = $_GET['state'] ?? '';
+    $cookieState = $_COOKIE[STRAVA_STATE_COOKIE] ?? '';
+    setcookie(STRAVA_STATE_COOKIE, '', ['expires' => 1, 'path' => '/']);
+    if ($state === '' || !hash_equals($cookieState, $state)) {
+        $back('error', 'The Strava connection expired or was started in another browser. Please try again.');
+    }
+    $stmt = db()->prepare('SELECT user_id FROM strava_states WHERE state = ? AND created_at > NOW() - INTERVAL 15 MINUTE');
+    $stmt->execute([$state]);
+    $userId = (int) $stmt->fetchColumn();
+    db()->prepare('DELETE FROM strava_states WHERE state = ?')->execute([$state]);
+    if (!$userId) {
+        $back('error', 'The Strava connection expired. Please try again.');
+    }
+    if (isset($_GET['error'])) {
+        $back('error', 'Strava access was not granted.');
+    }
+    if (!preg_match('/\bactivity:read(_all)?\b/', $_GET['scope'] ?? '')) {
+        $back('error', 'feets needs permission to view your activities. Connect again and leave that box ticked.');
+    }
+
+    $strava = strava_config();
+    [$status, $token] = strava_http('POST', 'https://www.strava.com/oauth/token', [
+        'client_id' => $strava['client_id'],
+        'client_secret' => $strava['client_secret'],
+        'code' => $_GET['code'] ?? '',
+        'grant_type' => 'authorization_code',
+    ]);
+    if ($status !== 200 || empty($token['access_token'])) {
+        $back('error', 'Strava refused the connection: ' . ($token['message'] ?? "HTTP $status"));
+    }
+
+    $athlete = $token['athlete'] ?? [];
+    // Reconnecting the same Strava account keeps the import position.
+    $stmt = db()->prepare('SELECT athlete_id, synced_until FROM strava_accounts WHERE user_id = ?');
+    $stmt->execute([$userId]);
+    $old = $stmt->fetch();
+    $syncedUntil = ($old && (int) $old['athlete_id'] === (int) $athlete['id']) ? (int) $old['synced_until'] : 0;
+    db()->prepare(
+        'REPLACE INTO strava_accounts (user_id, athlete_id, athlete_name, access_token, refresh_token, expires_at, synced_until)
+         VALUES (?, ?, ?, ?, ?, ?, ?)'
+    )->execute([
+        $userId,
+        $athlete['id'],
+        trim(($athlete['firstname'] ?? '') . ' ' . ($athlete['lastname'] ?? '')) ?: 'Strava athlete',
+        $token['access_token'],
+        $token['refresh_token'],
+        $token['expires_at'],
+        $syncedUntil,
+    ]);
+    $back('connected');
+}
+
+// The user's Strava account row, with a fresh access token.
+function strava_account(int $userId): array {
+    $stmt = db()->prepare('SELECT * FROM strava_accounts WHERE user_id = ?');
+    $stmt->execute([$userId]);
+    $account = $stmt->fetch();
+    if (!$account) {
+        fail('Strava is not connected', 400);
+    }
+    if ($account['expires_at'] < time() + 300) {
+        $strava = strava_config();
+        [$status, $token] = strava_http('POST', 'https://www.strava.com/oauth/token', [
+            'client_id' => $strava['client_id'],
+            'client_secret' => $strava['client_secret'],
+            'grant_type' => 'refresh_token',
+            'refresh_token' => $account['refresh_token'],
+        ]);
+        if ($status === 400 || $status === 401) {
+            strava_forget($userId);
+            fail('Strava access has been revoked. Please connect again.', 400);
+        }
+        if ($status !== 200) {
+            throw new RuntimeException('Strava token refresh failed: ' . ($token['message'] ?? "HTTP $status"));
+        }
+        db()->prepare('UPDATE strava_accounts SET access_token = ?, refresh_token = ?, expires_at = ? WHERE user_id = ?')
+            ->execute([$token['access_token'], $token['refresh_token'], $token['expires_at'], $userId]);
+        $account = array_merge($account, $token);
+    }
+    return $account;
+}
+
+function strava_api(array $account, string $path, array $params = []): array {
+    [$status, $data] = strava_http('GET', 'https://www.strava.com/api/v3' . $path, $params,
+        ['Authorization: Bearer ' . $account['access_token']]);
+    if ($status === 401) {
+        strava_forget((int) $account['user_id']);
+        fail('Strava access has been revoked. Please connect again.', 400);
+    }
+    return [$status, $data];
+}
+
+function strava_forget(int $userId): void {
+    db()->prepare('DELETE FROM strava_accounts WHERE user_id = ?')->execute([$userId]);
+}
+
+// Activities that started after $after, oldest first. Strava doesn't document
+// the sort order, so this checks it: if a full page comes back newest-first,
+// it pages on until it reaches the oldest ones. 'full' means more may follow.
+function strava_activities_after(array $account, int $after): array {
+    $perPage = 200;
+    $previous = [];
+    for ($page = 1; ; $page++) {
+        [$status, $batch] = strava_api($account, '/athlete/activities', ['after' => $after, 'per_page' => $perPage, 'page' => $page]);
+        if ($status === 429) {
+            return ['rateLimited' => true, 'list' => [], 'full' => true];
+        }
+        if ($status !== 200 || !is_array($batch)) {
+            throw new RuntimeException('Strava activity list failed: ' . ($batch['message'] ?? "HTTP $status"));
+        }
+        if (!$batch && $previous) {
+            $batch = $previous;  // the previous page held the oldest activities
+            break;
+        }
+        $n = count($batch);
+        $ascending = $n < 2 || strtotime($batch[0]['start_date']) <= strtotime($batch[$n - 1]['start_date']);
+        if ($n < $perPage || $ascending) {
+            break;
+        }
+        $previous = $batch;
+    }
+    usort($batch, fn($a, $b) => strtotime($a['start_date']) <=> strtotime($b['start_date']));
+    // Newer pages remain if this page was full, or if we had to skip ahead past newer pages.
+    return ['rateLimited' => false, 'list' => $batch, 'full' => count($batch) === $perPage || $page > 1];
+}
+
+function strava_gpx(string $name, int $start, array $latlng, array $times, array $altitudes): string {
+    $x = fn($s) => htmlspecialchars($s, ENT_XML1 | ENT_QUOTES, 'UTF-8');
+    $iso = fn($t) => gmdate('Y-m-d\TH:i:s\Z', $t);
+    $out = '<?xml version="1.0" encoding="UTF-8"?>' . "\n"
+        . '<gpx version="1.1" creator="feets (imported from Strava)" xmlns="http://www.topografix.com/GPX/1/1">' . "\n"
+        . '  <metadata><name>' . $x($name) . '</name><time>' . $iso($start) . "</time></metadata>\n"
+        . '  <trk><name>' . $x($name) . "</name><trkseg>\n";
+    foreach ($latlng as $i => [$lat, $lon]) {
+        $out .= sprintf('    <trkpt lat="%.6f" lon="%.6f">', $lat, $lon);
+        if (isset($altitudes[$i])) {
+            $out .= sprintf('<ele>%.1f</ele>', $altitudes[$i]);
+        }
+        if (isset($times[$i])) {
+            $out .= '<time>' . $iso($start + $times[$i]) . '</time>';
+        }
+        $out .= "</trkpt>\n";
+    }
+    return $out . "  </trkseg></trk>\n</gpx>\n";
+}
+
+// Saves one Strava activity as a track. Returns the track, or null if it was already imported.
+function strava_save(int $userId, array $activity, array $streams): ?array {
+    $latlng = $streams['latlng']['data'];
+    $start = strtotime($activity['start_date']);
+    $name = trim($activity['name'] ?? '') ?: 'Strava activity';
+    $count = db()->prepare('SELECT COUNT(*) FROM tracks WHERE user_id = ?');
+    $count->execute([$userId]);
+    $row = [
+        'name' => mb_substr($name, 0, 255),
+        'file_name' => "strava-{$activity['id']}.gpx",
+        'color' => TRACK_COLORS[$count->fetchColumn() % count(TRACK_COLORS)],
+        'visible' => 1,
+        'distance_m' => (float) ($activity['distance'] ?? 0),
+        'track_time' => gmdate('Y-m-d\TH:i:s\Z', $start),
+        'geometry' => json_encode(['segments' => [$latlng], 'waypoints' => []]),
+    ];
+    $gpx = strava_gpx($name, $start, $latlng, $streams['time']['data'] ?? [], $streams['altitude']['data'] ?? []);
+    try {
+        db()->prepare(
+            'INSERT INTO tracks (user_id, strava_id, name, file_name, color, visible, distance_m, track_time, geometry, gpx)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        )->execute([$userId, $activity['id'], $row['name'], $row['file_name'], $row['color'], $row['visible'],
+                    $row['distance_m'], $row['track_time'], $row['geometry'], $gpx]);
+    } catch (PDOException $e) {
+        if (($e->errorInfo[1] ?? 0) === 1062) {
+            return null;  // already imported
+        }
+        throw $e;
+    }
+    return track_json(['id' => db()->lastInsertId()] + $row);
+}
+
+// Imports the next few activities. The client calls this repeatedly until done.
+function strava_sync(int $userId): array {
+    $started = time();
+    $account = strava_account($userId);
+    $cursor = (int) $account['synced_until'];
+    $result = strava_activities_after($account, $cursor);
+    $imported = [];
+    $stoppedEarly = false;
+    $rateLimited = $result['rateLimited'];
+
+    foreach ($result['list'] as $activity) {
+        if (count($imported) >= STRAVA_BATCH || time() - $started > STRAVA_TIME_BUDGET) {
+            $stoppedEarly = true;
+            break;
+        }
+        // Treadmill runs and manual entries have no route.
+        $hasRoute = !empty($activity['map']['summary_polyline']) && empty($activity['manual']);
+        if ($hasRoute) {
+            [$status, $streams] = strava_api($account, "/activities/{$activity['id']}/streams",
+                ['keys' => 'latlng,time,altitude', 'key_by_type' => 'true']);
+            if ($status === 429) {
+                $rateLimited = true;
+                break;
+            }
+            if ($status === 200 && !empty($streams['latlng']['data'])) {
+                $track = strava_save($userId, $activity, $streams);
+                if ($track) {
+                    $imported[] = $track;
+                }
+            }
+        }
+        $cursor = max($cursor, strtotime($activity['start_date']));
+    }
+
+    db()->prepare('UPDATE strava_accounts SET synced_until = ? WHERE user_id = ?')->execute([$cursor, $userId]);
+    return [
+        'tracks' => $imported,
+        'done' => !$stoppedEarly && !$rateLimited && !$result['full'],
+        'rateLimited' => $rateLimited,
+    ];
+}
+
+function strava_disconnect(int $userId): array {
+    $stmt = db()->prepare('SELECT refresh_token FROM strava_accounts WHERE user_id = ?');
+    $stmt->execute([$userId]);
+    $refreshToken = $stmt->fetchColumn();
+    $strava = strava_config();
+    if ($refreshToken && $strava) {
+        // Revoking the refresh token also revokes its access tokens. A failure here
+        // isn't fatal: the user can also remove feets under My Apps on Strava.
+        try {
+            strava_http('POST', 'https://www.strava.com/oauth/revoke',
+                ['token' => $refreshToken, 'token_type_hint' => 'refresh_token'],
+                ['Authorization: Basic ' . base64_encode($strava['client_id'] . ':' . $strava['client_secret'])]);
+        } catch (RuntimeException $e) {
+            error_log('feets: Strava revoke failed: ' . $e->getMessage());
+        }
+    }
+    strava_forget($userId);
+    return ['ok' => true];
+}
+
 // --- Routing ---
 
 $method = $_SERVER['REQUEST_METHOD'];
@@ -360,6 +723,8 @@ if ($method === 'GET' && $action === 'me') {
     send_json(logout());
 } elseif ($method === 'POST' && $action === 'signup') {
     send_json(signup(read_json()));
+} elseif ($method === 'GET' && $action === 'strava_callback') {
+    strava_callback();
 }
 
 $user = require_user();
@@ -367,6 +732,14 @@ $userId = (int) $user['id'];
 
 if ($method === 'POST' && $action === 'invite') {
     send_json(create_invite($user));
+} elseif ($method === 'GET' && $action === 'strava_status') {
+    send_json(strava_status($userId));
+} elseif ($method === 'GET' && $action === 'strava_connect') {
+    strava_connect($userId);
+} elseif ($method === 'POST' && $action === 'strava_sync') {
+    send_json(strava_sync($userId));
+} elseif ($method === 'POST' && $action === 'strava_disconnect') {
+    send_json(strava_disconnect($userId));
 } elseif ($method === 'GET' && isset($_GET['gpx'])) {
     download_gpx($userId, (int) $_GET['gpx']);
 } elseif ($method === 'GET') {

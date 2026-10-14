@@ -29,6 +29,37 @@ their own empty track list.
 When you change any JS or CSS file, raise the `?v=` number on its link in
 `index.html`. Otherwise the host may keep serving the old file.
 
+## Strava import (optional)
+
+Each user can connect their own Strava account and import their activities.
+Garmin devices can sync to Strava automatically, so this also brings in Garmin
+activities.
+
+1. Go to https://www.strava.com/settings/api and create an API application.
+   Strava requires the app owner to have a paid subscription.
+2. Set **Authorization Callback Domain** to your site's domain, for example
+   `feets.example.com`, with no `https://` and no path.
+3. Copy the **Client ID** and **Client Secret** into the `strava` section of
+   `feets-config.php`, then upload that file again.
+4. In feets, click **Connect with Strava**, approve access, and the import
+   starts by itself. Click **Import from Strava** later to fetch newer activities.
+
+How the import works:
+- **What's imported:** every activity that has GPS. Treadmill runs and manual
+  entries are skipped. Each activity is saved with a GPX file built from
+  Strava's GPS data, so ↓ download works.
+- **Where it resumes:** feets remembers the newest activity it has looked at.
+  Each import continues from there, so a track you delete isn't imported again.
+- **Rate limit:** Strava allows about 200 requests every 15 minutes, and each
+  activity takes one. If a large first import hits the limit, feets stops and
+  asks you to click Import again later.
+- **Number of people:** Strava's default "single player" mode allows only your
+  own account. To let invited users connect theirs too, use Strava's
+  self-service upgrade, which allows up to 10 athletes.
+- **Disconnecting** cancels feets' access on Strava and keeps the tracks
+  already imported. Strava's login tokens are stored in the
+  `strava_accounts` table.
+
 ## Run locally
 
 ```sh
@@ -54,8 +85,8 @@ own web servers.
 
 | File                 | Purpose                                                  |
 |----------------------|----------------------------------------------------------|
-| `feets-config.php`   | Database credentials and the one-time setup password. Ignored by git. |
-| `public/api.php`     | Accounts, logins, invites and tracks, all in MySQL. It's the only backend code. |
+| `feets-config.php`   | Database credentials, the one-time setup password, and Strava app keys. Ignored by git. |
+| `public/api.php`     | Accounts, logins, invites, tracks and Strava import, all in MySQL. It's the only backend code. |
 | `public/index.html`  | Page layout. Loads Leaflet from a CDN.                   |
 | `public/app.js`      | Map setup, track list UI, file upload handling, login form. |
 | `public/gpx.js`      | Parses GPX tracks, routes and waypoints in the browser, and works out distance. |

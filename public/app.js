@@ -294,7 +294,12 @@ const auth = document.getElementById('auth');
 const authForm = document.getElementById('auth-form');
 const authError = document.getElementById('auth-error');
 const setupInput = document.getElementById('auth-setup');
-const inviteCode = new URLSearchParams(location.search).get('invite');
+// Query parameters: ?invite=CODE from an invite link, ?strava=connected|error&message=…
+// when Strava sends the browser back after the approval screen.
+const params = new URLSearchParams(location.search);
+const inviteCode = params.get('invite');
+let stravaResult = params.get('strava');
+const stravaMessage = params.get('message');
 let authMode = 'login';
 
 const AUTH_MODES = {
@@ -345,18 +350,91 @@ async function loadTracks() {
 async function signedIn(user) {
   auth.hidden = true;
   authForm.reset();
-  if (inviteCode) history.replaceState(null, '', location.pathname);
+  if (location.search) history.replaceState(null, '', location.pathname);
   document.getElementById('user-name').textContent = user.username;
   document.getElementById('invite').hidden = !user.isAdmin;
   document.getElementById('user-bar').hidden = false;
   clearTracks();
   await loadTracks();
+  await initStrava();
 }
 
 function signedOut() {
   clearTracks();
+  stravaBox.hidden = true;
   showAuth('login');
 }
+
+// --- Strava ---
+const stravaBox = document.getElementById('strava');
+const stravaStatus = document.getElementById('strava-status');
+const stravaImport = document.getElementById('strava-import');
+let stravaImporting = false;
+
+async function refreshStrava() {
+  const status = await Store.stravaStatus();
+  stravaBox.hidden = !status.configured;
+  document.getElementById('strava-connect').hidden = status.connected;
+  document.getElementById('strava-connected').hidden = !status.connected;
+  stravaStatus.textContent = status.connected ? `Connected as ${status.athlete}` : '';
+  return status;
+}
+
+async function initStrava() {
+  try {
+    const status = await refreshStrava();
+    // Just came back from Strava's approval screen?
+    if (stravaResult === 'error') stravaStatus.textContent = stravaMessage || 'Could not connect to Strava.';
+    if (stravaResult === 'connected' && status.connected) importFromStrava();
+    stravaResult = null;
+  } catch (err) {
+    stravaBox.hidden = true;
+  }
+}
+
+// Imports in batches (one request each) until Strava has nothing new.
+async function importFromStrava() {
+  if (stravaImporting) return;
+  stravaImporting = true;
+  stravaImport.disabled = true;
+  let total = 0;
+  try {
+    for (;;) {
+      stravaStatus.textContent = `Importing from Strava… ${total} so far`;
+      const result = await Store.stravaSync();
+      result.tracks.forEach(show);
+      total += result.tracks.length;
+      render();
+      if (result.rateLimited) {
+        stravaStatus.textContent = `Imported ${total}. Strava's rate limit was reached: click Import again in 15 minutes to continue.`;
+        return;
+      }
+      if (result.done) break;
+    }
+    stravaStatus.textContent = total
+      ? `Imported ${total} new ${total === 1 ? 'activity' : 'activities'} from Strava.`
+      : 'Up to date with Strava.';
+    if (total) fitAll();
+  } catch (err) {
+    stravaStatus.textContent = `Strava import stopped after ${total}: ${err.message}`;
+    refreshStrava().catch(() => {});
+  } finally {
+    stravaImporting = false;
+    stravaImport.disabled = false;
+  }
+}
+
+stravaImport.onclick = importFromStrava;
+
+document.getElementById('strava-disconnect').onclick = async () => {
+  if (!confirm('Disconnect Strava? Tracks you already imported stay in feets.')) return;
+  try {
+    await Store.stravaDisconnect();
+    await refreshStrava();
+  } catch (err) {
+    alert(err.message);
+  }
+};
 
 Store.onLoggedOut(signedOut);
 
