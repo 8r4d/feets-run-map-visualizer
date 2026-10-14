@@ -350,6 +350,14 @@ body {
   color: #c00 !important;
 }
 
+#auth-form .link-button {
+  align-self: center;
+  padding: 0;
+  font-weight: normal;
+  color: #555;
+  background: none;
+}
+
 @media (max-width: 640px) {
   body { flex-direction: column-reverse; }
   #sidebar { width: 100%; max-height: 40vh; border-right: none; border-top: 1px solid #ddd; }

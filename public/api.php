@@ -8,6 +8,11 @@
 //   POST api.php?action=logout
 //   POST api.php?action=signup         {invite, username, password}
 //   POST api.php?action=invite         admin only, returns {code}
+//   POST api.php?action=change_password  {current, password}
+//   POST api.php?action=reset_link     admin only: {username}, returns {code, username}
+//   GET  api.php?action=reset_info&code=CODE  {username} for a reset link
+//   POST api.php?action=reset_password {code, password}
+//   POST api.php?action=recover        {setupPassword, username, password}  locked-out admin
 //
 // Tracks (must be logged in; each user only sees their own)
 //   GET  api.php                       list tracks
@@ -32,6 +37,7 @@
 const SESSION_COOKIE = 'feets_session';
 const SESSION_DAYS = 30;
 const INVITE_DAYS = 7;
+const RESET_HOURS = 48;
 
 const STRAVA_STATE_COOKIE = 'feets_strava_state';
 const STRAVA_BATCH = 10;          // activities imported per strava_sync request
@@ -64,6 +70,14 @@ const SCHEMA = [
       created_by  INT       NOT NULL,
       created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       used_by     INT       NULL
+    ) CHARACTER SET utf8mb4
+    SQL,
+    <<<SQL
+    CREATE TABLE IF NOT EXISTS password_resets (
+      code        CHAR(24)  PRIMARY KEY,
+      user_id     INT       NOT NULL,
+      created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      used_at     TIMESTAMP NULL
     ) CHARACTER SET utf8mb4
     SQL,
     <<<SQL
@@ -258,10 +272,14 @@ function credentials(array $b): array {
     if (!preg_match('/^[A-Za-z0-9_.-]{3,32}$/', $username)) {
         fail('Username must be 3-32 letters, numbers, dots, dashes or underscores', 400);
     }
+    return [$username, new_password($password)];
+}
+
+function new_password(string $password): string {
     if (strlen($password) < 8) {
         fail('Password must be at least 8 characters', 400);
     }
-    return [$username, $password];
+    return $password;
 }
 
 function create_user(string $username, string $password, bool $isAdmin): array {
@@ -352,6 +370,90 @@ function create_invite(array $user): array {
     $code = bin2hex(random_bytes(12));
     db()->prepare('INSERT INTO invites (code, created_by) VALUES (?, ?)')->execute([$code, $user['id']]);
     return ['code' => $code];
+}
+
+// --- Passwords ---
+// No email: the admin sends reset links by hand, like invites. If the admin is
+// locked out, app_password from feets-config.php resets any account.
+
+// Saves a new password and logs the account out everywhere, then logs this
+// browser back in.
+function set_password(int $userId, string $password): void {
+    db()->prepare('UPDATE users SET password_hash = ? WHERE id = ?')
+        ->execute([password_hash($password, PASSWORD_DEFAULT), $userId]);
+    db()->prepare('DELETE FROM sessions WHERE user_id = ?')->execute([$userId]);
+    start_session($userId);
+}
+
+function find_user(string $username): ?array {
+    $stmt = db()->prepare('SELECT id, username, is_admin, password_hash FROM users WHERE username = ?');
+    $stmt->execute([trim($username)]);
+    return $stmt->fetch() ?: null;
+}
+
+function change_password(array $user, array $b): array {
+    $full = find_user($user['username']);
+    if (!password_verify($b['current'] ?? '', $full['password_hash'])) {
+        usleep(random_int(400000, 800000));
+        fail('Your current password is wrong', 403);
+    }
+    set_password((int) $user['id'], new_password($b['password'] ?? ''));
+    return user_json($user);
+}
+
+function create_reset_link(array $admin, array $b): array {
+    if (!$admin['is_admin']) {
+        fail('Only the admin can reset passwords', 403);
+    }
+    $user = find_user($b['username'] ?? '');
+    if (!$user) {
+        fail('No user with that username', 404);
+    }
+    $code = bin2hex(random_bytes(12));
+    db()->prepare('INSERT INTO password_resets (code, user_id) VALUES (?, ?)')->execute([$code, $user['id']]);
+    return ['code' => $code, 'username' => $user['username']];
+}
+
+// The user a reset link is for, or null if it's unknown, used or expired.
+function reset_link_user(string $code): ?array {
+    $stmt = db()->prepare(
+        'SELECT u.id, u.username, u.is_admin FROM password_resets r JOIN users u ON u.id = r.user_id
+         WHERE r.code = ? AND r.used_at IS NULL AND r.created_at > NOW() - INTERVAL ' . RESET_HOURS . ' HOUR'
+    );
+    $stmt->execute([$code]);
+    return $stmt->fetch() ?: null;
+}
+
+function reset_info(): array {
+    $user = reset_link_user($_GET['code'] ?? '');
+    if (!$user) {
+        fail('This reset link is invalid, already used, or expired. Ask for a new one.', 403);
+    }
+    return ['username' => $user['username']];
+}
+
+function reset_password(array $b): array {
+    $code = (string) ($b['code'] ?? '');
+    $user = reset_link_user($code);
+    if (!$user) {
+        fail('This reset link is invalid, already used, or expired. Ask for a new one.', 403);
+    }
+    $password = new_password($b['password'] ?? '');
+    db()->prepare('UPDATE password_resets SET used_at = NOW() WHERE code = ?')->execute([$code]);
+    set_password((int) $user['id'], $password);
+    return user_json($user);
+}
+
+// "Forgot password" for the admin: app_password from feets-config.php unlocks any account.
+function recover(array $b): array {
+    global $config;
+    $user = find_user($b['username'] ?? '');
+    if (!$user || !hash_equals(trim($config['app_password']), trim($b['setupPassword'] ?? ''))) {
+        usleep(random_int(400000, 800000));
+        fail('Wrong setup password or username', 403);
+    }
+    set_password((int) $user['id'], new_password($b['password'] ?? ''));
+    return user_json($user);
 }
 
 // --- Tracks ---
@@ -1150,6 +1252,12 @@ if ($method === 'GET' && $action === 'me') {
     send_json(logout());
 } elseif ($method === 'POST' && $action === 'signup') {
     send_json(signup(read_json()));
+} elseif ($method === 'GET' && $action === 'reset_info') {
+    send_json(reset_info());
+} elseif ($method === 'POST' && $action === 'reset_password') {
+    send_json(reset_password(read_json()));
+} elseif ($method === 'POST' && $action === 'recover') {
+    send_json(recover(read_json()));
 } elseif ($method === 'GET' && $action === 'strava_callback') {
     strava_callback();
 } elseif ($action === 'strava_webhook') {
@@ -1161,6 +1269,10 @@ $userId = (int) $user['id'];
 
 if ($method === 'POST' && $action === 'invite') {
     send_json(create_invite($user));
+} elseif ($method === 'POST' && $action === 'change_password') {
+    send_json(change_password($user, read_json()));
+} elseif ($method === 'POST' && $action === 'reset_link') {
+    send_json(create_reset_link($user, read_json()));
 } elseif ($method === 'GET' && $action === 'strava_status') {
     send_json(strava_status($userId));
 } elseif ($method === 'GET' && $action === 'strava_connect') {

@@ -29,6 +29,20 @@ their own empty track list.
 When you change any JS or CSS file, raise the `?v=` number on its link in
 `index.html`. Otherwise the host may keep serving the old file.
 
+## Passwords
+
+feets doesn't send email, so password resets go through the admin:
+- **Change password:** anyone logged in clicks **Password**, then enters their
+  current password and a new one.
+- **Reset someone's password:** the admin clicks **Reset user** and enters a
+  username. That creates a link which works once, within 48 hours. Send it
+  to the person, and they choose a new password from it.
+- **Admin locked out:** on the login screen, click **Forgot password?** and
+  enter the `app_password` from `feets-config.php`, a username and a new
+  password. That works for any account.
+
+Every change or reset logs that account out on its other devices.
+
 ## Strava import (optional)
 
 Each user can connect their own Strava account and import their activities.

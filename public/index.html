@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>feets</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=13">
+  <link rel="stylesheet" href="style.css?v=14">
 </head>
 <body>
   <aside id="sidebar">
@@ -14,6 +14,8 @@
       <span>Signed in as <strong id="user-name"></strong></span>
       <span>
         <button id="invite" type="button" hidden>Invite</button>
+        <button id="reset-link" type="button" title="Make a password reset link for someone" hidden>Reset user</button>
+        <button id="change-password" type="button" title="Change your password">Password</button>
         <button id="logout" type="button">Log out</button>
       </span>
     </div>
@@ -68,16 +70,19 @@
       <h2 id="auth-title"></h2>
       <p id="auth-intro"></p>
       <input id="auth-setup" type="password" placeholder="Setup password (app_password)" autocomplete="off" hidden>
+      <input id="auth-current" type="password" placeholder="Current password" autocomplete="current-password" hidden>
       <input id="auth-username" placeholder="Username" autocomplete="username" required>
       <input id="auth-password" type="password" placeholder="Password" required>
       <button id="auth-submit" type="submit"></button>
       <p id="auth-error"></p>
+      <button id="auth-forgot" class="link-button" type="button" hidden>Forgot password?</button>
+      <button id="auth-cancel" class="link-button" type="button" hidden>Cancel</button>
     </form>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="gpx.js?v=13"></script>
-  <script src="store.js?v=13"></script>
-  <script src="app.js?v=13"></script>
+  <script src="gpx.js?v=14"></script>
+  <script src="store.js?v=14"></script>
+  <script src="app.js?v=14"></script>
 </body>
 </html>

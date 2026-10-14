@@ -40,6 +40,13 @@ const Store = (() => {
     logout: () => json('POST', '?action=logout'),
     createInvite: async () => (await json('POST', '?action=invite')).code,
 
+    // Passwords. resetPassword and recover log in and resolve to { username, isAdmin }.
+    changePassword: (current, password) => json('POST', '?action=change_password', { current, password }),
+    createResetLink: username => json('POST', '?action=reset_link', { username }),  // { code, username }
+    resetInfo: code => json('GET', `?action=reset_info&code=${encodeURIComponent(code)}`),  // { username }
+    resetPassword: (code, password) => json('POST', '?action=reset_password', { code, password }),
+    recover: (setupPassword, username, password) => json('POST', '?action=recover', { setupPassword, username, password }),
+
     // Strava. Connecting is a page navigation (the link in index.html), not a fetch.
     stravaStatus: () => json('GET', '?action=strava_status'),
     // Imports the next batch: resolves to { tracks, done, rateLimited }.

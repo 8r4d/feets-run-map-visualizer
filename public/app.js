@@ -401,37 +401,77 @@ const setupInput = document.getElementById('auth-setup');
 // when Strava sends the browser back after the approval screen.
 const params = new URLSearchParams(location.search);
 const inviteCode = params.get('invite');
+const resetCode = params.get('reset');  // ?reset=CODE from a password reset link
 let stravaResult = params.get('strava');
 const stravaMessage = params.get('message');
 let authMode = 'login';
 
+// fields: which inputs each form shows. "change" opens over the signed-in app
+// and can be cancelled; the rest stand in front of the app until done.
 const AUTH_MODES = {
   setup: {
     title: 'Create your account',
     intro: 'First run: enter the app_password from feets-config.php, then choose your username and password. You will be the admin.',
     button: 'Create account',
+    fields: ['setup', 'username', 'password'],
   },
   signup: {
     title: 'Join feets',
     intro: "You've been invited. Choose a username and password.",
     button: 'Create account',
+    fields: ['username', 'password'],
   },
-  login: { title: 'Log in', intro: '', button: 'Log in' },
+  login: { title: 'Log in', intro: '', button: 'Log in', fields: ['username', 'password'], forgot: true },
+  recover: {
+    title: 'Reset a password',
+    intro: 'Locked out? Enter the app_password from feets-config.php, the username, and a new password. ' +
+      'Anyone else: ask the admin for a reset link.',
+    button: 'Reset and log in',
+    fields: ['setup', 'username', 'password'],
+    cancel: true,
+  },
+  reset: {
+    title: 'Choose a new password',
+    intro: 'This will log you out on your other devices.',
+    button: 'Save and log in',
+    fields: ['username', 'password'],
+  },
+  change: {
+    title: 'Change your password',
+    intro: 'This will log you out on your other devices.',
+    button: 'Change password',
+    fields: ['current', 'password'],
+    cancel: true,
+  },
 };
 
-function showAuth(mode) {
+const currentInput = document.getElementById('auth-current');
+const usernameInput = document.getElementById('auth-username');
+const passwordInput = document.getElementById('auth-password');
+
+// options.username pre-fills (and locks) the username, for reset links.
+function showAuth(mode, options = {}) {
   authMode = mode;
   const m = AUTH_MODES[mode];
+  authForm.reset();
   document.getElementById('auth-title').textContent = m.title;
   document.getElementById('auth-intro').textContent = m.intro;
   document.getElementById('auth-submit').textContent = m.button;
-  setupInput.hidden = mode !== 'setup';
-  setupInput.required = mode === 'setup';
-  document.getElementById('auth-password').autocomplete = mode === 'login' ? 'current-password' : 'new-password';
+  const inputs = { setup: setupInput, current: currentInput, username: usernameInput, password: passwordInput };
+  for (const [field, input] of Object.entries(inputs)) {
+    input.hidden = !m.fields.includes(field);
+    input.required = !input.hidden;
+  }
+  usernameInput.readOnly = Boolean(options.username);
+  if (options.username) usernameInput.value = options.username;
+  passwordInput.placeholder = mode === 'login' ? 'Password' : 'New password (8+ characters)';
+  passwordInput.autocomplete = mode === 'login' ? 'current-password' : 'new-password';
+  document.getElementById('auth-forgot').hidden = !m.forgot;
+  document.getElementById('auth-cancel').hidden = !m.cancel;
   authError.textContent = '';
-  document.getElementById('user-bar').hidden = true;
+  if (mode !== 'change') document.getElementById('user-bar').hidden = true;
   auth.hidden = false;
-  (mode === 'setup' ? setupInput : document.getElementById('auth-username')).focus();
+  m.fields.map(f => inputs[f]).find(input => !input.readOnly).focus();
 }
 
 function clearTracks() {
@@ -459,6 +499,7 @@ async function signedIn(user) {
   if (location.search) history.replaceState(null, '', location.pathname);
   document.getElementById('user-name').textContent = user.username;
   document.getElementById('invite').hidden = !user.isAdmin;
+  document.getElementById('reset-link').hidden = !user.isAdmin;
   document.getElementById('user-bar').hidden = false;
   clearTracks();
   await loadTracks();
@@ -590,15 +631,24 @@ Store.onLoggedOut(signedOut);
 
 authForm.onsubmit = async e => {
   e.preventDefault();
-  const username = document.getElementById('auth-username').value.trim();
-  const password = document.getElementById('auth-password').value;
+  const username = usernameInput.value.trim();
+  const password = passwordInput.value;
   const button = document.getElementById('auth-submit');
   button.disabled = true;
   authError.textContent = '';
   try {
+    if (authMode === 'change') {
+      await Store.changePassword(currentInput.value, password);
+      auth.hidden = true;
+      authForm.reset();
+      alert('Your password has been changed.');
+      return;
+    }
     let user;
     if (authMode === 'setup') user = await Store.setup(setupInput.value, username, password);
     else if (authMode === 'signup') user = await Store.signup(inviteCode, username, password);
+    else if (authMode === 'recover') user = await Store.recover(setupInput.value, username, password);
+    else if (authMode === 'reset') user = await Store.resetPassword(resetCode, password);
     else user = await Store.login(username, password);
     await signedIn(user);
   } catch (err) {
@@ -625,8 +675,46 @@ document.getElementById('invite').onclick = async () => {
   }
 };
 
+document.getElementById('change-password').onclick = () => showAuth('change');
+document.getElementById('auth-forgot').onclick = () => showAuth('recover');
+document.getElementById('auth-cancel').onclick = () => {
+  if (authMode === 'change') {
+    auth.hidden = true;
+    authForm.reset();
+  } else {
+    showAuth('login');
+  }
+};
+
+document.getElementById('reset-link').onclick = async () => {
+  const username = prompt('Make a password reset link for which username?');
+  if (!username || !username.trim()) return;
+  try {
+    const result = await Store.createResetLink(username.trim());
+    prompt(
+      `Send this link to ${result.username}. It works once, within 48 hours, and lets them choose a new password:`,
+      `${location.origin}${location.pathname}?reset=${result.code}`
+    );
+  } catch (err) {
+    alert(err.message);
+  }
+};
+
 // --- Startup ---
 (async () => {
+  // A password reset link comes first, even if this browser is logged in as someone else.
+  if (resetCode) {
+    try {
+      const { username } = await Store.resetInfo(resetCode);
+      showAuth('reset', { username });
+      return;
+    } catch (err) {
+      history.replaceState(null, '', location.pathname);
+      showAuth('login');
+      authError.textContent = err.message;
+      return;
+    }
+  }
   try {
     const { user, needsSetup } = await Store.me();
     if (user) await signedIn(user);
