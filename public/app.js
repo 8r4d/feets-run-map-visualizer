@@ -172,20 +172,128 @@ document.addEventListener('dragleave', e => {
 document.addEventListener('drop', e => {
   e.preventDefault();
   dropzone.classList.remove('over');
+  if (!auth.hidden) return;
   const files = Array.from(e.dataTransfer.files).filter(f => /\.gpx$/i.test(f.name));
   if (files.length) addFiles(files);
 });
 
 document.getElementById('fit-all').onclick = fitAll;
 
-// --- Startup: restore saved tracks ---
-(async () => {
+// --- Accounts ---
+const auth = document.getElementById('auth');
+const authForm = document.getElementById('auth-form');
+const authError = document.getElementById('auth-error');
+const setupInput = document.getElementById('auth-setup');
+const inviteCode = new URLSearchParams(location.search).get('invite');
+let authMode = 'login';
+
+const AUTH_MODES = {
+  setup: {
+    title: 'Create your account',
+    intro: 'First run: enter the app_password from feets-config.php, then choose your username and password. You will be the admin.',
+    button: 'Create account',
+  },
+  signup: {
+    title: 'Join feets',
+    intro: "You've been invited. Choose a username and password.",
+    button: 'Create account',
+  },
+  login: { title: 'Log in', intro: '', button: 'Log in' },
+};
+
+function showAuth(mode) {
+  authMode = mode;
+  const m = AUTH_MODES[mode];
+  document.getElementById('auth-title').textContent = m.title;
+  document.getElementById('auth-intro').textContent = m.intro;
+  document.getElementById('auth-submit').textContent = m.button;
+  setupInput.hidden = mode !== 'setup';
+  setupInput.required = mode === 'setup';
+  document.getElementById('auth-password').autocomplete = mode === 'login' ? 'current-password' : 'new-password';
+  authError.textContent = '';
+  document.getElementById('user-bar').hidden = true;
+  auth.hidden = false;
+  (mode === 'setup' ? setupInput : document.getElementById('auth-username')).focus();
+}
+
+function clearTracks() {
+  for (const { layer } of loaded.values()) layer.remove();
+  loaded.clear();
+  render();
+}
+
+async function loadTracks() {
   try {
-    const tracks = await Store.all();
-    tracks.forEach(show);
+    (await Store.all()).forEach(show);
     render();
     fitAll();
   } catch (err) {
     document.getElementById('summary').textContent = 'Could not load tracks: ' + err.message;
+  }
+}
+
+async function signedIn(user) {
+  auth.hidden = true;
+  authForm.reset();
+  if (inviteCode) history.replaceState(null, '', location.pathname);
+  document.getElementById('user-name').textContent = user.username;
+  document.getElementById('invite').hidden = !user.isAdmin;
+  document.getElementById('user-bar').hidden = false;
+  clearTracks();
+  await loadTracks();
+}
+
+function signedOut() {
+  clearTracks();
+  showAuth('login');
+}
+
+Store.onLoggedOut(signedOut);
+
+authForm.onsubmit = async e => {
+  e.preventDefault();
+  const username = document.getElementById('auth-username').value.trim();
+  const password = document.getElementById('auth-password').value;
+  const button = document.getElementById('auth-submit');
+  button.disabled = true;
+  authError.textContent = '';
+  try {
+    let user;
+    if (authMode === 'setup') user = await Store.setup(setupInput.value, username, password);
+    else if (authMode === 'signup') user = await Store.signup(inviteCode, username, password);
+    else user = await Store.login(username, password);
+    await signedIn(user);
+  } catch (err) {
+    authError.textContent = err.message;
+  } finally {
+    button.disabled = false;
+  }
+};
+
+document.getElementById('logout').onclick = async () => {
+  await Store.logout().catch(() => {});
+  signedOut();
+};
+
+document.getElementById('invite').onclick = async () => {
+  try {
+    const code = await Store.createInvite();
+    prompt(
+      'Send this link to the person you are inviting. It works once, within 7 days:',
+      `${location.origin}${location.pathname}?invite=${code}`
+    );
+  } catch (err) {
+    alert(err.message);
+  }
+};
+
+// --- Startup ---
+(async () => {
+  try {
+    const { user, needsSetup } = await Store.me();
+    if (user) await signedIn(user);
+    else showAuth(needsSetup ? 'setup' : inviteCode ? 'signup' : 'login');
+  } catch (err) {
+    document.getElementById('summary').textContent = 'Could not reach the server: ' + err.message;
   }
 })();

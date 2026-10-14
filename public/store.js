@@ -1,33 +1,21 @@
-// Talks to api.php, which keeps tracks in MySQL.
+// Talks to api.php, which keeps accounts and tracks in MySQL.
+// The login itself lives in an HttpOnly session cookie the browser sends automatically.
 const Store = (() => {
-  // The app password travels in a cookie: some hosts strip custom request headers.
-  function savePassword(pw) {
-    const secure = location.protocol === 'https:' ? '; Secure' : '';
-    document.cookie = `feets_password=${encodeURIComponent(pw)}; Max-Age=31536000; Path=/; SameSite=Strict${secure}`;
-  }
+  // Set by app.js: called whenever the server says we're not logged in.
+  let onLoggedOut = () => {};
 
-  // Sends a request, asking for the app password (and retrying) whenever the server rejects it.
   async function send(method, query, body) {
-    for (;;) {
-      const res = await fetch('api.php' + query, {
-        method,
-        headers: body ? { 'Content-Type': 'application/json' } : {},
-        body: body ? JSON.stringify(body) : undefined,
-      });
-
-      if (res.status === 401) {
-        const { error } = await res.json().catch(() => ({}));
-        const entered = prompt(`${error || 'Password required'}. Enter the feets password:`);
-        if (entered === null) throw new Error('Password required');
-        savePassword(entered.trim());
-        continue;
-      }
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `Request failed (${res.status})`);
-      }
-      return res;
+    const res = await fetch('api.php' + query, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json' } : {},
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (res.status === 401) onLoggedOut();
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `Request failed (${res.status})`);
     }
+    return res;
   }
 
   const json = async (method, query, body) => (await send(method, query, body)).json();
@@ -42,6 +30,17 @@ const Store = (() => {
   }
 
   return {
+    onLoggedOut: fn => { onLoggedOut = fn; },
+
+    // Accounts: setup, login and signup resolve to { username, isAdmin }.
+    me: () => json('GET', '?action=me'),
+    setup: (setupPassword, username, password) => json('POST', '?action=setup', { setupPassword, username, password }),
+    login: (username, password) => json('POST', '?action=login', { username, password }),
+    signup: (invite, username, password) => json('POST', '?action=signup', { invite, username, password }),
+    logout: () => json('POST', '?action=logout'),
+    createInvite: async () => (await json('POST', '?action=invite')).code,
+
+    // Tracks
     all: () => json('GET', ''),
     // track includes the original file text as track.gpx; resolves to the new id.
     add: async track => (await json('POST', '?action=add', track)).id,

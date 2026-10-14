@@ -1,7 +1,9 @@
 # feets
 
 A small personal web app for viewing GPX tracks on an OpenStreetMap map.
-Tracks are stored in MySQL through a single PHP file, `api.php`.
+Tracks are stored in MySQL through a single PHP file, `api.php`. Each person
+logs in with their own account and sees only their own tracks. New accounts are
+created by invitation.
 
 ## Deploy to your web host
 
@@ -11,10 +13,21 @@ Tracks are stored in MySQL through a single PHP file, `api.php`.
    sending their contents.
 2. Upload everything in `public/` into your website folder, or into a subfolder
    such as `feets/`. Every URL is relative, so a subfolder works fine.
-3. Open the site and enter the `app_password` from `feets-config.php` when
-   asked. The browser remembers it.
+3. Open the site. On the very first visit it asks for the `app_password` from
+   `feets-config.php`. Enter it, then choose your own username and password.
+   That account becomes the admin, and any tracks already in the database are
+   assigned to it.
 
-The `tracks` table is created automatically on the first request.
+The database tables are created automatically on the first request.
+
+## Inviting people
+
+Click **Invite** (only the admin sees it) to get a link. Each link works once,
+within 7 days. The person opens it, chooses a username and password, and gets
+their own empty track list.
+
+When you change any JS or CSS file, raise the `?v=` number on its link in
+`index.html`. Otherwise the host may keep serving the old file.
 
 ## Run locally
 
@@ -41,20 +54,23 @@ own web servers.
 
 | File                 | Purpose                                                  |
 |----------------------|----------------------------------------------------------|
-| `feets-config.php`   | Database credentials and the app password. Ignored by git. |
-| `public/api.php`     | Reads and writes tracks in MySQL. It's the only backend code. |
+| `feets-config.php`   | Database credentials and the one-time setup password. Ignored by git. |
+| `public/api.php`     | Accounts, logins, invites and tracks, all in MySQL. It's the only backend code. |
 | `public/index.html`  | Page layout. Loads Leaflet from a CDN.                   |
-| `public/app.js`      | Map setup, track list UI, file upload handling.          |
+| `public/app.js`      | Map setup, track list UI, file upload handling, login form. |
 | `public/gpx.js`      | Parses GPX tracks, routes and waypoints in the browser, and works out distance. |
-| `public/store.js`    | Calls `api.php`, and asks for the app password when needed. |
+| `public/store.js`    | Calls `api.php`.                                         |
 | `public/style.css`   | Styles.                                                  |
 
 ## Notes
 
-- **App password.** Every API request has to include the app password. Without it,
-  nobody can see or change your tracks. The page itself, with an empty map, is
-  still public.
-- **Use HTTPS.** Open the site over `https://` so the password is encrypted on its
+- **Logins.**
+  - Passwords are stored as hashes made with PHP's `password_hash`.
+  - A login lasts 30 days. It's kept in the `sessions` table, and the browser holds
+    it in an HttpOnly cookie the page's JavaScript can't read.
+  - A wrong password costs about half a second, which slows down guessing. There's
+    no lockout, so use real passwords.
+- **Use HTTPS.** Open the site over `https://` so passwords are encrypted on their
   way to the server.
 - **Large files.** Uploads larger than PHP's `post_max_size` (often 8 MB on shared
   hosting) or MySQL's `max_allowed_packet` will fail.

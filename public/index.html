@@ -5,11 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>feets</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=4">
+  <link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
   <aside id="sidebar">
     <h1>feets</h1>
+    <div id="user-bar" hidden>
+      <span>Signed in as <strong id="user-name"></strong></span>
+      <span>
+        <button id="invite" type="button" hidden>Invite</button>
+        <button id="logout" type="button">Log out</button>
+      </span>
+    </div>
     <label id="dropzone">
       <input id="file-input" type="file" accept=".gpx" multiple hidden>
       Drop GPX files here<br><small>or click to choose</small>
@@ -20,9 +27,21 @@
   </aside>
   <main id="map"></main>
 
+  <div id="auth" hidden>
+    <form id="auth-form">
+      <h2 id="auth-title"></h2>
+      <p id="auth-intro"></p>
+      <input id="auth-setup" type="password" placeholder="Setup password (app_password)" autocomplete="off" hidden>
+      <input id="auth-username" placeholder="Username" autocomplete="username" required>
+      <input id="auth-password" type="password" placeholder="Password" required>
+      <button id="auth-submit" type="submit"></button>
+      <p id="auth-error"></p>
+    </form>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="gpx.js?v=4"></script>
-  <script src="store.js?v=4"></script>
-  <script src="app.js?v=4"></script>
+  <script src="gpx.js?v=5"></script>
+  <script src="store.js?v=5"></script>
+  <script src="app.js?v=5"></script>
 </body>
 </html>
