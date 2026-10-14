@@ -80,6 +80,13 @@ own web servers.
   - click ↓ to download the original GPX file
   - click × to delete it
 - Use the layer control in the top right to switch between the OpenStreetMap and OpenTopoMap base maps.
+- **Filters:** search by name, pick a year or an activity type, or combine them.
+  - Filters decide what appears in the list and on the map, in both Tracks and Heatmap mode.
+  - **Show all** and **Hide all** apply to whatever currently matches.
+  - The list shows the newest 100 matches. Click **Show more** for the next 100.
+
+Routes are stored simplified, to about 3 metres, so that thousands of tracks
+load quickly. The original GPX is kept for the ↓ download.
 
 ## Files
 

@@ -143,12 +143,68 @@ body {
   color: #c00;
 }
 
+/* Delete buttons only show in edit mode. */
+#track-list:not(.editing) button.delete {
+  display: none;
+}
+
+#track-list.editing li {
+  border-color: #f0b4b4;
+  background: #fff8f8;
+}
+
+#track-list.editing button.delete {
+  color: #c00;
+  font-size: 18px;
+}
+
+#list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+#edit-toggle {
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 13px;
+}
+
+#edit-toggle[aria-pressed="true"] {
+  color: #fff;
+  background: #c00;
+  border: 1px solid #c00;
+  border-radius: 4px;
+}
+
 #track-list button.download:hover {
   color: #2a7ae2;
 }
 
-#fit-all {
-  padding: 6px;
+#filters {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#filters input,
+#filters select,
+#filters button,
+#more {
+  min-width: 0;
+  padding: 5px 6px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.filter-row {
+  display: flex;
+  gap: 6px;
+}
+
+.filter-row > * {
+  flex: 1;
 }
 
 #mode {

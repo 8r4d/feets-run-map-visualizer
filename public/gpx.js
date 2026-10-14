@@ -55,6 +55,8 @@ const GPX = (() => {
 
     return {
       name,
+      // Raw activity type, e.g. "running"; the server turns it into a label like "Run".
+      sport: (trk && textOf(trk, 'type')) || null,
       time: timeEl ? timeEl.textContent.trim() : null,
       segments: nonEmpty,
       waypoints,

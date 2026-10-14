@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>feets</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=9">
+  <link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
   <aside id="sidebar">
@@ -38,9 +38,24 @@
       <input id="fade" type="range" min="0" max="90" step="5" value="0">
       <output id="fade-value">0%</output>
     </label>
-    <div id="summary"></div>
+    <div id="filters">
+      <input id="filter-text" type="search" placeholder="Search track names">
+      <div class="filter-row">
+        <select id="filter-year" aria-label="Year"><option value="">All years</option></select>
+        <select id="filter-sport" aria-label="Activity type"><option value="">All types</option></select>
+      </div>
+      <div class="filter-row">
+        <button id="show-all" type="button">Show all</button>
+        <button id="hide-all" type="button">Hide all</button>
+        <button id="fit-all" type="button">Zoom to all</button>
+      </div>
+    </div>
+    <div id="list-header">
+      <div id="summary"></div>
+      <button id="edit-toggle" type="button" aria-pressed="false" title="Show delete buttons">Edit</button>
+    </div>
     <ul id="track-list"></ul>
-    <button id="fit-all" type="button">Zoom to all</button>
+    <button id="more" type="button" hidden>Show more</button>
   </aside>
   <main id="map"></main>
 
@@ -57,8 +72,8 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="gpx.js?v=9"></script>
-  <script src="store.js?v=9"></script>
-  <script src="app.js?v=9"></script>
+  <script src="gpx.js?v=11"></script>
+  <script src="store.js?v=11"></script>
+  <script src="app.js?v=11"></script>
 </body>
 </html>

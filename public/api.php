@@ -14,7 +14,10 @@
 //   GET  api.php?gpx=ID                download the original GPX file
 //   POST api.php?action=add            body: track JSON, returns {id}
 //   POST api.php?action=update&id=ID   body: {visible, color}
+//   POST api.php?action=set_visible    body: {ids, visible}  show or hide many tracks at once
 //   POST api.php?action=delete&id=ID
+//
+// Routes are stored simplified (to ~3 m) for drawing; the original GPX is kept for download.
 //
 // Strava (each user connects their own account)
 //   GET  api.php?action=strava_status      {configured, connected, athlete}
@@ -84,6 +87,8 @@ const SCHEMA = [
       user_id     INT          NULL,
       strava_id   BIGINT       NULL,
       name        VARCHAR(255) NOT NULL,
+      sport       VARCHAR(40)  NULL,     -- e.g. Run, Ride, Hike; NULL if unknown
+      simplified  BOOLEAN      NOT NULL DEFAULT FALSE,  -- geometry has been simplified
       file_name   VARCHAR(255) NOT NULL,
       color       VARCHAR(16)  NOT NULL,
       visible     BOOLEAN      NOT NULL DEFAULT TRUE,
@@ -108,6 +113,12 @@ function send_json($data, int $status = 200): void {
 
 function fail(string $message, int $status): void {
     send_json(['error' => $message], $status);
+}
+
+// Compress responses: the track list can be several MB of coordinates.
+// Flushing every 64 KB keeps the whole list from building up in memory.
+if (!ini_get('zlib.output_compression')) {
+    ob_start('ob_gzhandler', 65536);
 }
 
 set_exception_handler(function (Throwable $err) {
@@ -149,6 +160,11 @@ function db(): PDO {
         // ...nor a link back to the Strava activity they were imported from.
         if (!$pdo->query("SHOW COLUMNS FROM tracks LIKE 'strava_id'")->fetch()) {
             $pdo->exec('ALTER TABLE tracks ADD COLUMN strava_id BIGINT NULL AFTER user_id, ADD UNIQUE (user_id, strava_id)');
+        }
+        // ...nor the sport and simplified flag. Existing rows get simplified in list_tracks().
+        if (!$pdo->query("SHOW COLUMNS FROM tracks LIKE 'sport'")->fetch()) {
+            $pdo->exec('ALTER TABLE tracks ADD COLUMN sport VARCHAR(40) NULL AFTER name,
+                        ADD COLUMN simplified BOOLEAN NOT NULL DEFAULT FALSE AFTER sport');
         }
     }
     return $pdo;
@@ -316,47 +332,166 @@ function create_invite(array $user): array {
 
 // --- Tracks ---
 
-function track_json(array $row): array {
-    $geometry = json_decode($row['geometry'], true);
+// Douglas-Peucker: drops points that lie within $tolerance metres of the
+// simplified line, and rounds to 5 decimals (~1 m). A one-hour run recorded
+// every second typically shrinks from ~3600 points to a few hundred.
+function simplify_line(array $points, float $tolerance = 3.0): array {
+    $n = count($points);
+    if ($n < 3) {
+        return array_map(fn($p) => [round((float) $p[0], 5), round((float) $p[1], 5)], $points);
+    }
+    // Project to metres on a flat plane; fine at the scale of one activity.
+    $mPerDegree = 111320.0;
+    $cos = cos(deg2rad((float) $points[0][0]));
+    $xy = array_map(fn($p) => [(float) $p[1] * $mPerDegree * $cos, (float) $p[0] * $mPerDegree], $points);
+
+    $keep = array_fill(0, $n, false);
+    $keep[0] = $keep[$n - 1] = true;
+    $limit = $tolerance * $tolerance;
+    $stack = [[0, $n - 1]];
+    while ($stack) {
+        [$a, $b] = array_pop($stack);
+        [$ax, $ay] = $xy[$a];
+        $dx = $xy[$b][0] - $ax;
+        $dy = $xy[$b][1] - $ay;
+        $length2 = $dx * $dx + $dy * $dy;
+        $farthest = 0.0;
+        $index = -1;
+        for ($i = $a + 1; $i < $b; $i++) {
+            $px = $xy[$i][0] - $ax;
+            $py = $xy[$i][1] - $ay;
+            $t = $length2 > 0 ? max(0.0, min(1.0, ($px * $dx + $py * $dy) / $length2)) : 0.0;
+            $ex = $px - $t * $dx;
+            $ey = $py - $t * $dy;
+            $d2 = $ex * $ex + $ey * $ey;
+            if ($d2 > $farthest) {
+                $farthest = $d2;
+                $index = $i;
+            }
+        }
+        if ($farthest > $limit) {
+            $keep[$index] = true;
+            $stack[] = [$a, $index];
+            $stack[] = [$index, $b];
+        }
+    }
+    $out = [];
+    foreach ($points as $i => $p) {
+        if ($keep[$i]) {
+            $out[] = [round((float) $p[0], 5), round((float) $p[1], 5)];
+        }
+    }
+    return $out;
+}
+
+function simplify_geometry(array $segments, array $waypoints): string {
+    return json_encode(['segments' => array_map('simplify_line', $segments), 'waypoints' => $waypoints]);
+}
+
+// Turns a GPX <type> or Strava sport_type into a short label like Run or Ride.
+function normalize_sport(?string $raw): ?string {
+    $raw = trim((string) $raw);
+    if ($raw === '' || ctype_digit($raw)) {
+        return null;  // some devices write numeric codes
+    }
+    $known = [
+        'run' => 'Run', 'running' => 'Run', 'trail_running' => 'TrailRun',
+        'ride' => 'Ride', 'cycling' => 'Ride', 'biking' => 'Ride', 'road_biking' => 'Ride',
+        'mountain_biking' => 'MountainBikeRide', 'walk' => 'Walk', 'walking' => 'Walk',
+        'hike' => 'Hike', 'hiking' => 'Hike', 'swim' => 'Swim', 'swimming' => 'Swim',
+        'open_water_swimming' => 'Swim',
+    ];
+    $key = strtolower(str_replace([' ', '-'], '_', $raw));
+    return $known[$key] ?? mb_substr(ucfirst($raw), 0, 40);
+}
+
+// A track for the client, without its route.
+function track_meta(array $row): array {
     return [
         'id' => (int) $row['id'],
         'name' => $row['name'],
+        'sport' => $row['sport'] ?: null,
         'fileName' => $row['file_name'],
         'color' => $row['color'],
         'visible' => (bool) $row['visible'],
         'distance' => (float) $row['distance_m'],
         'time' => $row['track_time'],
-        'segments' => $geometry['segments'],
-        'waypoints' => $geometry['waypoints'],
     ];
 }
 
-function list_tracks(int $userId): array {
-    $stmt = db()->prepare(
-        'SELECT id, name, file_name, color, visible, distance_m, track_time, geometry
-         FROM tracks WHERE user_id = ? ORDER BY id'
+function track_json(array $row): array {
+    return track_meta($row) + json_decode($row['geometry'], true);
+}
+
+// Streams the track list as JSON. Each route is spliced in as the stored JSON
+// text rather than decoded: thousands of decoded routes would exceed PHP's
+// memory limit. Rows are read 200 at a time; any stored before simplification
+// existed get simplified on the way.
+function send_track_list(int $userId): void {
+    @set_time_limit(120);
+    header('Content-Type: application/json');
+    header('Cache-Control: no-store');
+    echo '[';
+    $first = true;
+    $select = db()->prepare(
+        'SELECT id, strava_id, name, sport, simplified, file_name, color, visible, distance_m, track_time, geometry,
+                IF(simplified, NULL, gpx) AS gpx
+         FROM tracks WHERE user_id = ? AND id > ? ORDER BY id LIMIT 200'
     );
-    $stmt->execute([$userId]);
-    return array_map('track_json', $stmt->fetchAll());
+    $update = db()->prepare('UPDATE tracks SET geometry = ?, sport = ?, simplified = 1 WHERE id = ?');
+    $lastId = 0;
+    do {
+        $select->execute([$userId, $lastId]);
+        $rows = $select->fetchAll();
+        foreach ($rows as $row) {
+            $lastId = (int) $row['id'];
+            if (!$row['simplified']) {
+                $geometry = json_decode($row['geometry'], true);
+                $row['geometry'] = simplify_geometry($geometry['segments'], $geometry['waypoints']);
+                // Uploaded GPX files may name the sport; Strava tracks get theirs from strava_sync.
+                if ($row['sport'] === null && $row['strava_id'] === null
+                    && preg_match('#<type>([^<]+)</type>#', (string) $row['gpx'], $m)) {
+                    $row['sport'] = normalize_sport($m[1]);
+                }
+                $update->execute([$row['geometry'], $row['sport'], $row['id']]);
+            }
+            // {"id":…,"time":…} + {"segments":…,"waypoints":…} → one object
+            echo $first ? '' : ',', substr(json_encode(track_meta($row)), 0, -1), ',', substr($row['geometry'], 1);
+            $first = false;
+        }
+    } while (count($rows) === 200);
+    echo ']';
+    exit;
 }
 
 function add_track(int $userId, array $t): array {
     $stmt = db()->prepare(
-        'INSERT INTO tracks (user_id, name, file_name, color, visible, distance_m, track_time, geometry, gpx)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO tracks (user_id, name, sport, simplified, file_name, color, visible, distance_m, track_time, geometry, gpx)
+         VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)'
     );
     $stmt->execute([
         $userId,
         mb_substr($t['name'], 0, 255),
+        normalize_sport($t['sport'] ?? null),
         mb_substr($t['fileName'], 0, 255),
         $t['color'],
         $t['visible'] ? 1 : 0,
         (float) $t['distance'],
         $t['time'] ?? null,
-        json_encode(['segments' => $t['segments'], 'waypoints' => $t['waypoints']]),
+        simplify_geometry($t['segments'], $t['waypoints']),
         $t['gpx'],
     ]);
     return ['id' => (int) db()->lastInsertId()];
+}
+
+function set_visible(int $userId, array $b): array {
+    $ids = array_values(array_unique(array_map('intval', $b['ids'] ?? [])));
+    foreach (array_chunk($ids, 1000) as $chunk) {
+        $marks = implode(',', array_fill(0, count($chunk), '?'));
+        db()->prepare("UPDATE tracks SET visible = ? WHERE user_id = ? AND id IN ($marks)")
+            ->execute(array_merge([$b['visible'] ? 1 : 0, $userId], $chunk));
+    }
+    return ['ok' => true];
 }
 
 function update_track(int $userId, int $id, array $t): array {
@@ -622,19 +757,20 @@ function strava_save(int $userId, array $activity, array $streams): ?array {
     $count->execute([$userId]);
     $row = [
         'name' => mb_substr($name, 0, 255),
+        'sport' => strava_sport($activity),
         'file_name' => "strava-{$activity['id']}.gpx",
         'color' => TRACK_COLORS[$count->fetchColumn() % count(TRACK_COLORS)],
         'visible' => 1,
         'distance_m' => (float) ($activity['distance'] ?? 0),
         'track_time' => gmdate('Y-m-d\TH:i:s\Z', $start),
-        'geometry' => json_encode(['segments' => [$latlng], 'waypoints' => []]),
+        'geometry' => simplify_geometry([$latlng], []),
     ];
     $gpx = strava_gpx($name, $start, $latlng, $streams['time']['data'] ?? [], $streams['altitude']['data'] ?? []);
     try {
         db()->prepare(
-            'INSERT INTO tracks (user_id, strava_id, name, file_name, color, visible, distance_m, track_time, geometry, gpx)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-        )->execute([$userId, $activity['id'], $row['name'], $row['file_name'], $row['color'], $row['visible'],
+            'INSERT INTO tracks (user_id, strava_id, name, sport, simplified, file_name, color, visible, distance_m, track_time, geometry, gpx)
+             VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)'
+        )->execute([$userId, $activity['id'], $row['name'], $row['sport'], $row['file_name'], $row['color'], $row['visible'],
                     $row['distance_m'], $row['track_time'], $row['geometry'], $gpx]);
     } catch (PDOException $e) {
         if (($e->errorInfo[1] ?? 0) === 1062) {
@@ -645,10 +781,49 @@ function strava_save(int $userId, array $activity, array $streams): ?array {
     return track_json(['id' => db()->lastInsertId()] + $row);
 }
 
+function strava_sport(array $activity): string {
+    // '' (not NULL) marks "asked Strava, no sport given", so the backfill below finishes.
+    return normalize_sport($activity['sport_type'] ?? $activity['type'] ?? null) ?? '';
+}
+
+// Tracks imported before feets stored the sport: fills it in from one page of
+// Strava's activity list per call. Returns true if Strava's rate limit was hit.
+function strava_backfill_sport(int $userId, array $account): bool {
+    $stmt = db()->prepare('SELECT MIN(track_time) FROM tracks WHERE user_id = ? AND strava_id IS NOT NULL AND sport IS NULL');
+    $stmt->execute([$userId]);
+    $oldest = $stmt->fetchColumn();
+    if (!$oldest) {
+        return false;
+    }
+    $result = strava_activities_after($account, strtotime($oldest) - 1);
+    if ($result['rateLimited']) {
+        return true;
+    }
+    $update = db()->prepare('UPDATE tracks SET sport = ? WHERE user_id = ? AND strava_id = ?');
+    foreach ($result['list'] as $activity) {
+        $update->execute([strava_sport($activity), $userId, $activity['id']]);
+    }
+    // Tracks in the span covered whose activity is gone from Strava: mark them
+    // unknown so the backfill doesn't ask about them forever.
+    $list = $result['list'];
+    if ($result['full'] && $list) {
+        $until = gmdate('Y-m-d\TH:i:s\Z', strtotime($list[count($list) - 1]['start_date']));
+        db()->prepare("UPDATE tracks SET sport = '' WHERE user_id = ? AND strava_id IS NOT NULL AND sport IS NULL AND track_time <= ?")
+            ->execute([$userId, $until]);
+    } elseif (!$result['full']) {
+        db()->prepare("UPDATE tracks SET sport = '' WHERE user_id = ? AND strava_id IS NOT NULL AND sport IS NULL")
+            ->execute([$userId]);
+    }
+    return false;
+}
+
 // Imports the next few activities. The client calls this repeatedly until done.
 function strava_sync(int $userId): array {
     $started = time();
     $account = strava_account($userId);
+    if (strava_backfill_sport($userId, $account)) {
+        return ['tracks' => [], 'done' => false, 'rateLimited' => true];
+    }
     $cursor = (int) $account['synced_until'];
     $result = strava_activities_after($account, $cursor);
     $imported = [];
@@ -743,11 +918,13 @@ if ($method === 'POST' && $action === 'invite') {
 } elseif ($method === 'GET' && isset($_GET['gpx'])) {
     download_gpx($userId, (int) $_GET['gpx']);
 } elseif ($method === 'GET') {
-    send_json(list_tracks($userId));
+    send_track_list($userId);
 } elseif ($method === 'POST' && $action === 'add') {
     send_json(add_track($userId, read_json()));
 } elseif ($method === 'POST' && $action === 'update' && $id) {
     send_json(update_track($userId, $id, read_json()));
+} elseif ($method === 'POST' && $action === 'set_visible') {
+    send_json(set_visible($userId, read_json()));
 } elseif ($method === 'POST' && $action === 'delete' && $id) {
     send_json(delete_track($userId, $id));
 } else {

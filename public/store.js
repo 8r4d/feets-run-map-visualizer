@@ -51,6 +51,7 @@ const Store = (() => {
     // track includes the original file text as track.gpx; resolves to the new id.
     add: async track => (await json('POST', '?action=add', track)).id,
     update: track => json('POST', `?action=update&id=${track.id}`, { visible: track.visible, color: track.color }),
+    setVisible: (ids, visible) => json('POST', '?action=set_visible', { ids, visible }),
     remove: id => json('POST', `?action=delete&id=${id}`),
     downloadGpx,
   };
