@@ -46,7 +46,10 @@ const Store = (() => {
     stravaSync: () => json('POST', '?action=strava_sync'),
     stravaDisconnect: () => json('POST', '?action=strava_disconnect'),
     // Admin only: turns Strava's webhook (automatic import of new activities) on or off.
-    stravaAutoImport: on => json('POST', on ? '?action=strava_auto_on' : '?action=strava_auto_off'),
+    // Sends the page's own address so the webhook URL has the right scheme and path.
+    stravaAutoImport: on => on
+      ? json('POST', '?action=strava_auto_on', { siteUrl: new URL('.', location.href).href })
+      : json('POST', '?action=strava_auto_off'),
 
     // Tracks
     all: () => json('GET', ''),

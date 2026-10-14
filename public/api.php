@@ -200,9 +200,13 @@ function read_json(): array {
 
 // --- Accounts ---
 
+// Hosts behind a proxy or load balancer report HTTPS in different ways.
 function is_https(): bool {
     return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-        || ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https';
+        || ($_SERVER['REQUEST_SCHEME'] ?? '') === 'https'
+        || ($_SERVER['SERVER_PORT'] ?? '') === '443'
+        || strtolower($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https'
+        || strtolower($_SERVER['HTTP_X_FORWARDED_SSL'] ?? '') === 'on';
 }
 
 function set_session_cookie(string $value, int $expires): void {
@@ -1075,7 +1079,11 @@ function strava_error_text($data): string {
     return trim(($data['message'] ?? 'Unknown error') . ($codes ? ': ' . implode('; ', $codes) : ''));
 }
 
-function strava_auto_on(array $user): array {
+// $b['siteUrl'] is the app's address as the browser sees it, e.g.
+// https://example.com/feets/. Strava doesn't follow redirects when it checks
+// the callback, so it has to be exact, and the browser knows the scheme for
+// sure; PHP behind a proxy may not. Only accepted for this site's own host.
+function strava_auto_on(array $user, array $b): array {
     if (!$user['is_admin']) {
         fail('Only the admin can change this', 403);
     }
@@ -1083,7 +1091,13 @@ function strava_auto_on(array $user): array {
     if (!$strava) {
         fail('Strava is not set up in feets-config.php', 400);
     }
-    $callback = app_url('strava-webhook.php');
+    $site = (string) ($b['siteUrl'] ?? '');
+    $parts = parse_url($site);
+    $ownHost = strtolower(explode(':', $_SERVER['HTTP_HOST'] ?? '')[0]);
+    if (!$parts || !in_array($parts['scheme'] ?? '', ['http', 'https'], true) || strtolower($parts['host'] ?? '') !== $ownHost) {
+        $site = app_url('');
+    }
+    $callback = rtrim($site, '/') . '/strava-webhook.php';
     $credentials = ['client_id' => $strava['client_id'], 'client_secret' => $strava['client_secret']];
     // Strava calls the callback URL to check it before answering this request.
     [$status, $data] = strava_http('POST', 'https://www.strava.com/api/v3/push_subscriptions',
@@ -1100,7 +1114,7 @@ function strava_auto_on(array $user): array {
             return ['ok' => true];
         }
     }
-    fail('Strava refused: ' . strava_error_text($data), 400);
+    fail('Strava refused: ' . strava_error_text($data) . " (Strava tried $callback)", 400);
 }
 
 function strava_auto_off(array $user): array {
@@ -1156,7 +1170,7 @@ if ($method === 'POST' && $action === 'invite') {
 } elseif ($method === 'POST' && $action === 'strava_disconnect') {
     send_json(strava_disconnect($userId));
 } elseif ($method === 'POST' && $action === 'strava_auto_on') {
-    send_json(strava_auto_on($user));
+    send_json(strava_auto_on($user, read_json()));
 } elseif ($method === 'POST' && $action === 'strava_auto_off') {
     send_json(strava_auto_off($user));
 } elseif ($method === 'GET' && isset($_GET['gpx'])) {
