@@ -88,8 +88,38 @@ function setMode(mode) {
     button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
   }
   try { localStorage.setItem('feets-mode', mode); } catch {}
+  fadeInput.value = savedFade(mode);
+  applyFade();
   syncLayers();
 }
+
+// --- Map fade ---
+// Makes the base map partly transparent over a solid background (white for
+// tracks, black for the heatmap), so the lines stand out more. Each mode
+// remembers its own setting.
+const fadeInput = document.getElementById('fade');
+const FADE_DEFAULTS = { tracks: 0, heatmap: 30 };
+
+function savedFade(mode) {
+  try {
+    const value = localStorage.getItem('feets-fade-' + mode);
+    if (value !== null) return Number(value);
+  } catch {}
+  return FADE_DEFAULTS[mode];
+}
+
+function applyFade() {
+  const percent = Number(fadeInput.value);
+  const container = map.getContainer();
+  container.style.setProperty('--map-fade', percent / 100);
+  container.style.setProperty('--fade-color', heatmap ? '#000' : '#fff');
+  document.getElementById('fade-value').textContent = percent + '%';
+}
+
+fadeInput.oninput = () => {
+  applyFade();
+  try { localStorage.setItem('feets-fade-' + (heatmap ? 'heatmap' : 'tracks'), fadeInput.value); } catch {}
+};
 
 function buildLayer(track) {
   const group = L.featureGroup();
@@ -253,9 +283,11 @@ document.getElementById('fit-all').onclick = fitAll;
 for (const button of document.querySelectorAll('#mode button')) {
   button.onclick = () => setMode(button.dataset.mode);
 }
+let startMode = 'tracks';
 try {
-  if (localStorage.getItem('feets-mode') === 'heatmap') setMode('heatmap');
+  if (localStorage.getItem('feets-mode') === 'heatmap') startMode = 'heatmap';
 } catch {}
+setMode(startMode);
 
 // --- Accounts ---
 const auth = document.getElementById('auth');

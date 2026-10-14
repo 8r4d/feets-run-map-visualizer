@@ -39,6 +39,29 @@ body {
   flex: 1;
 }
 
+/* Map fade: the tiles turn partly transparent over a solid colour (set from app.js). */
+#map.leaflet-container {
+  background: var(--fade-color, #ddd);
+}
+
+#map .leaflet-tile-pane {
+  opacity: calc(1 - var(--map-fade, 0));
+}
+
+#fade-control {
+  display: grid;
+  grid-template-columns: auto 1fr 3em;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #555;
+}
+
+#fade-control output {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Dark base map for the heatmap: inverts the light OSM tiles. */
 .dark-tiles {
   filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9) saturate(0.4);
