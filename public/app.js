@@ -450,7 +450,10 @@ async function loadTracks() {
   }
 }
 
+let currentUser = null;
+
 async function signedIn(user) {
+  currentUser = user;
   auth.hidden = true;
   authForm.reset();
   if (location.search) history.replaceState(null, '', location.pathname);
@@ -463,6 +466,8 @@ async function signedIn(user) {
 }
 
 function signedOut() {
+  currentUser = null;
+  clearTimeout(stravaResumeTimer);
   clearTracks();
   stravaBox.hidden = true;
   showAuth('login');
@@ -472,7 +477,10 @@ function signedOut() {
 const stravaBox = document.getElementById('strava');
 const stravaStatus = document.getElementById('strava-status');
 const stravaImport = document.getElementById('strava-import');
+const stravaAutoToggle = document.getElementById('strava-auto-toggle');
 let stravaImporting = false;
+let stravaResumeTimer = null;
+let stravaAutoImport = false;
 
 async function refreshStrava() {
   const status = await Store.stravaStatus();
@@ -480,6 +488,16 @@ async function refreshStrava() {
   document.getElementById('strava-connect').hidden = status.connected;
   document.getElementById('strava-connected').hidden = !status.connected;
   stravaStatus.textContent = status.connected ? `Connected as ${status.athlete}` : '';
+
+  // Automatic import (Strava's webhook) is one switch for the whole site: the admin flips it.
+  stravaAutoImport = status.autoImport;
+  const isAdmin = Boolean(currentUser && currentUser.isAdmin);
+  document.getElementById('strava-auto').hidden = !status.connected || !(status.autoImport || isAdmin);
+  document.getElementById('strava-auto-text').textContent = status.autoImport
+    ? 'New Strava activities are imported automatically.'
+    : 'Automatic import is off.';
+  stravaAutoToggle.hidden = !isAdmin;
+  stravaAutoToggle.textContent = status.autoImport ? 'Turn off' : 'Turn on';
   return status;
 }
 
@@ -488,28 +506,42 @@ async function initStrava() {
     const status = await refreshStrava();
     // Just came back from Strava's approval screen?
     if (stravaResult === 'error') stravaStatus.textContent = stravaMessage || 'Could not connect to Strava.';
-    if (stravaResult === 'connected' && status.connected) importFromStrava();
+    // Pick up where the last import stopped, and anything new since.
+    if (status.connected) importFromStrava({ fit: stravaResult === 'connected' });
     stravaResult = null;
   } catch (err) {
     stravaBox.hidden = true;
   }
 }
 
+// Strava's 15-minute rate limit windows reset at :00, :15, :30 and :45.
+function resumeAfterRateLimit(total) {
+  const now = new Date();
+  const next = new Date(now);
+  next.setMinutes(Math.floor(now.getMinutes() / 15) * 15 + 15, 30, 0);
+  const at = next.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  stravaStatus.textContent = `Imported ${total}. Strava's rate limit was reached: continuing at ${at} while this page stays open.`;
+  clearTimeout(stravaResumeTimer);
+  stravaResumeTimer = setTimeout(() => importFromStrava(), next - now);
+}
+
 // Imports in batches (one request each) until Strava has nothing new.
-async function importFromStrava() {
+// fit: zoom to all tracks afterwards (not for the quiet check on page load).
+async function importFromStrava({ fit = false } = {}) {
   if (stravaImporting) return;
+  clearTimeout(stravaResumeTimer);
   stravaImporting = true;
   stravaImport.disabled = true;
   let total = 0;
   try {
     for (;;) {
-      stravaStatus.textContent = `Importing from Strava… ${total} so far`;
+      stravaStatus.textContent = `Checking Strava… ${total} imported so far`;
       const result = await Store.stravaSync();
       result.tracks.forEach(show);
       total += result.tracks.length;
       render();
       if (result.rateLimited) {
-        stravaStatus.textContent = `Imported ${total}. Strava's rate limit was reached: click Import again in 15 minutes to continue.`;
+        resumeAfterRateLimit(total);
         return;
       }
       if (result.done) break;
@@ -517,7 +549,7 @@ async function importFromStrava() {
     stravaStatus.textContent = total
       ? `Imported ${total} new ${total === 1 ? 'activity' : 'activities'} from Strava.`
       : 'Up to date with Strava.';
-    if (total) fitAll();
+    if (total && fit) fitAll();
   } catch (err) {
     stravaStatus.textContent = `Strava import stopped after ${total}: ${err.message}`;
     refreshStrava().catch(() => {});
@@ -527,15 +559,30 @@ async function importFromStrava() {
   }
 }
 
-stravaImport.onclick = importFromStrava;
+stravaImport.onclick = () => importFromStrava({ fit: true });
 
 document.getElementById('strava-disconnect').onclick = async () => {
   if (!confirm('Disconnect Strava? Tracks you already imported stay in feets.')) return;
   try {
+    clearTimeout(stravaResumeTimer);
     await Store.stravaDisconnect();
     await refreshStrava();
   } catch (err) {
     alert(err.message);
+  }
+};
+
+stravaAutoToggle.onclick = async () => {
+  const turnOn = !stravaAutoImport;
+  if (!turnOn && !confirm('Turn off automatic import? New activities will then only arrive when someone opens feets.')) return;
+  stravaAutoToggle.disabled = true;
+  try {
+    await Store.stravaAutoImport(turnOn);
+    await refreshStrava();
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    stravaAutoToggle.disabled = false;
   }
 };
 

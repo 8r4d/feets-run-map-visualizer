@@ -41,8 +41,23 @@ activities.
    `feets.example.com`, with no `https://` and no path.
 3. Copy the **Client ID** and **Client Secret** into the `strava` section of
    `feets-config.php`, then upload that file again.
-4. In feets, click **Connect with Strava**, approve access, and the import
-   starts by itself. Click **Import from Strava** later to fetch newer activities.
+4. In feets, click **Connect with Strava** and approve access. The import
+   starts by itself.
+5. Optional, admin only: under the Strava buttons, click **Turn on** next to
+   "Automatic import is off". From then on, Strava tells feets about new,
+   edited and deleted activities as they happen, for every connected user.
+
+How it keeps up to date:
+- **Page load:** each time someone opens feets, it continues any unfinished
+  import and fetches activities added since their last visit.
+- **Rate limit:** if the import hits Strava's limit, the page waits for the
+  next 15-minute window and carries on by itself while the tab is open.
+- **Automatic import:** this uses Strava's webhook, which calls
+  `strava-webhook.php`. Strava doesn't sign these calls, so feets checks each
+  one with Strava before importing, renaming or deleting anything.
+- **If the host can't keep working after replying:** some hosts stop PHP as soon
+  as it has replied to Strava. In that case events are stored and handled the
+  next time the athlete opens feets.
 
 How the import works:
 - **What's imported:** every activity that has GPS. Treadmill runs and manual
@@ -98,6 +113,7 @@ load quickly. The original GPX is kept for the ↓ download.
 | `public/app.js`      | Map setup, track list UI, file upload handling, login form. |
 | `public/gpx.js`      | Parses GPX tracks, routes and waypoints in the browser, and works out distance. |
 | `public/store.js`    | Calls `api.php`.                                         |
+| `public/strava-webhook.php` | Address Strava's webhook calls. Passes them on to `api.php`. |
 | `public/style.css`   | Styles.                                                  |
 
 ## Notes

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>feets</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=11">
+  <link rel="stylesheet" href="style.css?v=12">
 </head>
 <body>
   <aside id="sidebar">
@@ -28,6 +28,10 @@
         <button id="strava-disconnect" class="link-button" type="button">Disconnect</button>
       </div>
       <div id="strava-status"></div>
+      <div id="strava-auto" hidden>
+        <span id="strava-auto-text"></span>
+        <button id="strava-auto-toggle" class="link-button" type="button" hidden></button>
+      </div>
     </div>
     <div id="mode" role="group" aria-label="Map style">
       <button type="button" data-mode="tracks" aria-pressed="true">Tracks</button>
@@ -72,8 +76,8 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="gpx.js?v=11"></script>
-  <script src="store.js?v=11"></script>
-  <script src="app.js?v=11"></script>
+  <script src="gpx.js?v=12"></script>
+  <script src="store.js?v=12"></script>
+  <script src="app.js?v=12"></script>
 </body>
 </html>

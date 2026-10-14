@@ -45,6 +45,8 @@ const Store = (() => {
     // Imports the next batch: resolves to { tracks, done, rateLimited }.
     stravaSync: () => json('POST', '?action=strava_sync'),
     stravaDisconnect: () => json('POST', '?action=strava_disconnect'),
+    // Admin only: turns Strava's webhook (automatic import of new activities) on or off.
+    stravaAutoImport: on => json('POST', on ? '?action=strava_auto_on' : '?action=strava_auto_off'),
 
     // Tracks
     all: () => json('GET', ''),

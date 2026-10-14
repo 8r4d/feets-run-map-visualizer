@@ -25,6 +25,9 @@
 //   GET  api.php?action=strava_callback    Strava redirects back here, then on to the app
 //   POST api.php?action=strava_sync        imports the next batch, returns {tracks, done, rateLimited}
 //   POST api.php?action=strava_disconnect
+//   POST api.php?action=strava_auto_on     admin only: subscribe to Strava's webhook
+//   POST api.php?action=strava_auto_off    admin only
+//   strava-webhook.php                     Strava's webhook calls land here (see strava_webhook)
 
 const SESSION_COOKIE = 'feets_session';
 const SESSION_DAYS = 30;
@@ -72,6 +75,23 @@ const SCHEMA = [
       refresh_token VARCHAR(255) NOT NULL,
       expires_at    INT          NOT NULL,
       synced_until  INT          NOT NULL DEFAULT 0  -- start time (epoch) of the last activity looked at
+    ) CHARACTER SET utf8mb4
+    SQL,
+    <<<SQL
+    CREATE TABLE IF NOT EXISTS strava_events (  -- webhook events waiting to be handled
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      owner_id    BIGINT      NOT NULL,  -- Strava athlete id
+      object_type VARCHAR(20) NOT NULL,
+      object_id   BIGINT      NOT NULL,
+      aspect_type VARCHAR(20) NOT NULL,
+      received_at TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX (owner_id)
+    ) CHARACTER SET utf8mb4
+    SQL,
+    <<<SQL
+    CREATE TABLE IF NOT EXISTS settings (
+      name  VARCHAR(64) PRIMARY KEY,
+      value TEXT        NOT NULL
     ) CHARACTER SET utf8mb4
     SQL,
     <<<SQL
@@ -541,7 +561,7 @@ function redirect(string $url): void {
 
 // Returns [status, decoded JSON body].
 function strava_http(string $method, string $url, array $params = [], array $headers = []): array {
-    if ($method === 'GET' && $params) {
+    if ($method !== 'POST' && $params) {
         $url .= '?' . http_build_query($params);
     }
     $ch = curl_init($url);
@@ -549,6 +569,7 @@ function strava_http(string $method, string $url, array $params = [], array $hea
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT => 20,
         CURLOPT_HTTPHEADER => $headers,
+        CURLOPT_CUSTOMREQUEST => $method,
     ]);
     if ($method === 'POST') {
         curl_setopt($ch, CURLOPT_POST, true);
@@ -565,7 +586,27 @@ function strava_status(int $userId): array {
     $stmt = db()->prepare('SELECT athlete_name FROM strava_accounts WHERE user_id = ?');
     $stmt->execute([$userId]);
     $row = $stmt->fetch();
-    return ['configured' => strava_config() !== null, 'connected' => (bool) $row, 'athlete' => $row['athlete_name'] ?? null];
+    return [
+        'configured' => strava_config() !== null,
+        'connected' => (bool) $row,
+        'athlete' => $row['athlete_name'] ?? null,
+        'autoImport' => setting('strava_subscription_id') !== null,
+    ];
+}
+
+function setting(string $name): ?string {
+    $stmt = db()->prepare('SELECT value FROM settings WHERE name = ?');
+    $stmt->execute([$name]);
+    $value = $stmt->fetchColumn();
+    return $value === false ? null : $value;
+}
+
+function set_setting(string $name, ?string $value): void {
+    if ($value === null) {
+        db()->prepare('DELETE FROM settings WHERE name = ?')->execute([$name]);
+    } else {
+        db()->prepare('REPLACE INTO settings (name, value) VALUES (?, ?)')->execute([$name, $value]);
+    }
 }
 
 function strava_connect(int $userId): void {
@@ -817,16 +858,41 @@ function strava_backfill_sport(int $userId, array $account): bool {
     return false;
 }
 
+// Fetches one activity's GPS data and saves it as a track.
+// Returns [track or null, whether Strava's rate limit was hit].
+function strava_import_activity(int $userId, array $account, array $activity): array {
+    // Treadmill runs and manual entries have no route.
+    if (empty($activity['map']['summary_polyline']) || !empty($activity['manual'])) {
+        return [null, false];
+    }
+    $exists = db()->prepare('SELECT 1 FROM tracks WHERE user_id = ? AND strava_id = ?');
+    $exists->execute([$userId, $activity['id']]);
+    if ($exists->fetchColumn()) {
+        return [null, false];  // already imported, e.g. by a webhook event
+    }
+    [$status, $streams] = strava_api($account, "/activities/{$activity['id']}/streams",
+        ['keys' => 'latlng,time,altitude', 'key_by_type' => 'true']);
+    if ($status === 429) {
+        return [null, true];
+    }
+    if ($status !== 200 || empty($streams['latlng']['data'])) {
+        return [null, false];
+    }
+    return [strava_save($userId, $activity, $streams), false];
+}
+
 // Imports the next few activities. The client calls this repeatedly until done.
 function strava_sync(int $userId): array {
     $started = time();
     $account = strava_account($userId);
-    if (strava_backfill_sport($userId, $account)) {
-        return ['tracks' => [], 'done' => false, 'rateLimited' => true];
+    // Webhook events that couldn't be handled when they arrived.
+    $events = strava_process_events((int) $account['athlete_id']);
+    if ($events['rateLimited'] || strava_backfill_sport($userId, $account)) {
+        return ['tracks' => $events['tracks'], 'done' => false, 'rateLimited' => true];
     }
     $cursor = (int) $account['synced_until'];
     $result = strava_activities_after($account, $cursor);
-    $imported = [];
+    $imported = $events['tracks'];
     $stoppedEarly = false;
     $rateLimited = $result['rateLimited'];
 
@@ -835,21 +901,13 @@ function strava_sync(int $userId): array {
             $stoppedEarly = true;
             break;
         }
-        // Treadmill runs and manual entries have no route.
-        $hasRoute = !empty($activity['map']['summary_polyline']) && empty($activity['manual']);
-        if ($hasRoute) {
-            [$status, $streams] = strava_api($account, "/activities/{$activity['id']}/streams",
-                ['keys' => 'latlng,time,altitude', 'key_by_type' => 'true']);
-            if ($status === 429) {
-                $rateLimited = true;
-                break;
-            }
-            if ($status === 200 && !empty($streams['latlng']['data'])) {
-                $track = strava_save($userId, $activity, $streams);
-                if ($track) {
-                    $imported[] = $track;
-                }
-            }
+        [$track, $limited] = strava_import_activity($userId, $account, $activity);
+        if ($limited) {
+            $rateLimited = true;
+            break;
+        }
+        if ($track) {
+            $imported[] = $track;
         }
         $cursor = max($cursor, strtotime($activity['start_date']));
     }
@@ -882,6 +940,186 @@ function strava_disconnect(int $userId): array {
     return ['ok' => true];
 }
 
+// --- Strava webhook ---
+// With a subscription, Strava calls strava-webhook.php whenever a connected
+// athlete creates, edits or deletes an activity, or disconnects feets.
+// Docs: https://developers.strava.com/docs/webhooks/
+//
+// The calls aren't signed, so an event is only a hint: feets asks Strava about
+// the activity itself before importing, renaming or deleting anything.
+
+function strava_webhook_token(): string {
+    return substr(hash_hmac('sha256', 'feets-strava-webhook', strava_config()['client_secret']), 0, 32);
+}
+
+function strava_webhook(): void {
+    if (!strava_config()) {
+        fail('Strava is not set up', 404);
+    }
+    while (ob_get_level()) {
+        ob_end_clean();  // reply quickly, uncompressed
+    }
+
+    // Strava checks the URL when subscribing. PHP turns "hub.mode" into "hub_mode".
+    if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+        if (($_GET['hub_mode'] ?? '') !== 'subscribe'
+            || !hash_equals(strava_webhook_token(), $_GET['hub_verify_token'] ?? '')) {
+            fail('Bad verify token', 403);
+        }
+        send_json(['hub.challenge' => $_GET['hub_challenge'] ?? '']);
+    }
+
+    $event = json_decode(file_get_contents('php://input'), true);
+    $ownerId = (int) ($event['owner_id'] ?? 0);
+    $known = db()->prepare('SELECT COUNT(*) FROM strava_accounts WHERE athlete_id = ?');
+    $known->execute([$ownerId]);
+    if (is_array($event) && $known->fetchColumn()
+        && in_array($event['object_type'] ?? '', ['activity', 'athlete'], true)
+        && (string) ($event['subscription_id'] ?? '') === setting('strava_subscription_id')) {
+        db()->prepare('INSERT INTO strava_events (owner_id, object_type, object_id, aspect_type) VALUES (?, ?, ?, ?)')
+            ->execute([$ownerId, $event['object_type'], (int) $event['object_id'], (string) $event['aspect_type']]);
+    } else {
+        $ownerId = 0;
+    }
+
+    // Strava wants a 200 within 2 seconds, so answer first, then do the work
+    // if the server lets this script keep running after the reply. If not,
+    // the event waits until the athlete next opens feets.
+    ignore_user_abort(true);
+    $body = '{"ok":true}';
+    header('Content-Type: application/json');
+    header('Content-Length: ' . strlen($body));
+    header('Connection: close');
+    echo $body;
+    flush();
+    if ($ownerId && function_exists('fastcgi_finish_request')) {
+        fastcgi_finish_request();
+        strava_process_events($ownerId);
+    } elseif ($ownerId && function_exists('litespeed_finish_request')) {
+        litespeed_finish_request();
+        strava_process_events($ownerId);
+    }
+    exit;
+}
+
+// Handles waiting webhook events for one Strava athlete. Returns the tracks
+// imported and whether Strava's rate limit was hit.
+function strava_process_events(int $athleteId): array {
+    $result = ['tracks' => [], 'rateLimited' => false];
+    $users = db()->prepare('SELECT user_id FROM strava_accounts WHERE athlete_id = ?');
+    $users->execute([$athleteId]);
+    $userIds = $users->fetchAll(PDO::FETCH_COLUMN);
+    $events = db()->prepare('SELECT * FROM strava_events WHERE owner_id = ? ORDER BY id LIMIT 20');
+    $events->execute([$athleteId]);
+    $done = db()->prepare('DELETE FROM strava_events WHERE id = ?');
+
+    foreach ($events->fetchAll() as $event) {
+        foreach ($userIds as $userId) {
+            $outcome = strava_apply_event((int) $userId, strava_account((int) $userId), $event);
+            if ($outcome === 'rate_limited') {
+                $result['rateLimited'] = true;
+                return $result;  // keep this event for next time
+            }
+            if (is_array($outcome)) {
+                $result['tracks'][] = $outcome;
+            }
+        }
+        $done->execute([$event['id']]);
+    }
+    db()->exec('DELETE FROM strava_events WHERE received_at < NOW() - INTERVAL 7 DAY');
+    return $result;
+}
+
+// Returns a newly imported track, 'rate_limited', or null.
+function strava_apply_event(int $userId, array $account, array $event) {
+    if ($event['object_type'] === 'athlete') {
+        // "Deauthorized": confirm by asking Strava. A revoked token gets 401,
+        // and strava_api() then forgets the account.
+        strava_api($account, '/athlete');
+        return null;
+    }
+    $activityId = (int) $event['object_id'];
+    $track = db()->prepare('SELECT id FROM tracks WHERE user_id = ? AND strava_id = ?');
+    $track->execute([$userId, $activityId]);
+    $trackId = $track->fetchColumn();
+
+    [$status, $activity] = strava_api($account, "/activities/$activityId");
+    if ($status === 429) {
+        return 'rate_limited';
+    }
+    if ($status === 404) {
+        // Really gone from Strava: remove it here too.
+        if ($event['aspect_type'] === 'delete' && $trackId) {
+            db()->prepare('DELETE FROM tracks WHERE id = ?')->execute([$trackId]);
+        }
+        return null;
+    }
+    if ($status !== 200 || !is_array($activity)) {
+        throw new RuntimeException('Strava activity lookup failed: HTTP ' . $status);
+    }
+    if ($trackId) {
+        // Renamed or changed type on Strava.
+        db()->prepare('UPDATE tracks SET name = ?, sport = ? WHERE id = ?')
+            ->execute([mb_substr(trim($activity['name'] ?? '') ?: 'Strava activity', 0, 255), strava_sport($activity), $trackId]);
+        return null;
+    }
+    if ($event['aspect_type'] !== 'create') {
+        return null;  // e.g. an edit to something deleted in feets: leave it deleted
+    }
+    [$imported, $limited] = strava_import_activity($userId, $account, $activity);
+    return $limited ? 'rate_limited' : $imported;
+}
+
+function strava_error_text($data): string {
+    $codes = array_map(fn($e) => trim(($e['field'] ?? '') . ' ' . ($e['code'] ?? '')), $data['errors'] ?? []);
+    return trim(($data['message'] ?? 'Unknown error') . ($codes ? ': ' . implode('; ', $codes) : ''));
+}
+
+function strava_auto_on(array $user): array {
+    if (!$user['is_admin']) {
+        fail('Only the admin can change this', 403);
+    }
+    $strava = strava_config();
+    if (!$strava) {
+        fail('Strava is not set up in feets-config.php', 400);
+    }
+    $callback = app_url('strava-webhook.php');
+    $credentials = ['client_id' => $strava['client_id'], 'client_secret' => $strava['client_secret']];
+    // Strava calls the callback URL to check it before answering this request.
+    [$status, $data] = strava_http('POST', 'https://www.strava.com/api/v3/push_subscriptions',
+        $credentials + ['callback_url' => $callback, 'verify_token' => strava_webhook_token()]);
+    if (($status === 200 || $status === 201) && isset($data['id'])) {
+        set_setting('strava_subscription_id', (string) $data['id']);
+        return ['ok' => true];
+    }
+    // Strava allows one subscription per app: if it already points here, use it.
+    [, $existing] = strava_http('GET', 'https://www.strava.com/api/v3/push_subscriptions', $credentials);
+    foreach (is_array($existing) ? $existing : [] as $sub) {
+        if (($sub['callback_url'] ?? '') === $callback) {
+            set_setting('strava_subscription_id', (string) $sub['id']);
+            return ['ok' => true];
+        }
+    }
+    fail('Strava refused: ' . strava_error_text($data), 400);
+}
+
+function strava_auto_off(array $user): array {
+    if (!$user['is_admin']) {
+        fail('Only the admin can change this', 403);
+    }
+    $strava = strava_config();
+    $id = setting('strava_subscription_id');
+    if ($id && $strava) {
+        [$status, $data] = strava_http('DELETE', "https://www.strava.com/api/v3/push_subscriptions/$id",
+            ['client_id' => $strava['client_id'], 'client_secret' => $strava['client_secret']]);
+        if ($status !== 204 && $status !== 404) {
+            fail('Strava refused: ' . strava_error_text($data), 400);
+        }
+    }
+    set_setting('strava_subscription_id', null);
+    return ['ok' => true];
+}
+
 // --- Routing ---
 
 $method = $_SERVER['REQUEST_METHOD'];
@@ -900,6 +1138,8 @@ if ($method === 'GET' && $action === 'me') {
     send_json(signup(read_json()));
 } elseif ($method === 'GET' && $action === 'strava_callback') {
     strava_callback();
+} elseif ($action === 'strava_webhook') {
+    strava_webhook();
 }
 
 $user = require_user();
@@ -915,6 +1155,10 @@ if ($method === 'POST' && $action === 'invite') {
     send_json(strava_sync($userId));
 } elseif ($method === 'POST' && $action === 'strava_disconnect') {
     send_json(strava_disconnect($userId));
+} elseif ($method === 'POST' && $action === 'strava_auto_on') {
+    send_json(strava_auto_on($user));
+} elseif ($method === 'POST' && $action === 'strava_auto_off') {
+    send_json(strava_auto_off($user));
 } elseif ($method === 'GET' && isset($_GET['gpx'])) {
     download_gpx($userId, (int) $_GET['gpx']);
 } elseif ($method === 'GET') {
