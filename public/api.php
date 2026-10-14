@@ -7,7 +7,7 @@
 //   POST api.php?action=update&id=ID  body: {visible, color}
 //   POST api.php?action=delete&id=ID
 //
-// Every request must send the app password in the X-Feets-Password header.
+// Every request must send the app password in the feets_password cookie (set by store.js).
 
 const SCHEMA = <<<SQL
 CREATE TABLE IF NOT EXISTS tracks (
@@ -50,9 +50,12 @@ if (!$config) {
     send_json(['error' => 'feets-config.php not found'], 500);
 }
 
-$given = $_SERVER['HTTP_X_FEETS_PASSWORD'] ?? '';
-if ($config['app_password'] === '' || !hash_equals($config['app_password'], $given)) {
-    send_json(['error' => 'Wrong or missing password'], 401);
+$given = trim($_COOKIE['feets_password'] ?? '');
+if ($given === '') {
+    send_json(['error' => 'No password received'], 401);
+}
+if (!hash_equals(trim($config['app_password']), $given)) {
+    send_json(['error' => 'Wrong password'], 401);
 }
 
 function db(): PDO {
