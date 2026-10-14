@@ -1,30 +1,31 @@
 # feets
 
 A small personal web app for viewing GPX tracks on an OpenStreetMap map.
-Tracks are stored in MySQL (or MariaDB). A single Python file serves the
-page and talks to the database.
+Tracks are stored in MySQL through a single PHP file, `api.php`.
 
-## Setup (once)
+## Deploy to your web host
 
-1. Create an empty database on your MySQL server, plus a user that can create
-   tables in it. feets creates its own `tracks` table on first run.
-2. Fill in `config.ini` with the host, user, password and database name.
-   Hosted MySQL usually needs `ssl = true`.
-3. Install the one dependency:
-   ```sh
-   cd ~/Code/feets
-   python3 -m venv .venv
-   .venv/bin/pip install -r requirements.txt
-   ```
+1. Upload `feets-config.php` **one folder above** your website's public folder,
+   if your host lets you. If it doesn't, put it inside the public folder next to
+   `api.php`. That's still safe: the web server runs `.php` files instead of
+   sending their contents.
+2. Upload everything in `public/` into your website folder, or into a subfolder
+   such as `feets/`. Every URL is relative, so a subfolder works fine.
+3. Open the site and enter the `app_password` from `feets-config.php` when
+   asked. The browser remembers it.
 
-## Run
+The `tracks` table is created automatically on the first request.
+
+## Run locally
 
 ```sh
-cd ~/Code/feets
-.venv/bin/python server.py
+cd ~/Code/feets/public
+php -S localhost:8000
 ```
 
-Open http://localhost:8000.
+Open http://localhost:8000. The database has to accept connections from your
+computer for this to work. Many shared hosts only allow connections from their
+own web servers.
 
 ## Use
 
@@ -40,28 +41,20 @@ Open http://localhost:8000.
 
 | File                 | Purpose                                                  |
 |----------------------|----------------------------------------------------------|
-| `server.py`          | Serves `public/` and stores tracks in MySQL. It's the only backend code. |
-| `config.ini`         | Database credentials and server settings. Ignored by git. |
+| `feets-config.php`   | Database credentials and the app password. Ignored by git. |
+| `public/api.php`     | Reads and writes tracks in MySQL. It's the only backend code. |
 | `public/index.html`  | Page layout. Loads Leaflet from a CDN.                   |
 | `public/app.js`      | Map setup, track list UI, file upload handling.          |
 | `public/gpx.js`      | Parses GPX tracks, routes and waypoints in the browser, and works out distance. |
-| `public/store.js`    | Talks to the server's `/api/tracks` endpoints.           |
+| `public/store.js`    | Calls `api.php`, and asks for the app password when needed. |
 | `public/style.css`   | Styles.                                                  |
-
-Only `public/` is served to the browser, so `config.ini` and `server.py` can't
-be downloaded from the app.
-
-## Database
-
-There's one table, `tracks`. Each row holds:
-- the original GPX file (`gpx`)
-- the parsed points the map draws (`geometry`, stored as JSON text)
-- the name, colour, visible flag, distance and date
 
 ## Notes
 
-- **No login.** Anyone who can reach the page can add or delete tracks. That's
-  why it listens on `127.0.0.1` (this computer only) by default.
-- **Large files.** A GPX file bigger than the MySQL server's `max_allowed_packet`
-  setting will fail to upload. The default is 64 MB on MySQL 8, but some hosts set
-  it lower.
+- **App password.** Every API request has to include the app password. Without it,
+  nobody can see or change your tracks. The page itself, with an empty map, is
+  still public.
+- **Use HTTPS.** Open the site over `https://` so the password is encrypted on its
+  way to the server.
+- **Large files.** Uploads larger than PHP's `post_max_size` (often 8 MB on shared
+  hosting) or MySQL's `max_allowed_packet` will fail.

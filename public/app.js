@@ -74,11 +74,11 @@ function render() {
       map.fitBounds(layer.getBounds(), { padding: [30, 30] });
     };
 
-    const download = document.createElement('a');
+    const download = document.createElement('button');
     download.className = 'download';
-    download.href = Store.gpxUrl(track.id);
     download.textContent = '↓';
     download.title = 'Download original GPX';
+    download.onclick = () => Store.downloadGpx(track).catch(err => alert(err.message));
 
     const del = document.createElement('button');
     del.className = 'delete';

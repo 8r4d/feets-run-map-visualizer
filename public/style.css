@@ -94,25 +94,21 @@ body {
   color: #777;
 }
 
-#track-list button.delete {
+#track-list button.delete,
+#track-list button.download {
   border: none;
   background: none;
   color: #999;
   cursor: pointer;
   font-size: 16px;
+  padding: 0 2px;
 }
 
 #track-list button.delete:hover {
   color: #c00;
 }
 
-#track-list a.download {
-  color: #999;
-  text-decoration: none;
-  font-size: 15px;
-}
-
-#track-list a.download:hover {
+#track-list button.download:hover {
   color: #2a7ae2;
 }
 
