@@ -25,6 +25,11 @@ body {
   gap: 12px;
 }
 
+/* Keep the controls full size when the track list overflows. */
+#sidebar > * {
+  flex-shrink: 0;
+}
+
 #sidebar h1 {
   margin: 0;
   font-size: 20px;
@@ -32,6 +37,11 @@ body {
 
 #map {
   flex: 1;
+}
+
+/* Dark base map for the heatmap: inverts the light OSM tiles. */
+.dark-tiles {
+  filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9) saturate(0.4);
 }
 
 #dropzone {
@@ -116,6 +126,32 @@ body {
 
 #fit-all {
   padding: 6px;
+}
+
+#mode {
+  display: flex;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+#mode button {
+  flex: 1;
+  padding: 6px;
+  font: inherit;
+  color: #444;
+  background: #fff;
+  border: none;
+  cursor: pointer;
+}
+
+#mode button + button {
+  border-left: 1px solid #ccc;
+}
+
+#mode button[aria-pressed="true"] {
+  color: #fff;
+  background: #2a7ae2;
 }
 
 #user-bar {

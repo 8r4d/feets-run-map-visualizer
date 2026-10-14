@@ -11,13 +11,77 @@ const baseLayers = {
     maxZoom: 17,
     attribution: '&copy; OpenStreetMap contributors, SRTM | &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)',
   }),
+  // OpenStreetMap tiles darkened with a CSS filter (see .dark-tiles in style.css).
+  'Dark': L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    className: 'dark-tiles',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  }),
 };
-baseLayers['OpenStreetMap'].addTo(map);
+let baseLayer = baseLayers['OpenStreetMap'].addTo(map);
+map.on('baselayerchange', e => { baseLayer = e.layer; });
 L.control.layers(baseLayers).addTo(map);
 L.control.scale().addTo(map);
 
+function setBaseLayer(layer) {
+  if (layer === baseLayer) return;
+  map.removeLayer(baseLayer);
+  map.addLayer(layer); // fires baselayerchange, which updates baseLayer and the layer control
+}
+
 // id -> { track, layer }
 const loaded = new Map();
+
+// --- Heatmap ---
+// Every visible track is drawn as a faint line on one canvas, so routes you
+// repeat stack up and glow brighter.
+const HEAT_COLOR = '#ff5a1f';
+const heatRenderer = L.canvas({ padding: 0.5 });
+let heatLayer = null;
+let heatmap = false;
+let baseBeforeHeatmap = null;
+
+function drawHeatmap() {
+  if (heatLayer) heatLayer.remove();
+  heatLayer = L.layerGroup();
+  for (const { track } of loaded.values()) {
+    if (!track.visible) continue;
+    for (const seg of track.segments) {
+      // A wide, very faint halo plus a thin core line.
+      L.polyline(seg, { renderer: heatRenderer, interactive: false, color: HEAT_COLOR, weight: 8, opacity: 0.03 }).addTo(heatLayer);
+      L.polyline(seg, { renderer: heatRenderer, interactive: false, color: HEAT_COLOR, weight: 2.5, opacity: 0.15 }).addTo(heatLayer);
+    }
+  }
+  heatLayer.addTo(map);
+}
+
+// Puts the right layers on the map for the current mode and visibility.
+function syncLayers() {
+  for (const { track, layer } of loaded.values()) {
+    if (track.visible && !heatmap) layer.addTo(map);
+    else layer.remove();
+  }
+  if (heatmap) drawHeatmap();
+  else if (heatLayer) heatLayer.remove();
+}
+
+function setMode(mode) {
+  const heat = mode === 'heatmap';
+  if (heat !== heatmap) {
+    if (heat) {
+      baseBeforeHeatmap = baseLayer;
+      setBaseLayer(baseLayers['Dark']);
+    } else if (baseBeforeHeatmap) {
+      setBaseLayer(baseBeforeHeatmap);
+    }
+  }
+  heatmap = heat;
+  for (const button of document.querySelectorAll('#mode button')) {
+    button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
+  }
+  try { localStorage.setItem('feets-mode', mode); } catch {}
+  syncLayers();
+}
 
 function buildLayer(track) {
   const group = L.featureGroup();
@@ -93,20 +157,19 @@ function render() {
   document.getElementById('summary').textContent = loaded.size
     ? `${loaded.size} track${loaded.size === 1 ? '' : 's'} · ${formatKm(total)} shown (${visibleCount} visible)`
     : 'No tracks yet.';
+
+  syncLayers();
 }
 
 function show(track) {
-  const layer = buildLayer(track);
-  if (track.visible) layer.addTo(map);
-  loaded.set(track.id, { track, layer });
+  loaded.set(track.id, { track, layer: buildLayer(track) });
 }
 
 async function setVisible(id, visible) {
   const entry = loaded.get(id);
   entry.track.visible = visible;
-  visible ? entry.layer.addTo(map) : entry.layer.remove();
-  await Store.update(entry.track);
   render();
+  await Store.update(entry.track);
 }
 
 async function removeTrack(id) {
@@ -178,6 +241,13 @@ document.addEventListener('drop', e => {
 });
 
 document.getElementById('fit-all').onclick = fitAll;
+
+for (const button of document.querySelectorAll('#mode button')) {
+  button.onclick = () => setMode(button.dataset.mode);
+}
+try {
+  if (localStorage.getItem('feets-mode') === 'heatmap') setMode('heatmap');
+} catch {}
 
 // --- Accounts ---
 const auth = document.getElementById('auth');
