@@ -123,7 +123,9 @@ function setMode(mode) {
   for (const button of document.querySelectorAll('#mode button')) {
     button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
   }
-  try { localStorage.setItem('feets-mode', mode); } catch {}
+  if (!publicView()) {
+    try { localStorage.setItem('feets-mode', mode); } catch {}
+  }
   fadeInput.value = savedFade(mode);
   applyFade();
   syncLayers();
@@ -277,6 +279,12 @@ function show(track) {
 
 // View-only accounts can show and hide tracks too, but only in their own browser.
 const readOnly = () => Boolean(currentUser && currentUser.readOnly);
+
+// Opened with a view link: a page of shared routes and nothing else (see
+// signedIn). A function declaration, as setMode runs before currentUser exists.
+function publicView() {
+  return document.body.classList.contains('public-view');
+}
 
 async function setVisible(id, visible) {
   const entry = loaded.get(id);
@@ -1031,9 +1039,11 @@ function drawPlan() {
   const last = plan.waypoints.length - 1;
   plan.waypoints.forEach((p, i) => {
     const kind = i === 0 ? 'start' : i === last ? 'end' : 'via';
+    if (publicView() && kind === 'via') return;  // nothing to edit, so just the ends
     const marker = L.marker(p, {
-      draggable: true,
-      title: 'Drag to move, click to remove',
+      draggable: !publicView(),
+      title: publicView() ? (kind === 'start' ? 'Start' : 'Finish') : 'Drag to move, click to remove',
+      interactive: !publicView(),
       icon: L.divIcon({ className: `plan-point ${kind}`, iconSize: kind === 'via' ? [12, 12] : [16, 16] }),
       zIndexOffset: kind === 'end' ? 200 : kind === 'start' ? 100 : 0,
     });
@@ -1067,7 +1077,9 @@ function renderPlan() {
   const title = document.getElementById('plan-title');
   title.textContent = (plan.name || 'New route') + (plan.dirty && n > 1 ? ' (not saved)' : '');
   const stats = document.getElementById('plan-stats');
-  if (n < 2) {
+  if (publicView()) {
+    stats.textContent = n > 1 ? km(lineMetres(routePoints(plan))) : routes.length ? 'Pick a route below.' : 'No routes shared yet.';
+  } else if (n < 2) {
     stats.textContent = !areas.length ? 'Add an area in Streets mode first: routes follow its streets.'
       : n ? 'Now click where to go next.' : 'Click the map to start a route. Each click adds a point, '
         + 'routed along the streets of your areas. Drag a point to move it, click it to remove it.';
@@ -1120,7 +1132,10 @@ function openRoute(r) {
   if (!mayDiscard()) return;
   resetPlan(r);
   const points = routePoints(r.data);
-  if (points.length) map.fitBounds(L.latLngBounds(points), { padding: [40, 40] });
+  if (points.length) {
+    map.invalidateSize();  // the panel may have just changed size (on a phone it sits under the map)
+    map.fitBounds(L.latLngBounds(points), { padding: [40, 40], maxZoom: 17 });
+  }
 }
 
 async function deleteRoute(r) {
@@ -1157,7 +1172,7 @@ async function loadRoutes() {
 }
 
 map.on('click', e => {
-  if (!planMode) return;
+  if (!planMode || publicView()) return;
   const p = snapClick(e.latlng);
   if (p) addWaypoint(p);
 });
@@ -1304,6 +1319,20 @@ async function loadTracks() {
 
 let currentUser = null;
 
+// A view link: the owner's saved routes on a plain map, with the one in the
+// link (or the newest) open. The server sends nothing else to a view link.
+async function showPublicView(user) {
+  document.getElementById('user-name').textContent = user.owner;
+  document.getElementById('user-bar').firstElementChild.firstChild.textContent = 'Routes shared by ';
+  setMode('plan');
+  fadeInput.value = 0;
+  applyFade();
+  await loadRoutes();
+  const route = routes.find(r => r.id === routeParam) || routes[0];
+  if (route) openRoute(route);
+  else renderPlan();
+}
+
 async function signedIn(user) {
   currentUser = user;
   auth.hidden = true;
@@ -1315,6 +1344,7 @@ async function signedIn(user) {
   document.getElementById('user-bar').firstElementChild.firstChild.textContent = user.viewLink ? 'Viewing ' : 'Signed in as ';
   document.getElementById('logout').textContent = user.viewLink ? 'Log in' : 'Log out';
   document.body.classList.toggle('read-only', Boolean(user.readOnly));
+  document.body.classList.toggle('public-view', Boolean(user.viewLink));
   document.getElementById('invite').hidden = !user.isAdmin;
   document.getElementById('invite-viewer').hidden = !user.isAdmin;
   // View-only accounts have nothing to add and no settings.
@@ -1323,6 +1353,10 @@ async function signedIn(user) {
   document.querySelector('#settings-box summary').textContent = user.isAdmin ? 'Account & admin' : 'Account';
   document.getElementById('reset-link').hidden = !user.isAdmin;
   document.getElementById('user-bar').hidden = false;
+  if (user.viewLink) {
+    await showPublicView(user);
+    return;
+  }
   trophyBox.hidden = false;
   clearTracks();
   await loadTracks();
@@ -1342,6 +1376,7 @@ async function signedIn(user) {
 
 function signedOut() {
   currentUser = null;
+  document.body.classList.remove('public-view');
   Store.setViewCode('');  // a turned-off view link: logging in works normally
   document.body.classList.remove('read-only');
   clearTimeout(stravaResumeTimer);

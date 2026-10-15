@@ -36,18 +36,19 @@ their own empty track list.
 
 ## Sharing without an account
 
-**Share view link**, under **Account**, makes a link that shows your map to
-anyone who has it, with no login: for a running club, say.
-- **What they see and can do:** the same as a view-only account. They see your
-  tracks, heatmap, street areas and saved routes, can plan their own routes,
-  and can download routes as GPX. They can't change anything.
+**Share view link**, under **Account**, makes a link that shows your saved
+routes to anyone who has it, with no login: for a running club, say.
+- **What they see:** a plain map and the list of your saved routes, with the
+  newest one open. They can switch between routes and download each as GPX.
+  Nothing else: no tracks, heatmap, street areas, trophies or route editing.
+  The server sends a view link nothing but the routes.
 - **One route:** in **Plan**, click **Link** next to a saved route to get a
   link that opens straight to that route. It uses your newest view link, or
   offers to make one.
 - **Turning it off:** each link is listed under **Account** with **Turn off**.
   Anyone using it then sees the login screen.
-- The link holds the access, so anyone it's forwarded to can use it too. It
-  includes your tracks, and runs usually start and end at home.
+- The link holds the access, so anyone it's forwarded to can use it too.
+- To show someone your whole map instead, use **Invite viewer**.
 
 When you change any JS or CSS file, raise the `?v=` number on its link in
 `index.html`. Otherwise the host may keep serving the old file.

@@ -632,6 +632,22 @@ body {
 .read-only #track-list button.delete,
 .read-only #area-add,
 .read-only #area-picker,
+/* A view link shows saved routes only */
+.public-view #trophies-box,
+.public-view #mode,
+.public-view #fade-control,
+.public-view #plan-edit,
+.public-view #filters,
+.public-view #list-header,
+.public-view #track-list,
+.public-view #more {
+  display: none !important;
+}
+
+.public-view #plan-title {
+  font-size: 16px;
+}
+
 .read-only #area-tools,
 .read-only #plan-save,
 .read-only #todo-list .skip {

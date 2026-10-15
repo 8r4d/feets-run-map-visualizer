@@ -19,7 +19,8 @@
 //   POST api.php?action=view_link_delete  {code}
 //
 // View links: any request with ?view=CODE is answered as a view-only account
-// of the link's owner, with no login, until the owner turns the link off.
+// of the link's owner that can only list saved routes, with no login, until
+// the owner turns the link off.
 //
 // Tracks (must be logged in; each user only sees their own)
 //   GET  api.php                       list tracks
@@ -1559,12 +1560,14 @@ $userId = (int) $user['id'];
 
 // View-only accounts may only read their inviter's tracks and areas.
 // Everything else - uploads, edits, deletes, downloads, Strava, settings - is refused here.
+// View links are narrower still: they show saved routes and nothing else.
 if (!empty($user['read_only'])) {
     $userId = (int) $user['data_owner'];
     if ($method === 'GET' && $action === 'strava_status') {
         send_json(['configured' => false, 'connected' => false, 'athlete' => null, 'autoImport' => false]);
     }
-    if ($method !== 'GET' || !in_array($action, ['', 'areas', 'achievements', 'routes'], true) || isset($_GET['gpx'])) {
+    $readable = !empty($user['view_link']) ? ['routes'] : ['', 'areas', 'achievements', 'routes'];
+    if ($method !== 'GET' || !in_array($action, $readable, true) || isset($_GET['gpx'])) {
         fail('This is a view-only account', 403);
     }
 }
