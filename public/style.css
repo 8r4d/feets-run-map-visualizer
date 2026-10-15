@@ -656,11 +656,13 @@ body {
 
 /* Collapsible boxes inside the Streets and Plan panels */
 #todo summary,
+#unrunnable summary,
 #routes summary {
   font-size: 13px;
 }
 
 #todo .count,
+#unrunnable .count,
 #routes .count {
   font-weight: normal;
   color: #777;
@@ -751,18 +753,43 @@ body {
   font-size: 12px;
 }
 
-#unrunnable summary {
-  cursor: pointer;
-  color: #333;
+#unrunnable ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-#unrunnable ul {
-  margin: 4px 0 0;
-  padding-left: 18px;
+#unrunnable li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+#unrunnable .name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #222;
+  text-decoration: none;
+  text-align: left;
+}
+
+#unrunnable .name:hover {
+  text-decoration: underline;
 }
 
 #unrunnable li small {
+  margin-right: auto;
   color: #777;
+  white-space: nowrap;
+}
+
+#unrunnable .again {
+  font-size: 12px;
 }
 
 .street-popup {

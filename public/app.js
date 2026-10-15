@@ -609,20 +609,20 @@ function renderUnrunnable() {
     marked.get(key).len += s.len;
   });
   box.hidden = !marked.size;
-  box.querySelector('summary').textContent = `Unrunnable streets (${marked.size})`;
+  box.querySelector('.count').textContent = `(${marked.size})`;
   box.querySelector('ul').replaceChildren(...[...marked.values()].map(m => {
     const li = document.createElement('li');
     const name = document.createElement('button');
-    name.className = 'link-button';
+    name.className = 'link-button name';
     name.textContent = m.label;
     name.title = 'Show on map';
     name.onclick = () => showGroup(m);
     const info = document.createElement('small');
-    info.textContent = ` ${CAT_NAMES[m.cat]} · ${km(m.len)} `;
+    info.textContent = `${CAT_NAMES[m.cat]} · ${km(m.len)}`;
     li.append(name, info);
     if (!readOnly()) {
       const again = document.createElement('button');
-      again.className = 'link-button';
+      again.className = 'link-button again';
       again.textContent = 'Count again';
       again.onclick = () => setUnrunnable(m.ways[0], false);
       li.append(again);
@@ -730,10 +730,14 @@ function showGroup(g) {
 
 map.on('moveend', () => { if (streetsMode && coverage) renderTodo(); });
 
-// The "Still to run" and "Saved routes" boxes remember whether they're open.
-for (const id of ['todo', 'routes']) {
+// The "Still to run", "Unrunnable streets" and "Saved routes" boxes remember
+// whether they're open.
+for (const id of ['todo', 'unrunnable', 'routes']) {
   const box = document.getElementById(id);
-  try { if (localStorage.getItem(`feets-${id}-open`) === 'no') box.open = false; } catch {}
+  try {
+    const saved = localStorage.getItem(`feets-${id}-open`);
+    if (saved) box.open = saved === 'yes';
+  } catch {}
   box.addEventListener('toggle', () => {
     try { localStorage.setItem(`feets-${id}-open`, box.open ? 'yes' : 'no'); } catch {}
     if (id === 'todo' && box.open && streetsMode && coverage) renderTodo();
