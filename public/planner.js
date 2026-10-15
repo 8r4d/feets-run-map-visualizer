@@ -4,12 +4,14 @@
 //
 // Points are rounded to ~1 m by osm.js, so where two OSM ways share a node
 // they share a point here too, and that's where the graph joins them.
-// Crossings and sidewalks aren't in the area data, and runs stop at the area
-// boundary, so the end of a run is also joined to any street within BRIDGE
-// metres. Streets marked unrunnable are left out.
+// Crossings and sidewalks aren't in the area data, so the end of a run is
+// also joined to any street within BRIDGE metres, and a way cut up by area
+// boundaries is joined back together (see build). Streets marked unrunnable
+// are left out.
 const Planner = (() => {
   const SNAP = 150;   // metres: a click must be this close to a street
   const BRIDGE = 15;  // metres: run ends this close to another street are joined
+  const GAP = 500;    // metres: the most a way's pieces cut by a boundary are joined across
   const CELL = 50;    // grid cell size in metres for finding nearby points
 
   function distance(lat1, lon1, lat2, lon2) {
@@ -48,19 +50,28 @@ const Planner = (() => {
     };
 
     const ends = [];
+    const pieces = new Map();  // OSM way id -> [{ start, end }] of its runs, from every area
+    const seen = new Set();
     for (const area of areas) {
       const excluded = new Set(area.excluded || []);
       for (const s of area.data.streets) {
         if (excluded.has(s.id)) continue;
         for (const run of s.runs) {
-          let prev = node(run[0]);
-          ends.push(prev);
+          const start = node(run[0]);
+          const end = node(run[run.length - 1]);
+          // Overlapping areas (a district and a neighbourhood in it) repeat runs.
+          const key = `${s.id}:${start}:${end}:${run.length}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          let prev = start;
           for (let i = 1; i < run.length; i++) {
             const cur = node(run[i]);
             if (cur !== prev) link(prev, cur);
             prev = cur;
           }
-          ends.push(prev);
+          ends.push(start, end);
+          if (!pieces.has(s.id)) pieces.set(s.id, []);
+          pieces.get(s.id).push({ start, end });
         }
       }
     }
@@ -73,9 +84,28 @@ const Planner = (() => {
     }
     const graph = { lat, lon, adj, grid };
 
+    const linked = (a, b) => adj[a].some((n, k) => k % 2 === 0 && n === b);
     for (const e of new Set(ends)) {
       for (const i of near(graph, lat[e], lon[e], BRIDGE)) {
-        if (i !== e && !adj[e].some((n, k) => k % 2 === 0 && n === i)) link(e, i);
+        if (i !== e && !linked(e, i)) link(e, i);
+      }
+    }
+
+    // A way crossing an area boundary loses the piece between its last point
+    // inside and its first point outside, which on a long straight road can
+    // be hundreds of metres; a road along the boundary gets chopped up. An OSM
+    // way is straight between its points, and its points keep their order in
+    // every area, so each piece's end is joined to the nearest start of
+    // another piece of the same way.
+    for (const list of pieces.values()) {
+      for (const a of list) {
+        let best = -1, bestD = GAP;
+        for (const b of list) {
+          if (b === a || b.start === a.end) continue;
+          const d = distance(lat[a.end], lon[a.end], lat[b.start], lon[b.start]);
+          if (d < bestD) { bestD = d; best = b.start; }
+        }
+        if (best >= 0 && !linked(a.end, best)) link(a.end, best);
       }
     }
     return graph;
