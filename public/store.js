@@ -63,6 +63,8 @@ const Store = (() => {
     areas: () => json('GET', '?action=areas'),
     saveArea: area => json('POST', '?action=area_save', area),  // { osmId, name, data } → stored area
     deleteArea: id => json('POST', `?action=area_delete&id=${id}`),
+    // Marks OSM ways unrunnable (or counts them again); resolves to { excluded: [way ids] }.
+    excludeWays: (areaId, ways, excluded) => json('POST', `?action=area_exclude&id=${areaId}`, { ways, excluded }),
 
     // Tracks
     all: () => json('GET', ''),

@@ -453,6 +453,10 @@ body {
   background: repeating-linear-gradient(90deg, #555 0 4px, transparent 4px 7px);
 }
 
+.legend span.dotted::before {
+  background: repeating-linear-gradient(90deg, #8a8a8a 0 2px, transparent 2px 6px);
+}
+
 .coverage-note {
   display: block;
   color: #777;
@@ -493,7 +497,7 @@ body {
 
 #todo-list li {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 8px;
   padding: 5px 8px;
@@ -534,6 +538,39 @@ body {
 .read-only #track-list button.delete,
 .read-only #area-add,
 .read-only #area-picker,
-.read-only #area-tools {
+.read-only #area-tools,
+.read-only #todo-list .skip {
   display: none !important;
+}
+
+#todo-list .skip {
+  font-size: 12px;
+}
+
+#unrunnable summary {
+  cursor: pointer;
+  color: #333;
+}
+
+#unrunnable ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+#unrunnable li small {
+  color: #777;
+}
+
+.street-popup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 150px;
+}
+
+.street-popup button {
+  margin-top: 4px;
+  padding: 4px 8px;
+  font: inherit;
+  cursor: pointer;
 }

@@ -399,7 +399,7 @@ sportSelect.onchange = () => setFilter('sport', sportSelect.value);
 // Pick an OSM area (e.g. a neighbourhood); its roads, paths and trails are
 // coloured by how much of each the tracks on the map have covered.
 // osm.js fetches areas, coverage.js does the matching.
-const STREET_COLORS = { done: '#2e9e44', started: '#f0a020', todo: '#d64545' };
+const STREET_COLORS = { done: '#2e9e44', started: '#f0a020', todo: '#d64545', unrunnable: '#8a8a8a' };
 const CAT_LABELS = { road: 'Roads', path: 'Paths', trail: 'Trails' };
 const CAT_NAMES = { road: 'road', path: 'path', trail: 'trail' };
 const TODO_LIMIT = 30;
@@ -454,7 +454,7 @@ function setActiveArea(id) {
   const area = areas.find(a => String(a.id) === String(id));
   areaSelect.value = area ? String(area.id) : '';
   try { localStorage.setItem('feets-area', area ? String(area.id) : ''); } catch {}
-  activeArea = area ? { area, prep: Coverage.prepare(area) } : null;
+  activeArea = area ? { area, prep: Coverage.prepare(area, new Set(area.excluded || [])) } : null;
   coverage = null;
   document.getElementById('area-tools').hidden = !area;
   if (!area) {
@@ -498,15 +498,21 @@ function drawStreets() {
   }
   data.streets.forEach((s, w) => {
     const f = coverage.result.fraction[w];
-    const style = {
-      renderer: streetRenderer,
-      color: streetColor(f),
-      weight: s.cat === 'road' ? 4 : 3,
-      opacity: 0.9,
-      dashArray: s.cat === 'trail' ? '4 5' : null,
-    };
-    const tip = `${s.name || `Unnamed ${CAT_NAMES[s.cat]}`} · ${Math.round(f * 100)}%`;
-    for (const run of s.runs) L.polyline(run, style).bindTooltip(tip, { sticky: true }).addTo(streetLayer);
+    const unrunnable = activeArea.prep.excluded[w];
+    const style = unrunnable
+      ? { renderer: streetRenderer, color: STREET_COLORS.unrunnable, weight: 3, opacity: 0.8, dashArray: '2 6' }
+      : {
+        renderer: streetRenderer,
+        color: streetColor(f),
+        weight: s.cat === 'road' ? 4 : 3,
+        opacity: 0.9,
+        dashArray: s.cat === 'trail' ? '4 5' : null,
+      };
+    const tip = `${s.name || `Unnamed ${CAT_NAMES[s.cat]}`} · ${unrunnable ? 'unrunnable' : Math.round(f * 100) + '%'}`;
+    for (const run of s.runs) {
+      L.polyline(run, style).bindTooltip(tip, { sticky: true })
+        .on('click', e => streetPopup(w, e.latlng)).addTo(streetLayer);
+    }
   });
   streetLayer.addTo(map);
 }
@@ -538,11 +544,13 @@ function renderCoverage() {
   const legend = document.createElement('div');
   legend.className = 'legend';
   legend.innerHTML = `<span style="--c:${STREET_COLORS.done}">done</span><span style="--c:${STREET_COLORS.started}">started</span>`
-    + `<span style="--c:${STREET_COLORS.todo}">not yet</span><span class="dashed">trail</span>`;
+    + `<span style="--c:${STREET_COLORS.todo}">not yet</span><span class="dashed">trail</span>`
+    + `<span class="dotted">unrunnable</span>`;
   const note = document.createElement('small');
   note.className = 'coverage-note';
   note.textContent = `Counting the ${tracks} ${tracks === 1 ? 'track' : 'tracks'} on the map. ` +
-    'Use the filters below to count only some, e.g. runs.';
+    'Use the filters below to count only some, e.g. runs.' +
+    (readOnly() ? '' : ' Click a street to mark it unrunnable.');
   box.replaceChildren(...cats.map(c => progressRow(CAT_LABELS[c], summary.total[c])), legend, note);
 
   const hoods = activeArea.area.data.hoods;
@@ -558,7 +566,86 @@ function renderCoverage() {
   const table = hoodBox.querySelector('table');
   table.innerHTML = head + rows.join('');
   table.querySelectorAll('tr + tr th').forEach((th, i) => { th.textContent = hoods[i].name; });
+  renderUnrunnable();
   renderTodo();
+}
+
+// The streets marked unrunnable, each with a way to count it again.
+function renderUnrunnable() {
+  const box = document.getElementById('unrunnable');
+  const { streets } = activeArea.area.data;
+  const marked = new Map();
+  streets.forEach((s, w) => {
+    if (!activeArea.prep.excluded[w]) return;
+    const key = s.name ? `${s.cat}|${s.name}` : `#${s.id}`;
+    if (!marked.has(key)) marked.set(key, { label: s.name || `Unnamed ${CAT_NAMES[s.cat]}`, cat: s.cat, ways: [], len: 0 });
+    marked.get(key).ways.push(w);
+    marked.get(key).len += s.len;
+  });
+  box.hidden = !marked.size;
+  box.querySelector('summary').textContent = `Unrunnable streets (${marked.size})`;
+  box.querySelector('ul').replaceChildren(...[...marked.values()].map(m => {
+    const li = document.createElement('li');
+    const name = document.createElement('button');
+    name.className = 'link-button';
+    name.textContent = m.label;
+    name.title = 'Show on map';
+    name.onclick = () => showGroup(m);
+    const info = document.createElement('small');
+    info.textContent = ` ${CAT_NAMES[m.cat]} · ${km(m.len)} `;
+    li.append(name, info);
+    if (!readOnly()) {
+      const again = document.createElement('button');
+      again.className = 'link-button';
+      again.textContent = 'Count again';
+      again.onclick = () => setUnrunnable(m.ways[0], false);
+      li.append(again);
+    }
+    return li;
+  }));
+}
+
+// Clicking a street: what it is, and (unless view-only) a way to mark it
+// unrunnable or count it again.
+function streetPopup(w, latlng) {
+  const s = activeArea.area.data.streets[w];
+  const unrunnable = activeArea.prep.excluded[w];
+  const box = document.createElement('div');
+  box.className = 'street-popup';
+  const title = document.createElement('strong');
+  title.textContent = s.name || `Unnamed ${CAT_NAMES[s.cat]}`;
+  const info = document.createElement('div');
+  info.textContent = unrunnable
+    ? 'Marked unrunnable'
+    : `${CAT_NAMES[s.cat]} · ${Math.round(coverage.result.fraction[w] * 100)}% run`;
+  box.append(title, info);
+  if (!readOnly()) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = unrunnable ? 'Count it again' : 'Mark unrunnable';
+    if (s.name) button.title = `Applies to all of ${s.name} in this area`;
+    button.onclick = () => setUnrunnable(w, !unrunnable);
+    box.append(button);
+  }
+  L.popup().setLatLng(latlng).setContent(box).openOn(map);
+}
+
+// Marks a street unrunnable, or counts it again. A named street changes
+// everywhere in the area (a big road often crosses several neighbourhoods);
+// an unnamed path or trail just where it is.
+async function setUnrunnable(w, unrunnable) {
+  const { area } = activeArea;
+  const s = area.data.streets[w];
+  const ways = s.name
+    ? area.data.streets.filter(o => o.name === s.name && o.cat === s.cat).map(o => o.id)
+    : [s.id];
+  try {
+    area.excluded = (await Store.excludeWays(area.id, ways, unrunnable)).excluded;
+    map.closePopup();
+    setActiveArea(area.id);  // re-index without (or with) those streets, then recount
+  } catch (err) {
+    alert(err.message);
+  }
 }
 
 // Unfinished streets, nearest to the middle of the map first.
@@ -583,7 +670,12 @@ function renderTodo() {
   list.replaceChildren(...items.map(({ g }) => {
     const li = document.createElement('li');
     const share = g.len ? g.covered / g.len : 0;
-    li.innerHTML = '<span class="swatch"></span><div class="name"><strong></strong><small></small></div>';
+    li.innerHTML = '<span class="swatch"></span><div class="name"><strong></strong><small></small></div>'
+      + '<button class="link-button skip" type="button" title="Mark unrunnable">Skip</button>';
+    li.querySelector('.skip').onclick = e => {
+      e.stopPropagation();
+      setUnrunnable(g.ways[0], true);
+    };
     li.querySelector('.swatch').style.background = streetColor(share);
     li.querySelector('strong').textContent = groupLabel(g);
     li.querySelector('small').textContent = [

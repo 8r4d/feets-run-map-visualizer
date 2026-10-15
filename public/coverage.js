@@ -6,6 +6,8 @@
 // several streets are in range, only the nearest gets credit, which keeps a
 // path from being ticked off by running the road right beside it. A street is
 // done when DONE of its points are visited, which allows for GPS drift.
+// Streets marked unrunnable are left out entirely: they get no credit, can't
+// take credit from the street beside them, and don't count in the totals.
 const Coverage = (() => {
   const RADIUS = 20;
   const CELL = 25;        // grid cell size in metres; must be >= RADIUS
@@ -14,8 +16,8 @@ const Coverage = (() => {
   const DONE = 0.9;
 
   // Projects to metres on a flat plane centred on the area, and indexes
-  // every street point in a grid.
-  function prepare(area) {
+  // every street point in a grid. excludedIds: OSM way ids marked unrunnable.
+  function prepare(area, excludedIds = new Set()) {
     const streets = area.data.streets;
     let n = 0, lat0 = 0, lon0 = 0;
     for (const s of streets) for (const r of s.runs) for (const [lat, lon] of r) { lat0 += lat; lon0 += lon; n++; }
@@ -46,7 +48,10 @@ const Coverage = (() => {
       }
     });
     first[streets.length] = i;
+    const excluded = new Uint8Array(streets.length);
+    streets.forEach((s, w) => { excluded[w] = excludedIds.has(s.id) ? 1 : 0; });
     for (let k = 0; k < n; k++) {
+      if (excluded[owner[k]]) continue;  // not in the grid, so never matched
       const key = cellKey(Math.floor(x[k] / CELL), Math.floor(y[k] / CELL));
       if (!grid.has(key)) grid.set(key, []);
       grid.get(key).push(k);
@@ -58,7 +63,7 @@ const Coverage = (() => {
       minLon = Math.min(minLon, lon); maxLon = Math.max(maxLon, lon);
     }
     const pad = 0.001;  // ~100 m
-    return { area, lat0, lon0, kx, ky, x, y, angle, owner, first, grid, n,
+    return { area, excluded, lat0, lon0, kx, ky, x, y, angle, owner, first, grid, n,
              bounds: [minLat - pad, minLon - pad, maxLat + pad, maxLon + pad] };
   }
 
@@ -138,6 +143,7 @@ const Coverage = (() => {
     const byHood = hoods.map(blank);
     const groups = new Map();
     streets.forEach((s, w) => {
+      if (prep.excluded[w]) return;
       const f = result.fraction[w];
       for (const t of [total, byHood[s.hood]]) {
         if (!t) continue;

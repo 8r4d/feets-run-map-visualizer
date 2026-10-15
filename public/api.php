@@ -39,6 +39,7 @@
 //   GET  api.php?action=areas                all of the user's areas, with streets
 //   POST api.php?action=area_save            {osmId, name, data} prepared by osm.js; replaces an existing one
 //   POST api.php?action=area_delete&id=ID
+//   POST api.php?action=area_exclude&id=ID   {ways, excluded}: mark OSM ways unrunnable (or count them again)
 
 const SESSION_COOKIE = 'feets_session';
 const SESSION_DAYS = 30;
@@ -121,6 +122,7 @@ const SCHEMA = [
       osm_id      BIGINT       NOT NULL,  -- OSM boundary relation
       name        VARCHAR(255) NOT NULL,
       data        LONGTEXT     NOT NULL,  -- JSON: {boundary, hoods, streets}
+      excluded    LONGTEXT     NULL,      -- JSON array of OSM way ids marked unrunnable
       fetched_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
       UNIQUE (user_id, osm_id)
     ) CHARACTER SET utf8mb4
@@ -228,6 +230,10 @@ function db(): PDO {
             $pdo->exec('ALTER TABLE users ADD COLUMN read_only BOOLEAN NOT NULL DEFAULT FALSE AFTER is_admin,
                         ADD COLUMN data_owner INT NULL AFTER read_only');
             $pdo->exec('ALTER TABLE invites ADD COLUMN read_only BOOLEAN NOT NULL DEFAULT FALSE AFTER created_by');
+        }
+        // ...and unrunnable streets.
+        if (!$pdo->query("SHOW COLUMNS FROM areas LIKE 'excluded'")->fetch()) {
+            $pdo->exec('ALTER TABLE areas ADD COLUMN excluded LONGTEXT NULL AFTER data');
         }
     }
     return $pdo;
@@ -1288,7 +1294,7 @@ const AREA_MAX_BYTES = 8 * 1024 * 1024;
 // Area rows are sent with their stored JSON spliced in, not decoded and re-encoded.
 function area_json(array $row): string {
     $meta = json_encode(['id' => (int) $row['id'], 'osmId' => (int) $row['osm_id'], 'name' => $row['name'], 'fetchedAt' => $row['fetched_at']]);
-    return substr($meta, 0, -1) . ',"data":' . $row['data'] . '}';
+    return substr($meta, 0, -1) . ',"excluded":' . ($row['excluded'] ?: '[]') . ',"data":' . $row['data'] . '}';
 }
 
 function send_areas(int $userId, ?int $onlyId = null): void {
@@ -1326,6 +1332,29 @@ function area_save(int $userId, array $b): void {
         $id = (int) db()->lastInsertId();
     }
     send_areas($userId, $id);
+}
+
+// Marks OSM ways unrunnable (excluded = true) or counts them again. Stored by
+// way id, separately from the street data, so refreshing the area keeps them.
+function area_exclude(int $userId, int $id, array $b): array {
+    $stmt = db()->prepare('SELECT excluded FROM areas WHERE user_id = ? AND id = ?');
+    $stmt->execute([$userId, $id]);
+    $row = $stmt->fetch();
+    if (!$row) {
+        fail('Area not found', 404);
+    }
+    $set = array_flip(json_decode($row['excluded'] ?: '[]', true));
+    foreach ($b['ways'] ?? [] as $way) {
+        if (!empty($b['excluded'])) {
+            $set[(int) $way] = true;
+        } else {
+            unset($set[(int) $way]);
+        }
+    }
+    $excluded = array_map('intval', array_keys($set));
+    sort($excluded);
+    db()->prepare('UPDATE areas SET excluded = ? WHERE id = ?')->execute([json_encode($excluded), $id]);
+    return ['excluded' => $excluded];
 }
 
 function area_delete(int $userId, int $id): array {
@@ -1396,6 +1425,8 @@ if ($method === 'POST' && $action === 'invite') {
     area_save($userId, read_json());
 } elseif ($method === 'POST' && $action === 'area_delete' && $id) {
     send_json(area_delete($userId, $id));
+} elseif ($method === 'POST' && $action === 'area_exclude' && $id) {
+    send_json(area_exclude($userId, $id, read_json()));
 } elseif ($method === 'POST' && $action === 'strava_auto_on') {
     send_json(strava_auto_on($user, read_json()));
 } elseif ($method === 'POST' && $action === 'strava_auto_off') {

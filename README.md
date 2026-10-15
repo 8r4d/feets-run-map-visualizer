@@ -67,6 +67,17 @@ Things to know:
   street is done when 90% of its points are visited.
 - **Nearest street wins:** where a path runs right beside a road, only the
   nearest one gets credit.
+- **Unrunnable streets:** click a street on the map and choose **Mark
+  unrunnable**, or click **Skip** in the to-do list. Use this for a busy road
+  with no sidewalk, for example.
+  - A named street is marked throughout the area; an unnamed path or trail
+    only where you clicked.
+  - Marked streets turn grey and dotted, and don't count in the totals or the
+    to-do list.
+  - They can't take credit from a path running beside them either.
+  - Undo it with **Count again** in the "Unrunnable streets" list.
+  - Marks are kept when you refresh the area.
+  - Motorways and trunk roads (like the Anthony Henday) never count anyway.
 - **New streets:** OpenStreetMap changes over time. **Refresh from
   OpenStreetMap** fetches the area again.
 - **Where the data comes from:** the browser fetches the data itself, from
