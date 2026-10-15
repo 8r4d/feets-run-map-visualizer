@@ -51,6 +51,7 @@
 // Planned routes (drawn in the browser by planner.js)
 //   GET  api.php?action=routes               all of the user's routes, newest first
 //   POST api.php?action=route_save           {id?, name, distance, data}; with id, replaces that route. Returns it
+//   POST api.php?action=route_rename&id=ID   {name}, returns the route
 //   POST api.php?action=route_delete&id=ID
 //
 // Achievements (worked out in the browser by achievements.js; the server only remembers them)
@@ -1500,6 +1501,20 @@ function route_save(int $userId, array $b): void {
     send_routes($userId, $id);
 }
 
+function route_rename(int $userId, int $id, array $b): void {
+    $name = mb_substr(trim((string) ($b['name'] ?? '')), 0, 255);
+    if ($name === '') {
+        fail('A route needs a name', 400);
+    }
+    $stmt = db()->prepare('SELECT id FROM routes WHERE id = ? AND user_id = ?');
+    $stmt->execute([$id, $userId]);
+    if (!$stmt->fetchColumn()) {
+        fail('Route not found', 404);
+    }
+    db()->prepare('UPDATE routes SET name = ? WHERE id = ?')->execute([$name, $id]);
+    send_routes($userId, $id);
+}
+
 function route_delete(int $userId, int $id): array {
     db()->prepare('DELETE FROM routes WHERE user_id = ? AND id = ?')->execute([$userId, $id]);
     return ['ok' => true];
@@ -1604,6 +1619,8 @@ if ($method === 'POST' && $action === 'invite') {
     send_routes($userId);
 } elseif ($method === 'POST' && $action === 'route_save') {
     route_save($userId, read_json());
+} elseif ($method === 'POST' && $action === 'route_rename' && $id) {
+    route_rename($userId, $id, read_json());
 } elseif ($method === 'POST' && $action === 'route_delete' && $id) {
     send_json(route_delete($userId, $id));
 } elseif ($method === 'GET' && $action === 'achievements') {

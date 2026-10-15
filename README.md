@@ -224,14 +224,16 @@ load quickly. The original GPX is kept for the ↓ download.
 routing service.
 
 1. Switch to **Plan**. The active area's streets are coloured as in Streets
-   mode, so you can aim for the red ones.
+   mode, so you can aim for the red ones. Untick **Show street coverage** for
+   a plain map; routes still follow the streets.
 2. Click the map to add points. Each one is routed along the streets from the
    last. Drag a point to move it, click it to remove it. **Back to start**
    closes the loop.
 3. The panel shows the distance and how much of it is on streets you haven't
    run yet (counting the tracks on the map, as in Streets mode).
-4. **Save** keeps the route under a name; **Download GPX** gives a file for a
-   watch, or to import into Strava as a route.
+4. **Save** keeps the route under a name (a route you opened is saved over);
+   **Download GPX** gives a file for a watch, or to import into Strava as a
+   route. Saved routes can be renamed from the list.
 
 Things to know:
 - Routes only follow streets in areas you've added, and skip streets marked

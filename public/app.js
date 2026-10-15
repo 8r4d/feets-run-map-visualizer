@@ -64,6 +64,10 @@ let streetsMode = false;
 let planMode = false;
 let mapMode = 'tracks';  // tracks, heatmap, streets or plan
 let trackVersion = 0;    // bumped whenever the tracks on the map may have changed
+// Plan mode can hide the coloured streets (Streets mode always shows them).
+let planStreets = true;
+try { planStreets = localStorage.getItem('feets-plan-streets') !== 'off'; } catch {}
+const showStreets = () => streetsMode || (planMode && planStreets);
 let baseBeforeHeatmap = null;
 
 // Opacity per line, scaled to how many tracks are shown: where all of them
@@ -99,7 +103,7 @@ function syncLayers() {
   if (heatmap) drawHeatmap();
   else if (heatLayer) heatLayer.remove();
   // Streets and plan mode: coverage depends on which tracks are on the map.
-  if (streetsMode || planMode) scheduleCoverage();
+  if (showStreets()) scheduleCoverage();
   else if (streetLayer) streetLayer.remove();
 }
 
@@ -494,7 +498,7 @@ function scheduleCoverage() {
 }
 
 function updateCoverage() {
-  if (!(streetsMode || planMode) || !activeArea) {
+  if (!showStreets() || !activeArea) {
     if (streetLayer) streetLayer.remove();
     if (streetsMode) renderCoverage();
     return;
@@ -1102,26 +1106,27 @@ function renderRouteList() {
   document.getElementById('route-list').replaceChildren(...routes.map(r => {
     const li = document.createElement('li');
     li.classList.toggle('current', r.id === plan.id);
+    // Name and distance, then the actions on a line of their own.
     li.innerHTML = '<button class="link-button name" type="button" title="Open"></button><small></small>'
-      + '<button class="link-button" type="button">GPX</button>';
+      + '<span class="actions"></span>';
     li.querySelector('.name').textContent = r.name;
     li.querySelector('.name').onclick = () => openRoute(r);
     li.querySelector('small').textContent = km(r.distance);
-    li.querySelector('button:last-child').onclick = () => downloadRoute(r.name, r.data);
+    const actions = li.querySelector('.actions');
+    const action = (label, onclick, title) => {
+      const button = document.createElement('button');
+      button.className = 'link-button';
+      button.type = 'button';
+      button.textContent = label;
+      if (title) button.title = title;
+      button.onclick = onclick;
+      actions.append(button);
+    };
+    action('GPX', () => downloadRoute(r.name, r.data));
     if (!readOnly()) {
-      const share = document.createElement('button');
-      share.className = 'link-button';
-      share.type = 'button';
-      share.textContent = 'Link';
-      share.title = 'A link that opens this route, no login needed';
-      share.onclick = () => shareRoute(r);
-      li.append(share);
-      const del = document.createElement('button');
-      del.className = 'link-button';
-      del.type = 'button';
-      del.textContent = 'Delete';
-      del.onclick = () => deleteRoute(r);
-      li.append(del);
+      action('Link', () => shareRoute(r), 'A link that opens this route, no login needed');
+      action('Rename', () => renameRoute(r));
+      action('Delete', () => deleteRoute(r));
     }
     return li;
   }));
@@ -1185,12 +1190,50 @@ document.getElementById('plan-clear').onclick = () => {
   if (mayDiscard()) resetPlan();
 };
 document.getElementById('plan-gpx').onclick = () => downloadRoute(plan.name || 'feets route', plan);
+// Asks for a name in a small dialog; resolves to the trimmed name, or null if cancelled.
+function askName(title, value, okLabel) {
+  const dialog = document.getElementById('name-dialog');
+  const input = document.getElementById('name-dialog-input');
+  document.getElementById('name-dialog-title').textContent = title;
+  document.getElementById('name-dialog-ok').textContent = okLabel;
+  input.value = value;
+  dialog.returnValue = '';
+  dialog.showModal();
+  input.select();
+  return new Promise(resolve => {
+    dialog.addEventListener('close', () => {
+      resolve(dialog.returnValue === 'ok' && input.value.trim() ? input.value.trim() : null);
+    }, { once: true });
+  });
+}
+
+async function renameRoute(r) {
+  const name = await askName('Rename route', r.name, 'Rename');
+  if (!name || name === r.name) return;
+  try {
+    const saved = await Store.renameRoute(r.id, name);
+    routes = routes.map(o => (o.id === saved.id ? saved : o));
+    if (plan.id === saved.id) plan.name = saved.name;
+    renderPlan();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+document.getElementById('plan-streets').checked = planStreets;
+document.getElementById('plan-streets').onchange = e => {
+  planStreets = e.target.checked;
+  try { localStorage.setItem('feets-plan-streets', planStreets ? 'on' : 'off'); } catch {}
+  syncLayers();
+};
+
+// A route you opened is saved over under its name; a new one asks for a name.
 document.getElementById('plan-save').onclick = async () => {
-  const name = prompt('Name this route', plan.name || `Route ${new Date().toLocaleDateString()}`);
-  if (!name || !name.trim()) return;
+  const name = plan.id ? plan.name : await askName('Save route', `Route ${new Date().toLocaleDateString()}`, 'Save');
+  if (!name) return;
   try {
     const saved = await Store.saveRoute({
-      id: plan.id, name: name.trim(), distance: lineMetres(routePoints(plan)),
+      id: plan.id, name, distance: lineMetres(routePoints(plan)),
       data: { waypoints: plan.waypoints, legs: plan.legs, straight: plan.straight },
     });
     routes = [saved, ...routes.filter(r => r.id !== saved.id)];

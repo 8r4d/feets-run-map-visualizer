@@ -79,6 +79,7 @@ const Store = (() => {
     // Planned routes: { id, name, distance, createdAt, updatedAt, data: { waypoints, legs, straight } }.
     routes: () => json('GET', '?action=routes'),
     saveRoute: route => json('POST', '?action=route_save', route),  // { id?, name, distance, data } → stored route
+    renameRoute: (id, name) => json('POST', `?action=route_rename&id=${id}`, { name }),  // → stored route
     deleteRoute: id => json('POST', `?action=route_delete&id=${id}`),
 
     // Achievements: each resolves to [{ code, title, detail, earnedAt }], oldest first.
