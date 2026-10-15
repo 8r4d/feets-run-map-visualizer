@@ -29,6 +29,12 @@ const Stats = (() => {
     return { longest: { days: longest.days, start: dateOf(longest.start), end: dateOf(longest.end) }, current };
   }
 
+  // tracks: { distance (metres), time, sport, name }. now: today, for the
+  // current streak and weekly average. Returns { count, metres, average,
+  // weeklyAverage, activeDays, longestTrack, streaks: { longest: { days,
+  // start, end }, current }, bestWeek: { start, metres }, bestMonth: { month
+  // ('YYYY-MM'), metres }, byType: [{ sport, count, metres }] }, with null for
+  // anything there's no data for.
   function summarize(tracks, now = new Date()) {
     const metres = tracks.reduce((sum, t) => sum + t.distance, 0);
     const longestTrack = tracks.reduce((best, t) => (!best || t.distance > best.distance ? t : best), null);

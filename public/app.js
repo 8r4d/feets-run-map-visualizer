@@ -894,7 +894,7 @@ document.getElementById('area-remove').onclick = async () => {
 const trophyBox = document.getElementById('trophies-box');
 let trophies = [];  // as from Store.achievements()
 let trophyTimer = null;
-let trophyCheck = Promise.resolve();
+let trophyCheck = Promise.resolve();  // checks run one after another, never two at once
 
 async function loadTrophies() {
   try {
@@ -914,6 +914,8 @@ function scheduleTrophies() {
   }, 1500);
 }
 
+// Works out every trophy currently earned, saves the new ones (the server
+// ignores codes it already has) and announces them.
 async function checkTrophies() {
   const known = new Set(trophies.map(a => a.code));
   const fresh = Achievements.evaluate([...loaded.values()].map(e => e.track), areas)
@@ -969,6 +971,7 @@ function renderTrophies() {
   list.replaceChildren(...items);
 }
 
+// A note in the corner of the map that goes away by itself, or when clicked.
 function toast(title, detail) {
   const el = document.createElement('div');
   el.className = 'toast';
@@ -1004,6 +1007,8 @@ function planGraph() {
   return graph;
 }
 
+// The part of the route from a to b: along the streets if they connect, or a
+// straight line (drawn dashed) if they don't.
 function legBetween(a, b) {
   const g = planGraph();
   const from = Planner.snap(g, a), to = Planner.snap(g, b);
@@ -1011,7 +1016,8 @@ function legBetween(a, b) {
   return found ? { points: found.points, straight: false } : { points: [a, b], straight: true };
 }
 
-// The whole route as one line.
+// The whole route as one line. Each leg starts where the last one ended, so
+// that shared point is dropped. data: the plan, or a saved route's data.
 const routePoints = data => (data.legs.length ? data.legs.flatMap((leg, i) => (i ? leg.slice(1) : leg)) : data.waypoints);
 
 function lineMetres(points) {
@@ -1045,6 +1051,7 @@ function addWaypoint(p) {
   planChanged();
 }
 
+// After a drag: re-routes the legs into and out of point i.
 function moveWaypoint(i, latlng) {
   const p = snapClick(latlng);
   if (p) {
@@ -1059,6 +1066,8 @@ function moveWaypoint(i, latlng) {
   planChanged();  // redraws, which also puts a point that couldn't move back
 }
 
+// Removing the first or last point drops its one leg; removing a middle point
+// replaces its two legs with one straight from its neighbours.
 function removeWaypoint(i) {
   const last = plan.waypoints.length - 1;
   if (i === 0 || i === last) {
@@ -1081,6 +1090,8 @@ function planChanged() {
   renderPlan();
 }
 
+// Starts a new, empty route, or (with route) opens a saved one. The saved
+// points are copied so editing doesn't change the copy in the routes list.
 function resetPlan(route = null) {
   const data = route ? route.data : { waypoints: [], legs: [], straight: [] };
   Object.assign(plan, {
@@ -1099,6 +1110,8 @@ function resetPlan(route = null) {
 // Asks before throwing away a route that hasn't been saved.
 const mayDiscard = () => !plan.dirty || plan.waypoints.length < 2 || confirm('Discard the route you were drawing?');
 
+// The route line, plus draggable markers for its points: green start, red
+// finish, small white ones in between.
 function drawPlan() {
   if (planLayer) planLayer.remove();
   planLayer = null;
@@ -1133,6 +1146,7 @@ function newStreetMetres(points) {
   const byWay = new Map();  // areas can overlap, so count each street once
   for (const area of areas) {
     const prep = Coverage.prepared(area);
+    // The tracks' own coverage only changes when they do, so it's kept between clicks.
     let base = planBase.get(prep);
     if (!base || base.version !== trackVersion) {
       base = { version: trackVersion, result: Coverage.compute(prep, shown) };
@@ -1145,6 +1159,7 @@ function newStreetMetres(points) {
   return metres;
 }
 
+// The Plan panel: the route's name, distance and help text, and which buttons work.
 function renderPlan() {
   const n = plan.waypoints.length;
   const title = document.getElementById('plan-title');
@@ -1203,6 +1218,8 @@ function renderRouteList() {
   }));
 }
 
+// Clicking a saved route: opens it for editing (or just viewing, on a view
+// link) and zooms to it.
 function openRoute(r) {
   if (r.id === plan.id && !plan.dirty) return;
   if (!mayDiscard()) return;
@@ -1229,6 +1246,8 @@ async function deleteRoute(r) {
   }
 }
 
+// Saves a route as a .gpx file, built in the browser. Characters that aren't
+// allowed in file names are dropped from the name.
 function downloadRoute(name, data) {
   const blob = new Blob([Planner.gpx(name, routePoints(data))], { type: 'application/gpx+xml' });
   const a = document.createElement('a');
@@ -1719,6 +1738,7 @@ async function loadViewLinks() {
 
 const viewUrl = (code, routeId) => `${location.origin}${location.pathname}?view=${code}` + (routeId ? `&route=${routeId}` : '');
 
+// Asks for a name and makes a view link; resolves to its code, or null.
 async function createViewLink() {
   const label = prompt("Name this link, e.g. who it's for. Anyone with it can see your map, tracks and routes "
     + 'without logging in, until you turn it off.', 'Run club');

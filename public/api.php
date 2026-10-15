@@ -486,6 +486,7 @@ function create_invite(array $user): array {
 }
 
 // --- View links ---
+// Made by any member for their own map; the code in the link is the only key.
 
 function list_view_links(int $userId): array {
     $stmt = db()->prepare('SELECT code, label, created_at AS createdAt FROM view_links WHERE owner = ? ORDER BY created_at DESC');
@@ -503,6 +504,7 @@ function create_view_link(int $userId, array $b): array {
     return ['code' => $code];
 }
 
+// Only the link's owner can turn it off; anyone else's request changes nothing.
 function delete_view_link(int $userId, array $b): array {
     db()->prepare('DELETE FROM view_links WHERE owner = ? AND code = ?')->execute([$userId, (string) ($b['code'] ?? '')]);
     return ['ok' => true];
@@ -1463,6 +1465,7 @@ function route_json(array $row): string {
     return substr($meta, 0, -1) . ',"data":' . $row['data'] . '}';
 }
 
+// All of the user's routes, last changed first, or just one ($onlyId).
 function send_routes(int $userId, ?int $onlyId = null): void {
     $stmt = db()->prepare('SELECT * FROM routes WHERE user_id = ?' . ($onlyId ? ' AND id = ?' : '') . ' ORDER BY updated_at DESC, id DESC');
     $stmt->execute($onlyId ? [$userId, $onlyId] : [$userId]);
@@ -1473,6 +1476,8 @@ function send_routes(int $userId, ?int $onlyId = null): void {
     exit;
 }
 
+// Stores a route drawn by the browser: {id?, name, distance, data}. With an
+// id it replaces that route, if it's the user's own.
 function route_save(int $userId, array $b): void {
     $name = mb_substr(trim((string) ($b['name'] ?? '')), 0, 255);
     $data = $b['data'] ?? null;
@@ -1528,6 +1533,9 @@ function list_achievements(int $userId): array {
     return $stmt->fetchAll();
 }
 
+// Saves newly earned achievements and returns the full list. INSERT IGNORE
+// keeps the first earned date of a code the browser sends again; at most 200
+// are taken per request.
 function add_achievements(int $userId, array $b): array {
     $insert = db()->prepare('INSERT IGNORE INTO achievements (user_id, code, title, detail) VALUES (?, ?, ?, ?)');
     foreach (array_slice($b['achievements'] ?? [], 0, 200) as $a) {
