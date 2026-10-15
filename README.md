@@ -243,6 +243,17 @@ Things to know:
   joined, that part is drawn as a dashed straight line.
 - View-only accounts can open saved routes and plan their own, but can't save.
 
+## Stats
+
+The **Stats** box sums up the tracks matching the filters, so pick a year in
+the filters for a time frame (and a type, e.g. Run, to leave out rides):
+distance, number of activities and active days, average per activity and per
+week, the longest activity, the longest and current streak of days in a row,
+the best week (Monday to Sunday) and month, and distance by type.
+
+feets doesn't store how long an activity took, so there's no pace or time.
+Hiding tracks with their checkboxes doesn't change the stats.
+
 ## Trophies
 
 The **Trophies** box collects milestones as you go: an area at 25, 50 and 75%,

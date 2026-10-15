@@ -208,6 +208,57 @@ function render() {
   syncLayers();
 }
 
+// --- Stats ---
+// Totals for the tracks matching the filters, so the Year filter sets the
+// time frame. stats.js does the sums.
+const statKm = m => (m / 1000).toFixed(m < 100000 ? 1 : 0) + ' km';
+
+function renderStats(tracks) {
+  const s = Stats.summarize(tracks);
+  const period = [filters.year || 'All time', filters.sport && sportLabel(filters.sport), filters.text && `"${filters.text}"`]
+    .filter(Boolean).join(' · ');
+  document.getElementById('stats-summary').textContent = `${period} · ${statKm(s.metres)}`;
+  // Dates from stats.js are midnight UTC; show the year only when it isn't the filter's.
+  const date = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: filters.year ? undefined : 'numeric', timeZone: 'UTC' });
+  const plural = (n, one, many = one + 's') => `${n.toLocaleString()} ${n === 1 ? one : many}`;
+  // Each row: a label, a main value, and smaller detail lines under it.
+  const rows = [];
+  const row = (label, value, ...details) => rows.push([label, value, details.filter(Boolean)]);
+  if (!s.count) {
+    row('Activities', 'None for these filters');
+  } else {
+    row('Distance', statKm(s.metres));
+    row('Activities', s.count.toLocaleString(), s.activeDays && `on ${plural(s.activeDays, 'day')}`);
+    row('Average', `${statKm(s.average)} each`, s.weeklyAverage !== null && `${statKm(s.weeklyAverage)} a week`);
+    const t = s.longestTrack;
+    row('Longest', statKm(t.distance), [t.name, t.time && new Date(t.time).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: filters.year ? undefined : 'numeric' })].filter(Boolean).join(' · '));
+    const { longest, current } = s.streaks;
+    if (longest.days) row('Longest streak', plural(longest.days, 'day'), longest.days > 1 ? `${date(longest.start)} – ${date(longest.end)}` : date(longest.start));
+    if (current) row('Current streak', plural(current, 'day'), 'through today or yesterday');
+    if (s.bestWeek) row('Best week', statKm(s.bestWeek.metres), `week of ${date(s.bestWeek.start)}`);
+    if (s.bestMonth) {
+      const [y, m] = s.bestMonth.month.split('-').map(Number);
+      row('Best month', statKm(s.bestMonth.metres), new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString(undefined, { month: 'long', year: filters.year ? undefined : 'numeric', timeZone: 'UTC' }));
+    }
+    if (s.byType.length > 1) {
+      const [first, ...others] = s.byType.map(x => `${x.sport ? sportLabel(x.sport) : 'Other'} ${statKm(x.metres)} (${x.count})`);
+      row('By type', first, ...others);
+    }
+  }
+  document.getElementById('stats-list').replaceChildren(...rows.flatMap(([label, value, details]) => {
+    const dt = document.createElement('dt');
+    const dd = document.createElement('dd');
+    dt.textContent = label;
+    dd.textContent = value;
+    for (const text of details) {
+      const small = document.createElement('small');
+      small.textContent = text;
+      dd.append(small);
+    }
+    return [dt, dd];
+  }));
+}
+
 function renderList() {
   const all = [...loaded.values()];
   const years = [...new Set(all.map(e => yearOf(e.track)).filter(Boolean))].sort().reverse();
@@ -227,6 +278,8 @@ function renderList() {
   moreButton.textContent = `Show more (${matching.length - listLimit} more)`;
 
   const filtered = filters.text || filters.year || filters.sport;
+  renderStats(matching.map(e => e.track));
+
   document.getElementById('summary').textContent = !all.length
     ? 'No tracks yet.'
     : `${filtered ? `${matching.length} of ${all.length}` : all.length} tracks · ${shown.length} on map · ${formatKm(km)}`;
@@ -732,7 +785,7 @@ map.on('moveend', () => { if (streetsMode && coverage) renderTodo(); });
 
 // The "Still to run", "Unrunnable streets" and "Saved routes" boxes remember
 // whether they're open.
-for (const id of ['todo', 'unrunnable', 'routes']) {
+for (const id of ['todo', 'unrunnable', 'routes', 'stats-box']) {
   const box = document.getElementById(id);
   try {
     const saved = localStorage.getItem(`feets-${id}-open`);
@@ -1419,6 +1472,7 @@ async function signedIn(user) {
     return;
   }
   trophyBox.hidden = false;
+  document.getElementById('stats-box').hidden = false;
   clearTracks();
   await loadTracks();
   await loadAreas();
@@ -1446,6 +1500,7 @@ function signedOut() {
   clearTimeout(trophyTimer);
   trophies = [];
   trophyBox.hidden = true;
+  document.getElementById('stats-box').hidden = true;
   routes = [];
   resetPlan();
   stravaBox.hidden = true;

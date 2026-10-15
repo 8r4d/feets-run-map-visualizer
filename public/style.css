@@ -729,6 +729,7 @@ body {
 .read-only #area-picker,
 /* A view link shows saved routes only */
 .public-view #trophies-box,
+.public-view #stats-box,
 .public-view #mode,
 .public-view #fade-control,
 .public-view #plan-edit,
@@ -858,6 +859,43 @@ body {
   flex-direction: column;
   gap: 10px;
   padding: 0 10px 10px;
+}
+
+/* Stats */
+#stats-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  font-weight: normal;
+  color: #777;
+}
+
+#stats-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  margin: 0;
+  font-size: 13px;
+}
+
+#stats-list dt {
+  color: #777;
+}
+
+#stats-list dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+#stats-list dd small {
+  display: block;
+  color: #777;
+}
+
+#stats-box .hint {
+  color: #777;
 }
 
 /* Trophies */
