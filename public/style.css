@@ -654,6 +654,23 @@ body {
   font-weight: normal;
 }
 
+/* Collapsible boxes inside the Streets and Plan panels */
+#todo summary,
+#routes summary {
+  font-size: 13px;
+}
+
+#todo .count,
+#routes .count {
+  font-weight: normal;
+  color: #777;
+}
+
+#todo .hint {
+  margin-top: -6px;
+  color: #777;
+}
+
 #todo-list {
   list-style: none;
   margin: 0;

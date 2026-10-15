@@ -682,8 +682,11 @@ function renderTodo() {
   if (!coverage) { todo.hidden = true; return; }
   const centre = map.getCenter();
   const { data } = activeArea.area;
-  const items = coverage.summary.groups
-    .filter(g => !g.done)
+  const unfinished = coverage.summary.groups.filter(g => !g.done);
+  todo.hidden = !unfinished.length;
+  todo.querySelector('.count').textContent = `(${unfinished.length})`;
+  if (!todo.open) return;  // sorting by distance can wait until it's opened
+  const items = unfinished
     .map(g => {
       let best = Infinity;
       for (const w of g.ways) for (const run of data.streets[w].runs) {
@@ -693,7 +696,6 @@ function renderTodo() {
     })
     .sort((a, b) => a.distance - b.distance)
     .slice(0, TODO_LIMIT);
-  todo.hidden = !items.length;
   list.replaceChildren(...items.map(({ g }) => {
     const li = document.createElement('li');
     const share = g.len ? g.covered / g.len : 0;
@@ -727,6 +729,16 @@ function showGroup(g) {
 }
 
 map.on('moveend', () => { if (streetsMode && coverage) renderTodo(); });
+
+// The "Still to run" and "Saved routes" boxes remember whether they're open.
+for (const id of ['todo', 'routes']) {
+  const box = document.getElementById(id);
+  try { if (localStorage.getItem(`feets-${id}-open`) === 'no') box.open = false; } catch {}
+  box.addEventListener('toggle', () => {
+    try { localStorage.setItem(`feets-${id}-open`, box.open ? 'yes' : 'no'); } catch {}
+    if (id === 'todo' && box.open && streetsMode && coverage) renderTodo();
+  });
+}
 
 areaSelect.onchange = () => {
   setActiveArea(areaSelect.value);
@@ -1102,7 +1114,9 @@ function renderPlan() {
 }
 
 function renderRouteList() {
-  document.getElementById('routes').hidden = !routes.length;
+  const box = document.getElementById('routes');
+  box.hidden = !routes.length;
+  box.querySelector('.count').textContent = `(${routes.length})`;
   document.getElementById('route-list').replaceChildren(...routes.map(r => {
     const li = document.createElement('li');
     li.classList.toggle('current', r.id === plan.id);
