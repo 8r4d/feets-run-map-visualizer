@@ -337,7 +337,10 @@ async function addFiles(files) {
     }
   }
   render();
-  if (added) fitAll();
+  if (added) {
+    fitAll();
+    scheduleTrophies();
+  }
   if (errors.length) alert('Some files could not be loaded:\n\n' + errors.join('\n'));
 }
 
@@ -646,6 +649,7 @@ async function setUnrunnable(w, unrunnable) {
     area.excluded = (await Store.excludeWays(area.id, ways, unrunnable)).excluded;
     map.closePopup();
     setActiveArea(area.id);  // re-index without (or with) those streets, then recount
+    scheduleTrophies();
   } catch (err) {
     alert(err.message);
   }
@@ -764,6 +768,7 @@ async function fetchAndSaveArea(osmId) {
     areas = [...areas.filter(a => a.id !== saved.id), saved].sort((a, b) => a.name.localeCompare(b.name));
     fillAreaSelect();
     setActiveArea(saved.id);
+    scheduleTrophies();
     document.getElementById('area-picker').hidden = true;
     map.fitBounds(L.latLngBounds(saved.data.boundary.flat()), { padding: [20, 20] });
     areaStatus.textContent = `${saved.name}: ${saved.data.streets.length} streets, paths and trails.`;
@@ -793,6 +798,79 @@ document.getElementById('area-remove').onclick = async () => {
     alert(err.message);
   }
 };
+
+// --- Achievements ---
+// achievements.js decides what's earned. Here they're checked after tracks or
+// areas change, announced, and listed in the Trophies box.
+const trophyBox = document.getElementById('trophies-box');
+let trophies = [];  // as from Store.achievements()
+let trophyTimer = null;
+let trophyCheck = Promise.resolve();
+
+async function loadTrophies() {
+  try {
+    trophies = await Store.achievements();
+  } catch {
+    trophies = [];
+  }
+  renderTrophies();
+}
+
+// Waits for a pause in changes: a Strava import adds tracks in batches.
+function scheduleTrophies() {
+  if (!currentUser || readOnly()) return;
+  clearTimeout(trophyTimer);
+  trophyTimer = setTimeout(() => {
+    trophyCheck = trophyCheck.then(checkTrophies).catch(err => console.error('Achievements:', err));
+  }, 1500);
+}
+
+async function checkTrophies() {
+  const known = new Set(trophies.map(a => a.code));
+  const fresh = Achievements.evaluate([...loaded.values()].map(e => e.track), areas)
+    .filter(a => !known.has(a.code));
+  if (!fresh.length) return;
+  trophies = await Store.addAchievements(fresh);
+  renderTrophies();
+  // The first check finds everything already run; one note is enough for that.
+  if (!known.size && fresh.length > 3) {
+    toast(`🏆 ${fresh.length} trophies from your past activities`, 'See them under Trophies.');
+  } else {
+    fresh.slice(0, 3).forEach(a => toast(`🏆 ${a.title}`, a.detail));
+    if (fresh.length > 3) toast(`🏆 ${fresh.length - 3} more`, 'See them under Trophies.');
+  }
+}
+
+function renderTrophies() {
+  document.getElementById('trophy-count').textContent = trophies.length ? String(trophies.length) : '';
+  const list = document.getElementById('trophy-list');
+  if (!trophies.length) {
+    const empty = document.createElement('li');
+    empty.className = 'trophy-empty';
+    empty.textContent = 'None yet. Add a street area and go run it.';
+    list.replaceChildren(empty);
+    return;
+  }
+  list.replaceChildren(...[...trophies].reverse().map(a => {
+    const li = document.createElement('li');
+    li.innerHTML = '<strong></strong><time></time><small></small>';
+    li.querySelector('strong').textContent = a.title;
+    li.querySelector('small').textContent = a.detail || '';
+    li.querySelector('time').textContent = new Date(a.earnedAt.replace(' ', 'T')).toLocaleDateString();
+    return li;
+  }));
+}
+
+function toast(title, detail) {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = '<strong></strong><small></small>';
+  el.querySelector('strong').textContent = title;
+  el.querySelector('small').textContent = detail || '';
+  el.onclick = () => el.remove();
+  document.getElementById('toasts').append(el);
+  setTimeout(() => el.remove(), 8000);
+}
 
 for (const button of document.querySelectorAll('#mode button')) {
   button.onclick = () => setMode(button.dataset.mode);
@@ -922,9 +1000,12 @@ async function signedIn(user) {
   document.querySelector('#settings-box summary').textContent = user.isAdmin ? 'Account & admin' : 'Account';
   document.getElementById('reset-link').hidden = !user.isAdmin;
   document.getElementById('user-bar').hidden = false;
+  trophyBox.hidden = false;
   clearTracks();
   await loadTracks();
   await loadAreas();
+  await loadTrophies();
+  scheduleTrophies();
   await initStrava();
 }
 
@@ -934,6 +1015,9 @@ function signedOut() {
   clearTimeout(stravaResumeTimer);
   clearTracks();
   clearAreas();
+  clearTimeout(trophyTimer);
+  trophies = [];
+  trophyBox.hidden = true;
   stravaBox.hidden = true;
   showAuth('login');
 }
@@ -1020,6 +1104,7 @@ async function importFromStrava({ fit = false } = {}) {
       result.tracks.forEach(show);
       total += result.tracks.length;
       render();
+      if (result.tracks.length) scheduleTrophies();
       if (result.rateLimited) {
         resumeAfterRateLimit(total);
         return;

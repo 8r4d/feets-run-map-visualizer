@@ -631,6 +631,74 @@ body {
   padding: 0 10px 10px;
 }
 
+/* Trophies */
+#trophy-count {
+  font-size: 12px;
+  font-weight: normal;
+  color: #777;
+}
+
+#trophy-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#trophy-list li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 8px;
+  font-size: 13px;
+}
+
+#trophy-list small {
+  grid-column: 1 / -1;
+  color: #777;
+}
+
+#trophy-list time,
+.trophy-empty {
+  color: #777;
+  font-size: 12px;
+}
+
+#toasts {
+  position: fixed;
+  right: 16px;
+  bottom: 24px;
+  z-index: 1000;  /* above the Leaflet map */
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(320px, calc(100vw - 32px));
+}
+
+.toast {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 14px;
+  background: #fff;
+  border: 1px solid #e3e3e3;
+  border-left: 4px solid #2e9e44;
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  animation: toast-in 0.25s ease-out;
+}
+
+.toast small {
+  color: #666;
+}
+
+@keyframes toast-in {
+  from { transform: translateY(12px); opacity: 0; }
+}
+
 #settings-box .panel-body {
   flex-direction: row;
   flex-wrap: wrap;

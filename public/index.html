@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>feets</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=18">
+  <link rel="stylesheet" href="style.css?v=19">
 </head>
 <body>
   <aside id="sidebar">
@@ -42,6 +42,12 @@
             <button id="strava-auto-toggle" class="link-button" type="button" hidden></button>
           </div>
         </div>
+      </div>
+    </details>
+    <details id="trophies-box" class="panel" hidden>
+      <summary>Trophies <span id="trophy-count"></span></summary>
+      <div class="panel-body">
+        <ul id="trophy-list"></ul>
       </div>
     </details>
     <div id="mode" role="group" aria-label="Map style">
@@ -103,6 +109,7 @@
     <button id="more" type="button" hidden>Show more</button>
   </aside>
   <main id="map"></main>
+  <div id="toasts" aria-live="polite"></div>
 
   <div id="auth" hidden>
     <form id="auth-form">
@@ -121,9 +128,10 @@
 
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="gpx.js?v=18"></script>
-  <script src="store.js?v=18"></script>
+  <script src="store.js?v=19"></script>
   <script src="osm.js?v=18"></script>
   <script src="coverage.js?v=18"></script>
-  <script src="app.js?v=18"></script>
+  <script src="achievements.js?v=19"></script>
+  <script src="app.js?v=19"></script>
 </body>
 </html>

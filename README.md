@@ -201,3 +201,20 @@ load quickly. The original GPX is kept for the ↓ download.
   way to the server.
 - **Large files.** Uploads larger than PHP's `post_max_size` (often 8 MB on shared
   hosting) or MySQL's `max_allowed_packet` will fail.
+
+## Trophies
+
+The **Trophies** box collects milestones as you go: an area at 25, 50 and 75%,
+an area or neighbourhood complete, kilometres of unique streets covered,
+neighbourhoods finished, total distance, and your first 10K, half marathon and
+marathon.
+
+- **Which tracks count:** every run, trail run, walk and hike, plus tracks with
+  no type. The filters and checkboxes don't matter here, so hiding tracks
+  can't lose or earn a trophy.
+- **When they're checked:** when feets opens, and after you add tracks or
+  areas or mark streets unrunnable. Tracks Strava imports on its own are
+  checked the next time someone opens feets.
+- **They're kept:** once earned, a trophy stays, even if a refreshed area adds
+  new streets and your coverage drops.
+- View-only accounts see the owner's trophies.

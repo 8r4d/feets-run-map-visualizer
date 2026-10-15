@@ -66,6 +66,10 @@ const Store = (() => {
     // Marks OSM ways unrunnable (or counts them again); resolves to { excluded: [way ids] }.
     excludeWays: (areaId, ways, excluded) => json('POST', `?action=area_exclude&id=${areaId}`, { ways, excluded }),
 
+    // Achievements: each resolves to [{ code, title, detail, earnedAt }], oldest first.
+    achievements: () => json('GET', '?action=achievements'),
+    addAchievements: achievements => json('POST', '?action=achievement_add', { achievements }),
+
     // Tracks
     all: () => json('GET', ''),
     // track includes the original file text as track.gpx; resolves to the new id.

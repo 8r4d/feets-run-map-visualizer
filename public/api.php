@@ -40,6 +40,10 @@
 //   POST api.php?action=area_save            {osmId, name, data} prepared by osm.js; replaces an existing one
 //   POST api.php?action=area_delete&id=ID
 //   POST api.php?action=area_exclude&id=ID   {ways, excluded}: mark OSM ways unrunnable (or count them again)
+//
+// Achievements (worked out in the browser by achievements.js; the server only remembers them)
+//   GET  api.php?action=achievements         [{code, title, detail, earnedAt}], oldest first
+//   POST api.php?action=achievement_add      {achievements: [{code, title, detail}]}; already-earned codes are ignored
 
 const SESSION_COOKIE = 'feets_session';
 const SESSION_DAYS = 30;
@@ -125,6 +129,16 @@ const SCHEMA = [
       excluded    LONGTEXT     NULL,      -- JSON array of OSM way ids marked unrunnable
       fetched_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
       UNIQUE (user_id, osm_id)
+    ) CHARACTER SET utf8mb4
+    SQL,
+    <<<SQL
+    CREATE TABLE IF NOT EXISTS achievements (  -- earned once, kept even if coverage later drops
+      user_id    INT          NOT NULL,
+      code       VARCHAR(191) NOT NULL,  -- e.g. hood:12345:Brander Gardens:100
+      title      VARCHAR(255) NOT NULL,
+      detail     VARCHAR(255) NULL,
+      earned_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, code)
     ) CHARACTER SET utf8mb4
     SQL,
     <<<SQL
@@ -1362,6 +1376,28 @@ function area_delete(int $userId, int $id): array {
     return ['ok' => true];
 }
 
+// --- Achievements ---
+
+function list_achievements(int $userId): array {
+    $stmt = db()->prepare('SELECT code, title, detail, earned_at AS earnedAt FROM achievements WHERE user_id = ? ORDER BY earned_at, code');
+    $stmt->execute([$userId]);
+    return $stmt->fetchAll();
+}
+
+function add_achievements(int $userId, array $b): array {
+    $insert = db()->prepare('INSERT IGNORE INTO achievements (user_id, code, title, detail) VALUES (?, ?, ?, ?)');
+    foreach (array_slice($b['achievements'] ?? [], 0, 200) as $a) {
+        $code = mb_substr(trim((string) ($a['code'] ?? '')), 0, 191);
+        $title = mb_substr(trim((string) ($a['title'] ?? '')), 0, 255);
+        if ($code === '' || $title === '') {
+            continue;
+        }
+        $detail = isset($a['detail']) ? mb_substr((string) $a['detail'], 0, 255) : null;
+        $insert->execute([$userId, $code, $title, $detail]);
+    }
+    return list_achievements($userId);
+}
+
 // --- Routing ---
 
 $method = $_SERVER['REQUEST_METHOD'];
@@ -1400,7 +1436,7 @@ if (!empty($user['read_only'])) {
     if ($method === 'GET' && $action === 'strava_status') {
         send_json(['configured' => false, 'connected' => false, 'athlete' => null, 'autoImport' => false]);
     }
-    if ($method !== 'GET' || !in_array($action, ['', 'areas'], true) || isset($_GET['gpx'])) {
+    if ($method !== 'GET' || !in_array($action, ['', 'areas', 'achievements'], true) || isset($_GET['gpx'])) {
         fail('This is a view-only account', 403);
     }
 }
@@ -1427,6 +1463,10 @@ if ($method === 'POST' && $action === 'invite') {
     send_json(area_delete($userId, $id));
 } elseif ($method === 'POST' && $action === 'area_exclude' && $id) {
     send_json(area_exclude($userId, $id, read_json()));
+} elseif ($method === 'GET' && $action === 'achievements') {
+    send_json(list_achievements($userId));
+} elseif ($method === 'POST' && $action === 'achievement_add') {
+    send_json(add_achievements($userId, read_json()));
 } elseif ($method === 'POST' && $action === 'strava_auto_on') {
     send_json(strava_auto_on($user, read_json()));
 } elseif ($method === 'POST' && $action === 'strava_auto_off') {
