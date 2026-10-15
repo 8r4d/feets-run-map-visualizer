@@ -656,6 +656,16 @@ body {
   font-size: 13px;
 }
 
+#trophy-list .trophy-group {
+  display: block;
+  margin-top: 4px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid #eee;
+  font-size: 12px;
+  font-weight: 600;
+  color: #555;
+}
+
 #trophy-list small {
   grid-column: 1 / -1;
   color: #777;

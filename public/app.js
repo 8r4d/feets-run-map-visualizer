@@ -851,14 +851,31 @@ function renderTrophies() {
     list.replaceChildren(empty);
     return;
   }
-  list.replaceChildren(...[...trophies].reverse().map(a => {
-    const li = document.createElement('li');
-    li.innerHTML = '<strong></strong><time></time><small></small>';
-    li.querySelector('strong').textContent = a.title;
-    li.querySelector('small').textContent = a.detail || '';
-    li.querySelector('time').textContent = new Date(a.earnedAt.replace(' ', 'T')).toLocaleDateString();
-    return li;
-  }));
+  // All-time first, then each year, newest first; within each, newest first.
+  const groups = new Map([[null, []]]);
+  const years = [...new Set(trophies.map(a => Achievements.yearOfCode(a.code)).filter(Boolean))].sort((a, b) => b - a);
+  years.forEach(y => groups.set(y, []));
+  [...trophies].reverse().forEach(a => groups.get(Achievements.yearOfCode(a.code)).push(a));
+  const items = [];
+  for (const [year, group] of groups) {
+    if (!group.length) continue;
+    if (years.length) {
+      const heading = document.createElement('li');
+      heading.className = 'trophy-group';
+      heading.textContent = year ? String(year) : 'All time';
+      items.push(heading);
+    }
+    for (const a of group) {
+      const li = document.createElement('li');
+      li.innerHTML = '<strong></strong><time></time><small></small>';
+      // The year heading already says which year.
+      li.querySelector('strong').textContent = year ? a.title.replace(/^\d{4}: /, '') : a.title;
+      li.querySelector('small').textContent = a.detail || '';
+      li.querySelector('time').textContent = new Date(a.earnedAt.replace(' ', 'T')).toLocaleDateString();
+      items.push(li);
+    }
+  }
+  list.replaceChildren(...items);
 }
 
 function toast(title, detail) {

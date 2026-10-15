@@ -217,4 +217,8 @@ marathon.
   checked the next time someone opens feets.
 - **They're kept:** once earned, a trophy stays, even if a refreshed area adds
   new streets and your coverage drops.
+- **Yearly trophies:** from 2026 on, each calendar year has its own set,
+  counting only that year's tracks: distance, km of unique streets,
+  neighbourhoods finished, and longest run. A neighbourhood counts for a year
+  when every street is run again within it. Earlier years don't get these.
 - View-only accounts see the owner's trophies.
