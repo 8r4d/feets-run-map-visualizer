@@ -363,6 +363,98 @@ body {
   #sidebar { width: 100%; max-height: 40vh; border-right: none; border-top: 1px solid #ddd; }
 }
 
+/* Plan mode */
+#plan-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+
+#plan-panel button:not(.link-button) {
+  min-width: 0;
+  padding: 5px 6px;
+  font: inherit;
+}
+
+#plan-panel h2 {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+
+#plan-status:empty {
+  display: none;
+}
+
+#plan-status {
+  color: #555;
+}
+
+#route-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+#route-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+#route-list .name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #222;
+  text-decoration: none;
+  text-align: left;
+}
+
+#route-list .name:hover {
+  text-decoration: underline;
+}
+
+#route-list li.current .name {
+  font-weight: 600;
+}
+
+#route-list small {
+  margin-right: auto;
+  color: #777;
+  white-space: nowrap;
+}
+
+#map.planning,
+#map.planning .leaflet-interactive {
+  cursor: crosshair;
+}
+
+#map.planning .plan-point {
+  cursor: move;
+}
+
+.plan-point {
+  background: #fff;
+  border: 3px solid #1a73e8;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.plan-point.start {
+  background: #2e9e44;
+  border-color: #fff;
+}
+
+.plan-point.end {
+  background: #d64545;
+  border-color: #fff;
+}
+
 /* Streets mode */
 #streets-panel {
   display: flex;
@@ -541,6 +633,7 @@ body {
 .read-only #area-add,
 .read-only #area-picker,
 .read-only #area-tools,
+.read-only #plan-save,
 .read-only #todo-list .skip {
   display: none !important;
 }

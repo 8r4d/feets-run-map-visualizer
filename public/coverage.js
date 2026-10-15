@@ -131,6 +131,34 @@ const Coverage = (() => {
     return { visited, fraction };
   }
 
+  // prepare() for an area, kept until its unrunnable streets change. Shared
+  // by Streets mode, achievements.js and route planning.
+  const prepCache = new WeakMap();
+  function prepared(area) {
+    const key = JSON.stringify(area.excluded || []);
+    const cached = prepCache.get(area);
+    if (cached && cached.key === key) return cached.prep;
+    const prep = prepare(area, new Set(area.excluded || []));
+    prepCache.set(area, { key, prep });
+    return prep;
+  }
+
+  // What segmentsList would add to an earlier compute() result: metres per
+  // street (by OSM way id), each street's length times the extra share of its
+  // points visited.
+  function gain(prep, base, segmentsList) {
+    const extra = compute(prep, segmentsList);
+    const streets = prep.area.data.streets;
+    const metres = new Map();
+    for (let w = 0; w < streets.length; w++) {
+      if (prep.excluded[w]) continue;
+      let added = 0;
+      for (let k = prep.first[w]; k < prep.first[w + 1]; k++) if (extra.visited[k] && !base.visited[k]) added++;
+      if (added) metres.set(streets[w].id, streets[w].len * added / Math.max(1, prep.first[w + 1] - prep.first[w]));
+    }
+    return metres;
+  }
+
   const isDone = f => f >= DONE;
 
   // Totals per category, overall and per neighbourhood, plus the groups the
@@ -174,5 +202,5 @@ const Coverage = (() => {
     return { len: 0, covered: 0, streets: 0, done: 0 };
   }
 
-  return { prepare, compute, summarize, isDone, RADIUS };
+  return { prepare, prepared, compute, gain, summarize, isDone, RADIUS };
 })();

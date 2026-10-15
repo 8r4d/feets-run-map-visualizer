@@ -41,6 +41,11 @@
 //   POST api.php?action=area_delete&id=ID
 //   POST api.php?action=area_exclude&id=ID   {ways, excluded}: mark OSM ways unrunnable (or count them again)
 //
+// Planned routes (drawn in the browser by planner.js)
+//   GET  api.php?action=routes               all of the user's routes, newest first
+//   POST api.php?action=route_save           {id?, name, distance, data}; with id, replaces that route. Returns it
+//   POST api.php?action=route_delete&id=ID
+//
 // Achievements (worked out in the browser by achievements.js; the server only remembers them)
 //   GET  api.php?action=achievements         [{code, title, detail, earnedAt}], oldest first
 //   POST api.php?action=achievement_add      {achievements: [{code, title, detail}]}; already-earned codes are ignored
@@ -139,6 +144,18 @@ const SCHEMA = [
       detail     VARCHAR(255) NULL,
       earned_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (user_id, code)
+    ) CHARACTER SET utf8mb4
+    SQL,
+    <<<SQL
+    CREATE TABLE IF NOT EXISTS routes (  -- planned routes, drawn by planner.js
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      user_id     INT          NOT NULL,
+      name        VARCHAR(255) NOT NULL,
+      distance_m  DOUBLE       NOT NULL DEFAULT 0,
+      data        LONGTEXT     NOT NULL,  -- JSON: {waypoints, legs, straight}
+      created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX (user_id)
     ) CHARACTER SET utf8mb4
     SQL,
     <<<SQL
@@ -1376,6 +1393,60 @@ function area_delete(int $userId, int $id): array {
     return ['ok' => true];
 }
 
+// --- Planned routes ---
+
+const ROUTE_MAX_BYTES = 2 * 1024 * 1024;
+
+// Like areas, rows are sent with their stored JSON spliced in.
+function route_json(array $row): string {
+    $meta = json_encode(['id' => (int) $row['id'], 'name' => $row['name'], 'distance' => (float) $row['distance_m'],
+                         'createdAt' => $row['created_at'], 'updatedAt' => $row['updated_at']]);
+    return substr($meta, 0, -1) . ',"data":' . $row['data'] . '}';
+}
+
+function send_routes(int $userId, ?int $onlyId = null): void {
+    $stmt = db()->prepare('SELECT * FROM routes WHERE user_id = ?' . ($onlyId ? ' AND id = ?' : '') . ' ORDER BY updated_at DESC, id DESC');
+    $stmt->execute($onlyId ? [$userId, $onlyId] : [$userId]);
+    header('Content-Type: application/json');
+    header('Cache-Control: no-store');
+    $rows = array_map('route_json', $stmt->fetchAll());
+    echo $onlyId ? ($rows[0] ?? 'null') : '[' . implode(',', $rows) . ']';
+    exit;
+}
+
+function route_save(int $userId, array $b): void {
+    $name = mb_substr(trim((string) ($b['name'] ?? '')), 0, 255);
+    $data = $b['data'] ?? null;
+    if ($name === '' || !is_array($data) || !is_array($data['waypoints'] ?? null) || !is_array($data['legs'] ?? null)) {
+        fail('Incomplete route', 400);
+    }
+    $json = json_encode($data);
+    if (strlen($json) > ROUTE_MAX_BYTES) {
+        fail('That route is too long to save', 400);
+    }
+    $distance = max(0, (float) ($b['distance'] ?? 0));
+    $id = (int) ($b['id'] ?? 0);
+    if ($id) {
+        $stmt = db()->prepare('UPDATE routes SET name = ?, distance_m = ?, data = ? WHERE id = ? AND user_id = ?');
+        $stmt->execute([$name, $distance, $json, $id, $userId]);
+        $check = db()->prepare('SELECT id FROM routes WHERE id = ? AND user_id = ?');
+        $check->execute([$id, $userId]);
+        if (!$check->fetchColumn()) {
+            fail('Route not found', 404);
+        }
+    } else {
+        db()->prepare('INSERT INTO routes (user_id, name, distance_m, data) VALUES (?, ?, ?, ?)')
+            ->execute([$userId, $name, $distance, $json]);
+        $id = (int) db()->lastInsertId();
+    }
+    send_routes($userId, $id);
+}
+
+function route_delete(int $userId, int $id): array {
+    db()->prepare('DELETE FROM routes WHERE user_id = ? AND id = ?')->execute([$userId, $id]);
+    return ['ok' => true];
+}
+
 // --- Achievements ---
 
 function list_achievements(int $userId): array {
@@ -1436,7 +1507,7 @@ if (!empty($user['read_only'])) {
     if ($method === 'GET' && $action === 'strava_status') {
         send_json(['configured' => false, 'connected' => false, 'athlete' => null, 'autoImport' => false]);
     }
-    if ($method !== 'GET' || !in_array($action, ['', 'areas', 'achievements'], true) || isset($_GET['gpx'])) {
+    if ($method !== 'GET' || !in_array($action, ['', 'areas', 'achievements', 'routes'], true) || isset($_GET['gpx'])) {
         fail('This is a view-only account', 403);
     }
 }
@@ -1463,6 +1534,12 @@ if ($method === 'POST' && $action === 'invite') {
     send_json(area_delete($userId, $id));
 } elseif ($method === 'POST' && $action === 'area_exclude' && $id) {
     send_json(area_exclude($userId, $id, read_json()));
+} elseif ($method === 'GET' && $action === 'routes') {
+    send_routes($userId);
+} elseif ($method === 'POST' && $action === 'route_save') {
+    route_save($userId, read_json());
+} elseif ($method === 'POST' && $action === 'route_delete' && $id) {
+    send_json(route_delete($userId, $id));
 } elseif ($method === 'GET' && $action === 'achievements') {
     send_json(list_achievements($userId));
 } elseif ($method === 'POST' && $action === 'achievement_add') {

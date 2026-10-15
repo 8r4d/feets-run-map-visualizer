@@ -33,17 +33,6 @@ const Achievements = (() => {
     longest: LONGEST,
   };
 
-  // Coverage.prepare is slow-ish, so keep it per area until the area changes.
-  const preps = new WeakMap();
-  function prepOf(area) {
-    const key = JSON.stringify(area.excluded || []);
-    const cached = preps.get(area);
-    if (cached && cached.key === key) return cached.prep;
-    const prep = Coverage.prepare(area, new Set(area.excluded || []));
-    preps.set(area, { key, prep });
-    return prep;
-  }
-
   // Adds up road, path and trail.
   function combine(t) {
     const all = { len: 0, covered: 0, streets: 0, done: 0 };
@@ -67,7 +56,7 @@ const Achievements = (() => {
     const wayCover = new Map();  // OSM way id -> covered metres; areas can overlap
     const hoodsDone = new Set();
     for (const area of areas) {
-      const prep = prepOf(area);
+      const prep = Coverage.prepared(area);
       const result = Coverage.compute(prep, segments);
       const summary = Coverage.summarize(prep, result);
       area.data.streets.forEach((s, w) => {

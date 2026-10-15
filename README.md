@@ -202,6 +202,29 @@ load quickly. The original GPX is kept for the ↓ download.
 - **Large files.** Uploads larger than PHP's `post_max_size` (often 8 MB on shared
   hosting) or MySQL's `max_allowed_packet` will fail.
 
+## Planning routes
+
+**Plan** mode draws routes along the streets of your areas, with no outside
+routing service.
+
+1. Switch to **Plan**. The active area's streets are coloured as in Streets
+   mode, so you can aim for the red ones.
+2. Click the map to add points. Each one is routed along the streets from the
+   last. Drag a point to move it, click it to remove it. **Back to start**
+   closes the loop.
+3. The panel shows the distance and how much of it is on streets you haven't
+   run yet (counting the tracks on the map, as in Streets mode).
+4. **Save** keeps the route under a name; **Download GPX** gives a file for a
+   watch, or to import into Strava as a route.
+
+Things to know:
+- Routes only follow streets in areas you've added, and skip streets marked
+  unrunnable. Click within 150 m of a street.
+- Crossings and sidewalks aren't in the street data, so a street's loose end is
+  joined to any other street within 15 m. If two points still can't be
+  joined, that part is drawn as a dashed straight line.
+- View-only accounts can open saved routes and plan their own, but can't save.
+
 ## Trophies
 
 The **Trophies** box collects milestones as you go: an area at 25, 50 and 75%,

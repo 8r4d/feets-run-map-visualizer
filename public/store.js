@@ -66,6 +66,11 @@ const Store = (() => {
     // Marks OSM ways unrunnable (or counts them again); resolves to { excluded: [way ids] }.
     excludeWays: (areaId, ways, excluded) => json('POST', `?action=area_exclude&id=${areaId}`, { ways, excluded }),
 
+    // Planned routes: { id, name, distance, createdAt, updatedAt, data: { waypoints, legs, straight } }.
+    routes: () => json('GET', '?action=routes'),
+    saveRoute: route => json('POST', '?action=route_save', route),  // { id?, name, distance, data } → stored route
+    deleteRoute: id => json('POST', `?action=route_delete&id=${id}`),
+
     // Achievements: each resolves to [{ code, title, detail, earnedAt }], oldest first.
     achievements: () => json('GET', '?action=achievements'),
     addAchievements: achievements => json('POST', '?action=achievement_add', { achievements }),

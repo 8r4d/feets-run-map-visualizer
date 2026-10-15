@@ -61,7 +61,9 @@ const heatRenderer = L.canvas({ padding: 0.5 });
 let heatLayer = null;
 let heatmap = false;
 let streetsMode = false;
-let mapMode = 'tracks';  // tracks, heatmap or streets
+let planMode = false;
+let mapMode = 'tracks';  // tracks, heatmap, streets or plan
+let trackVersion = 0;    // bumped whenever the tracks on the map may have changed
 let baseBeforeHeatmap = null;
 
 // Opacity per line, scaled to how many tracks are shown: where all of them
@@ -88,15 +90,16 @@ function drawHeatmap() {
 
 // Puts the right layers on the map for the current mode and visibility.
 function syncLayers() {
-  const showTracks = !heatmap && !streetsMode;
+  trackVersion++;
+  const showTracks = !heatmap && !streetsMode && !planMode;
   for (const { track, layer } of loaded.values()) {
     if (onMap(track) && showTracks) layer.addTo(map);
     else layer.remove();
   }
   if (heatmap) drawHeatmap();
   else if (heatLayer) heatLayer.remove();
-  // Streets mode: coverage depends on which tracks are on the map.
-  if (streetsMode) scheduleCoverage();
+  // Streets and plan mode: coverage depends on which tracks are on the map.
+  if (streetsMode || planMode) scheduleCoverage();
   else if (streetLayer) streetLayer.remove();
 }
 
@@ -112,8 +115,11 @@ function setMode(mode) {
   }
   heatmap = heat;
   streetsMode = mode === 'streets';
+  planMode = mode === 'plan';
   mapMode = mode;
   document.getElementById('streets-panel').hidden = !streetsMode;
+  document.getElementById('plan-panel').hidden = !planMode;
+  map.getContainer().classList.toggle('planning', planMode);
   for (const button of document.querySelectorAll('#mode button')) {
     button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
   }
@@ -121,6 +127,8 @@ function setMode(mode) {
   fadeInput.value = savedFade(mode);
   applyFade();
   syncLayers();
+  drawPlan();
+  if (planMode) renderPlan();
 }
 
 // --- Map fade ---
@@ -128,7 +136,7 @@ function setMode(mode) {
 // tracks, black for the heatmap), so the lines stand out more. Each mode
 // remembers its own setting.
 const fadeInput = document.getElementById('fade');
-const FADE_DEFAULTS = { tracks: 0, heatmap: 30, streets: 50 };
+const FADE_DEFAULTS = { tracks: 0, heatmap: 30, streets: 50, plan: 50 };
 
 function savedFade(mode) {
   try {
@@ -460,7 +468,7 @@ function setActiveArea(id) {
   const area = areas.find(a => String(a.id) === String(id));
   areaSelect.value = area ? String(area.id) : '';
   try { localStorage.setItem('feets-area', area ? String(area.id) : ''); } catch {}
-  activeArea = area ? { area, prep: Coverage.prepare(area, new Set(area.excluded || [])) } : null;
+  activeArea = area ? { area, prep: Coverage.prepared(area) } : null;
   coverage = null;
   document.getElementById('area-tools').hidden = !area;
   if (!area) {
@@ -478,7 +486,7 @@ function scheduleCoverage() {
 }
 
 function updateCoverage() {
-  if (!streetsMode || !activeArea) {
+  if (!(streetsMode || planMode) || !activeArea) {
     if (streetLayer) streetLayer.remove();
     if (streetsMode) renderCoverage();
     return;
@@ -517,7 +525,7 @@ function drawStreets() {
     const tip = `${s.name || `Unnamed ${CAT_NAMES[s.cat]}`} · ${unrunnable ? 'unrunnable' : Math.round(f * 100) + '%'}`;
     for (const run of s.runs) {
       L.polyline(run, style).bindTooltip(tip, { sticky: true })
-        .on('click', e => streetPopup(w, e.latlng)).addTo(streetLayer);
+        .on('click', e => { if (!planMode) streetPopup(w, e.latlng); }).addTo(streetLayer);  // plan mode: map click adds a point
     }
   });
   streetLayer.addTo(map);
@@ -891,13 +899,294 @@ function toast(title, detail) {
   setTimeout(() => el.remove(), 8000);
 }
 
+// --- Plan mode: route planning ---
+// Click the map to add points; planner.js routes between them along the
+// streets of your areas. The active area's streets are coloured by coverage,
+// as in Streets mode, so you can aim for the ones you haven't run.
+const planStatus = document.getElementById('plan-status');
+let routes = [];  // saved, as from Store.routes()
+// The route being drawn. waypoints: [[lat, lon]] on streets; legs[i] joins
+// waypoints i and i+1, straight[i] when no streets connect them.
+const plan = { id: null, name: '', waypoints: [], legs: [], straight: [], dirty: false };
+let planLayer = null;
+let graph = null;
+let graphKey = '';
+const planBase = new WeakMap();  // prep -> { version, result }: coverage of the tracks on the map
+
+// The street graph, rebuilt when areas or their unrunnable streets change.
+function planGraph() {
+  const key = areas.map(a => `${a.id}@${a.fetchedAt}:${(a.excluded || []).join('.')}`).join('|');
+  if (!graph || key !== graphKey) {
+    graph = Planner.build(areas);
+    graphKey = key;
+  }
+  return graph;
+}
+
+function legBetween(a, b) {
+  const g = planGraph();
+  const from = Planner.snap(g, a), to = Planner.snap(g, b);
+  const found = from >= 0 && to >= 0 && Planner.route(g, from, to);
+  return found ? { points: found.points, straight: false } : { points: [a, b], straight: true };
+}
+
+// The whole route as one line.
+const routePoints = data => (data.legs.length ? data.legs.flatMap((leg, i) => (i ? leg.slice(1) : leg)) : data.waypoints);
+
+function lineMetres(points) {
+  let m = 0;
+  for (let i = 1; i < points.length; i++) m += Planner.distance(...points[i - 1], ...points[i]);
+  return m;
+}
+
+// A click's nearest street point, or null (with a message) if there isn't one.
+function snapClick(latlng) {
+  if (!areas.length) {
+    planStatus.textContent = 'Add an area in Streets mode first: routes follow its streets.';
+    return null;
+  }
+  const g = planGraph();
+  const i = Planner.snap(g, [latlng.lat, latlng.lng]);
+  if (i < 0) {
+    planStatus.textContent = "There's no street of your areas near there. Click closer to one.";
+    return null;
+  }
+  return [g.lat[i], g.lon[i]];
+}
+
+function addWaypoint(p) {
+  if (plan.waypoints.length) {
+    const leg = legBetween(plan.waypoints[plan.waypoints.length - 1], p);
+    plan.legs.push(leg.points);
+    plan.straight.push(leg.straight);
+  }
+  plan.waypoints.push(p);
+  planChanged();
+}
+
+function moveWaypoint(i, latlng) {
+  const p = snapClick(latlng);
+  if (p) {
+    plan.waypoints[i] = p;
+    for (const k of [i - 1, i]) {
+      if (k < 0 || k >= plan.legs.length) continue;
+      const leg = legBetween(plan.waypoints[k], plan.waypoints[k + 1]);
+      plan.legs[k] = leg.points;
+      plan.straight[k] = leg.straight;
+    }
+  }
+  planChanged();  // redraws, which also puts a point that couldn't move back
+}
+
+function removeWaypoint(i) {
+  const last = plan.waypoints.length - 1;
+  if (i === 0 || i === last) {
+    const k = i === 0 ? 0 : last - 1;
+    plan.legs.splice(k, 1);
+    plan.straight.splice(k, 1);
+  } else {
+    const leg = legBetween(plan.waypoints[i - 1], plan.waypoints[i + 1]);
+    plan.legs.splice(i - 1, 2, leg.points);
+    plan.straight.splice(i - 1, 2, leg.straight);
+  }
+  plan.waypoints.splice(i, 1);
+  planChanged();
+}
+
+function planChanged() {
+  plan.dirty = true;
+  planStatus.textContent = '';
+  drawPlan();
+  renderPlan();
+}
+
+function resetPlan(route = null) {
+  const data = route ? route.data : { waypoints: [], legs: [], straight: [] };
+  Object.assign(plan, {
+    id: route ? route.id : null,
+    name: route ? route.name : '',
+    waypoints: data.waypoints.map(p => [...p]),
+    legs: data.legs.map(leg => leg.map(p => [...p])),
+    straight: [...(data.straight || data.legs.map(() => false))],
+    dirty: false,
+  });
+  planStatus.textContent = '';
+  drawPlan();
+  renderPlan();
+}
+
+// Asks before throwing away a route that hasn't been saved.
+const mayDiscard = () => !plan.dirty || plan.waypoints.length < 2 || confirm('Discard the route you were drawing?');
+
+function drawPlan() {
+  if (planLayer) planLayer.remove();
+  planLayer = null;
+  if (!planMode || !plan.waypoints.length) return;
+  planLayer = L.layerGroup();
+  plan.legs.forEach((leg, i) => {
+    L.polyline(leg, {
+      color: '#1a73e8', weight: 5, opacity: 0.85, interactive: false, dashArray: plan.straight[i] ? '6 8' : null,
+    }).addTo(planLayer);
+  });
+  const last = plan.waypoints.length - 1;
+  plan.waypoints.forEach((p, i) => {
+    const kind = i === 0 ? 'start' : i === last ? 'end' : 'via';
+    const marker = L.marker(p, {
+      draggable: true,
+      title: 'Drag to move, click to remove',
+      icon: L.divIcon({ className: `plan-point ${kind}`, iconSize: kind === 'via' ? [12, 12] : [16, 16] }),
+      zIndexOffset: kind === 'end' ? 200 : kind === 'start' ? 100 : 0,
+    });
+    marker.on('dragend', () => moveWaypoint(i, marker.getLatLng()));
+    marker.on('click', () => removeWaypoint(i));
+    marker.addTo(planLayer);
+  });
+  planLayer.addTo(map);
+}
+
+// Metres of the route on streets the tracks on the map haven't covered.
+function newStreetMetres(points) {
+  const shown = [...loaded.values()].filter(e => onMap(e.track)).map(e => e.track.segments);
+  const byWay = new Map();  // areas can overlap, so count each street once
+  for (const area of areas) {
+    const prep = Coverage.prepared(area);
+    let base = planBase.get(prep);
+    if (!base || base.version !== trackVersion) {
+      base = { version: trackVersion, result: Coverage.compute(prep, shown) };
+      planBase.set(prep, base);
+    }
+    for (const [id, m] of Coverage.gain(prep, base.result, [[points]])) byWay.set(id, Math.max(byWay.get(id) || 0, m));
+  }
+  let metres = 0;
+  for (const m of byWay.values()) metres += m;
+  return metres;
+}
+
+function renderPlan() {
+  const n = plan.waypoints.length;
+  const title = document.getElementById('plan-title');
+  title.textContent = (plan.name || 'New route') + (plan.dirty && n > 1 ? ' (not saved)' : '');
+  const stats = document.getElementById('plan-stats');
+  if (n < 2) {
+    stats.textContent = !areas.length ? 'Add an area in Streets mode first: routes follow its streets.'
+      : n ? 'Now click where to go next.' : 'Click the map to start a route. Each click adds a point, '
+        + 'routed along the streets of your areas. Drag a point to move it, click it to remove it.';
+  } else {
+    const points = routePoints(plan);
+    const fresh = newStreetMetres(points);
+    stats.textContent = `${km(lineMetres(points))} · ${km(fresh)} on streets you haven't run`
+      + (plan.straight.some(Boolean) ? '. Dashed parts have no street between them in your areas.' : '');
+  }
+  document.getElementById('plan-undo').disabled = !n;
+  document.getElementById('plan-loop').disabled = n < 2;
+  document.getElementById('plan-clear').disabled = !n;
+  document.getElementById('plan-save').disabled = n < 2;  // view-only accounts don't see it (style.css)
+  document.getElementById('plan-gpx').disabled = n < 2;
+  renderRouteList();
+}
+
+function renderRouteList() {
+  document.getElementById('routes').hidden = !routes.length;
+  document.getElementById('route-list').replaceChildren(...routes.map(r => {
+    const li = document.createElement('li');
+    li.classList.toggle('current', r.id === plan.id);
+    li.innerHTML = '<button class="link-button name" type="button" title="Open"></button><small></small>'
+      + '<button class="link-button" type="button">GPX</button>';
+    li.querySelector('.name').textContent = r.name;
+    li.querySelector('.name').onclick = () => openRoute(r);
+    li.querySelector('small').textContent = km(r.distance);
+    li.querySelector('button:last-child').onclick = () => downloadRoute(r.name, r.data);
+    if (!readOnly()) {
+      const del = document.createElement('button');
+      del.className = 'link-button';
+      del.type = 'button';
+      del.textContent = 'Delete';
+      del.onclick = () => deleteRoute(r);
+      li.append(del);
+    }
+    return li;
+  }));
+}
+
+function openRoute(r) {
+  if (r.id === plan.id && !plan.dirty) return;
+  if (!mayDiscard()) return;
+  resetPlan(r);
+  const points = routePoints(r.data);
+  if (points.length) map.fitBounds(L.latLngBounds(points), { padding: [40, 40] });
+}
+
+async function deleteRoute(r) {
+  if (!confirm(`Delete the route "${r.name}"?`)) return;
+  try {
+    await Store.deleteRoute(r.id);
+    routes = routes.filter(o => o.id !== r.id);
+    if (plan.id === r.id) {
+      plan.id = null;  // what's drawn stays, as a new unsaved route
+      plan.dirty = true;
+    }
+    renderPlan();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+function downloadRoute(name, data) {
+  const blob = new Blob([Planner.gpx(name, routePoints(data))], { type: 'application/gpx+xml' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (name.replace(/[\\/:*?"<>|]+/g, '').trim() || 'route') + '.gpx';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+async function loadRoutes() {
+  try {
+    routes = await Store.routes();
+  } catch {
+    routes = [];
+  }
+  renderRouteList();
+}
+
+map.on('click', e => {
+  if (!planMode) return;
+  const p = snapClick(e.latlng);
+  if (p) addWaypoint(p);
+});
+
+document.getElementById('plan-undo').onclick = () => {
+  if (plan.waypoints.length) removeWaypoint(plan.waypoints.length - 1);
+};
+document.getElementById('plan-loop').onclick = () => addWaypoint([...plan.waypoints[0]]);
+document.getElementById('plan-clear').onclick = () => {
+  if (mayDiscard()) resetPlan();
+};
+document.getElementById('plan-gpx').onclick = () => downloadRoute(plan.name || 'feets route', plan);
+document.getElementById('plan-save').onclick = async () => {
+  const name = prompt('Name this route', plan.name || `Route ${new Date().toLocaleDateString()}`);
+  if (!name || !name.trim()) return;
+  try {
+    const saved = await Store.saveRoute({
+      id: plan.id, name: name.trim(), distance: lineMetres(routePoints(plan)),
+      data: { waypoints: plan.waypoints, legs: plan.legs, straight: plan.straight },
+    });
+    routes = [saved, ...routes.filter(r => r.id !== saved.id)];
+    Object.assign(plan, { id: saved.id, name: saved.name, dirty: false });
+    planStatus.textContent = `Saved "${saved.name}".`;
+    renderPlan();
+  } catch (err) {
+    alert(err.message);
+  }
+};
+
 for (const button of document.querySelectorAll('#mode button')) {
   button.onclick = () => setMode(button.dataset.mode);
 }
 let startMode = 'tracks';
 try {
   const saved = localStorage.getItem('feets-mode');
-  if (['heatmap', 'streets'].includes(saved)) startMode = saved;
+  if (['heatmap', 'streets', 'plan'].includes(saved)) startMode = saved;
 } catch {}
 setMode(startMode);
 
@@ -1025,6 +1314,8 @@ async function signedIn(user) {
   await loadAreas();
   await loadTrophies();
   scheduleTrophies();
+  await loadRoutes();
+  if (planMode) renderPlan();
   await initStrava();
 }
 
@@ -1037,6 +1328,8 @@ function signedOut() {
   clearTimeout(trophyTimer);
   trophies = [];
   trophyBox.hidden = true;
+  routes = [];
+  resetPlan();
   stravaBox.hidden = true;
   showAuth('login');
 }
