@@ -29,6 +29,43 @@ their own empty track list.
 When you change any JS or CSS file, raise the `?v=` number on its link in
 `index.html`. Otherwise the host may keep serving the old file.
 
+## Street coverage
+
+**Streets** mode shows how much of an area's roads, paths and trails your
+tracks cover, for "run every street" projects.
+
+1. Switch to **Streets** and zoom the map to the neighbourhood.
+2. Click **Add area** and pick one. Areas come from OpenStreetMap's boundaries.
+   In Edmonton, for example, Riverbend is a district and Brander Gardens is a
+   neighbourhood inside it. feets fetches the area's streets, which takes from
+   a few seconds to a minute.
+3. Streets turn green when done, orange when started and red when not run
+   yet. Trails are dashed.
+4. The panel shows:
+   - progress for roads, paths and trails, overall and per neighbourhood,
+   - a list of unfinished streets, nearest to the middle of the map first.
+     Click one to see it.
+
+Things to know:
+- **Which tracks count:** only the tracks on the map. Use the filters, for
+  example type = Run, to count only some of them.
+- **What counts as a street:**
+  - Public roads, footpaths, multi-use paths and trails count.
+  - Motorways, alleys, driveways, parking aisles, crossings and private ways
+    don't.
+  - Neither do sidewalks mapped as separate lines: running the road covers them.
+- **When a street counts as run:** a point on a street is visited when a track
+  passed within 20 m, going the same way. Crossing a street doesn't count. A
+  street is done when 90% of its points are visited.
+- **Nearest street wins:** where a path runs right beside a road, only the
+  nearest one gets credit.
+- **New streets:** OpenStreetMap changes over time. **Refresh from
+  OpenStreetMap** fetches the area again.
+- **Where the data comes from:** the browser fetches the data itself, from
+  Nominatim (the boundary) and Overpass (the streets). Shared hosting may not
+  let PHP wait long enough for Overpass when it's busy, so the server only
+  stores the result.
+
 ## Passwords
 
 feets doesn't send email, so password resets go through the admin:
@@ -127,6 +164,8 @@ load quickly. The original GPX is kept for the ↓ download.
 | `public/app.js`      | Map setup, track list UI, file upload handling, login form. |
 | `public/gpx.js`      | Parses GPX tracks, routes and waypoints in the browser, and works out distance. |
 | `public/store.js`    | Calls `api.php`.                                         |
+| `public/osm.js`      | Fetches an area's boundary and streets from OpenStreetMap and prepares them. |
+| `public/coverage.js` | Works out which streets the tracks cover.                |
 | `public/strava-webhook.php` | Address Strava's webhook calls. Passes them on to `api.php`. |
 | `public/style.css`   | Styles.                                                  |
 

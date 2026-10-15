@@ -362,3 +362,164 @@ body {
   body { flex-direction: column-reverse; }
   #sidebar { width: 100%; max-height: 40vh; border-right: none; border-top: 1px solid #ddd; }
 }
+
+/* Streets mode */
+#streets-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+
+#streets-panel select,
+#streets-panel button:not(.link-button) {
+  min-width: 0;
+  padding: 5px 6px;
+  font: inherit;
+}
+
+#streets-panel h2 {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+
+#area-status:empty,
+.coverage-note:empty {
+  display: none;
+}
+
+#area-status {
+  color: #555;
+}
+
+#area-tools {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+}
+
+.progress {
+  display: grid;
+  grid-template-columns: 3.4em 1fr 2.6em;
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 8px;
+  margin-bottom: 4px;
+}
+
+.progress small {
+  grid-column: 2 / 4;
+  color: #666;
+}
+
+.progress .bar {
+  height: 8px;
+  overflow: hidden;
+  background: #eee;
+  border-radius: 4px;
+}
+
+.progress .bar span {
+  display: block;
+  height: 100%;
+  background: #2e9e44;
+}
+
+.progress strong {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: #555;
+  font-size: 12px;
+}
+
+.legend span::before {
+  content: '';
+  display: inline-block;
+  width: 14px;
+  height: 4px;
+  margin-right: 5px;
+  vertical-align: middle;
+  background: var(--c, #555);
+  border-radius: 2px;
+}
+
+.legend span.dashed::before {
+  background: repeating-linear-gradient(90deg, #555 0 4px, transparent 4px 7px);
+}
+
+.coverage-note {
+  display: block;
+  color: #777;
+}
+
+#hood-coverage summary {
+  cursor: pointer;
+  color: #333;
+}
+
+#hood-coverage table {
+  width: 100%;
+  margin-top: 4px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+#hood-coverage th,
+#hood-coverage td {
+  padding: 2px 4px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#hood-coverage tr + tr th {
+  text-align: left;
+  font-weight: normal;
+}
+
+#todo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+#todo-list li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  background: #fff;
+  border: 1px solid #e3e3e3;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+#todo-list li:hover {
+  border-color: #1a73e8;
+}
+
+#todo-list .swatch {
+  width: 12px;
+  height: 4px;
+  border-radius: 2px;
+}
+
+#todo-list strong {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+#todo-list small {
+  color: #777;
+}

@@ -60,6 +60,8 @@ const HEAT_COLOR = '#ff5a1f';
 const heatRenderer = L.canvas({ padding: 0.5 });
 let heatLayer = null;
 let heatmap = false;
+let streetsMode = false;
+let mapMode = 'tracks';  // tracks, heatmap or streets
 let baseBeforeHeatmap = null;
 
 // Opacity per line, scaled to how many tracks are shown: where all of them
@@ -86,12 +88,16 @@ function drawHeatmap() {
 
 // Puts the right layers on the map for the current mode and visibility.
 function syncLayers() {
+  const showTracks = !heatmap && !streetsMode;
   for (const { track, layer } of loaded.values()) {
-    if (onMap(track) && !heatmap) layer.addTo(map);
+    if (onMap(track) && showTracks) layer.addTo(map);
     else layer.remove();
   }
   if (heatmap) drawHeatmap();
   else if (heatLayer) heatLayer.remove();
+  // Streets mode: coverage depends on which tracks are on the map.
+  if (streetsMode) scheduleCoverage();
+  else if (streetLayer) streetLayer.remove();
 }
 
 function setMode(mode) {
@@ -105,6 +111,9 @@ function setMode(mode) {
     }
   }
   heatmap = heat;
+  streetsMode = mode === 'streets';
+  mapMode = mode;
+  document.getElementById('streets-panel').hidden = !streetsMode;
   for (const button of document.querySelectorAll('#mode button')) {
     button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
   }
@@ -119,7 +128,7 @@ function setMode(mode) {
 // tracks, black for the heatmap), so the lines stand out more. Each mode
 // remembers its own setting.
 const fadeInput = document.getElementById('fade');
-const FADE_DEFAULTS = { tracks: 0, heatmap: 30 };
+const FADE_DEFAULTS = { tracks: 0, heatmap: 30, streets: 50 };
 
 function savedFade(mode) {
   try {
@@ -139,7 +148,7 @@ function applyFade() {
 
 fadeInput.oninput = () => {
   applyFade();
-  try { localStorage.setItem('feets-fade-' + (heatmap ? 'heatmap' : 'tracks'), fadeInput.value); } catch {}
+  try { localStorage.setItem('feets-fade-' + mapMode, fadeInput.value); } catch {}
 };
 
 function buildLayer(track) {
@@ -383,12 +392,317 @@ filterText.oninput = () => {
 yearSelect.onchange = () => setFilter('year', yearSelect.value);
 sportSelect.onchange = () => setFilter('sport', sportSelect.value);
 
+// --- Streets mode: street coverage ---
+// Pick an OSM area (e.g. a neighbourhood); its roads, paths and trails are
+// coloured by how much of each the tracks on the map have covered.
+// osm.js fetches areas, coverage.js does the matching.
+const STREET_COLORS = { done: '#2e9e44', started: '#f0a020', todo: '#d64545' };
+const CAT_LABELS = { road: 'Roads', path: 'Paths', trail: 'Trails' };
+const CAT_NAMES = { road: 'road', path: 'path', trail: 'trail' };
+const TODO_LIMIT = 30;
+const streetRenderer = L.canvas({ padding: 0.5, tolerance: 5 });
+const areaSelect = document.getElementById('area-select');
+const areaStatus = document.getElementById('area-status');
+let areas = [];
+let activeArea = null;   // { area, prep }
+let coverage = null;     // { result, summary }
+let streetLayer = null;
+let highlightLayer = null;
+let coverageTimer = null;
+
+const areaKind = level => (level <= 8 ? 'district' : level === 9 ? 'community' : level === 10 ? 'neighbourhood' : 'sub-area');
+const km = m => (m < 1000 ? `${Math.round(m / 10) * 10} m` : (m / 1000).toFixed(m < 10000 ? 1 : 0) + ' km');
+const streetColor = f => (Coverage.isDone(f) ? STREET_COLORS.done : f > 0.05 ? STREET_COLORS.started : STREET_COLORS.todo);
+
+function groupLabel(g) {
+  return g.name || `Unnamed ${CAT_NAMES[g.cat]}`;
+}
+
+function hoodName(index) {
+  return index >= 0 && activeArea ? activeArea.area.data.hoods[index].name : '';
+}
+
+async function loadAreas() {
+  try {
+    areas = await Store.areas();
+  } catch (err) {
+    areas = [];
+    areaStatus.textContent = 'Could not load areas: ' + err.message;
+  }
+  let saved = '';
+  try { saved = localStorage.getItem('feets-area') || ''; } catch {}
+  fillAreaSelect();
+  setActiveArea(areas.some(a => String(a.id) === saved) ? saved : areas[0] ? String(areas[0].id) : '');
+}
+
+function clearAreas() {
+  areas = [];
+  setActiveArea('');
+}
+
+function fillAreaSelect() {
+  areaSelect.replaceChildren(
+    new Option(areas.length ? 'Choose an area…' : 'No areas yet: add one', ''),
+    ...areas.map(a => new Option(a.name, String(a.id)))
+  );
+}
+
+function setActiveArea(id) {
+  const area = areas.find(a => String(a.id) === String(id));
+  areaSelect.value = area ? String(area.id) : '';
+  try { localStorage.setItem('feets-area', area ? String(area.id) : ''); } catch {}
+  activeArea = area ? { area, prep: Coverage.prepare(area) } : null;
+  coverage = null;
+  document.getElementById('area-tools').hidden = !area;
+  if (!area) {
+    if (streetLayer) streetLayer.remove();
+    streetLayer = null;
+    renderCoverage();
+  }
+  scheduleCoverage();
+}
+
+// Recomputing redraws every street, so wait for a pause in changes.
+function scheduleCoverage() {
+  clearTimeout(coverageTimer);
+  coverageTimer = setTimeout(updateCoverage, 200);
+}
+
+function updateCoverage() {
+  if (!streetsMode || !activeArea) {
+    if (streetLayer) streetLayer.remove();
+    if (streetsMode) renderCoverage();
+    return;
+  }
+  const shown = [...loaded.values()].filter(e => onMap(e.track));
+  const result = Coverage.compute(activeArea.prep, shown.map(e => e.track.segments));
+  coverage = { result, summary: Coverage.summarize(activeArea.prep, result), tracks: shown.length };
+  drawStreets();
+  renderCoverage();
+}
+
+function drawStreets() {
+  if (streetLayer) streetLayer.remove();
+  streetLayer = L.layerGroup();
+  const { data } = activeArea.area;
+  for (const hood of data.hoods) {
+    for (const line of hood.lines) {
+      L.polyline(line, { renderer: streetRenderer, color: '#777', weight: 1, opacity: 0.6, interactive: false }).addTo(streetLayer);
+    }
+  }
+  for (const line of data.boundary) {
+    L.polyline(line, { renderer: streetRenderer, color: '#333', weight: 2.5, dashArray: '8 6', interactive: false }).addTo(streetLayer);
+  }
+  data.streets.forEach((s, w) => {
+    const f = coverage.result.fraction[w];
+    const style = {
+      renderer: streetRenderer,
+      color: streetColor(f),
+      weight: s.cat === 'road' ? 4 : 3,
+      opacity: 0.9,
+      dashArray: s.cat === 'trail' ? '4 5' : null,
+    };
+    const tip = `${s.name || `Unnamed ${CAT_NAMES[s.cat]}`} · ${Math.round(f * 100)}%`;
+    for (const run of s.runs) L.polyline(run, style).bindTooltip(tip, { sticky: true }).addTo(streetLayer);
+  });
+  streetLayer.addTo(map);
+}
+
+function progressRow(label, t) {
+  const share = t.len ? t.covered / t.len : 0;
+  const row = document.createElement('div');
+  row.className = 'progress';
+  row.innerHTML = '<span class="progress-label"></span><span class="bar"><span></span></span><strong></strong><small></small>';
+  row.querySelector('.progress-label').textContent = label;
+  row.querySelector('.bar span').style.width = (share * 100).toFixed(1) + '%';
+  row.querySelector('strong').textContent = Math.round(share * 100) + '%';
+  row.querySelector('small').textContent =
+    `${km(t.covered)} of ${km(t.len)} · ${t.done} of ${t.streets} ${t.streets === 1 ? 'street' : 'streets'} done`;
+  return row;
+}
+
+function renderCoverage() {
+  const box = document.getElementById('coverage');
+  const hoodBox = document.getElementById('hood-coverage');
+  if (!activeArea || !coverage) {
+    box.replaceChildren();
+    hoodBox.hidden = true;
+    document.getElementById('todo').hidden = true;
+    return;
+  }
+  const { summary, tracks } = coverage;
+  const cats = ['road', 'path', 'trail'].filter(c => summary.total[c].len > 0);
+  const legend = document.createElement('div');
+  legend.className = 'legend';
+  legend.innerHTML = `<span style="--c:${STREET_COLORS.done}">done</span><span style="--c:${STREET_COLORS.started}">started</span>`
+    + `<span style="--c:${STREET_COLORS.todo}">not yet</span><span class="dashed">trail</span>`;
+  const note = document.createElement('small');
+  note.className = 'coverage-note';
+  note.textContent = `Counting the ${tracks} ${tracks === 1 ? 'track' : 'tracks'} on the map. ` +
+    'Use the filters below to count only some, e.g. runs.';
+  box.replaceChildren(...cats.map(c => progressRow(CAT_LABELS[c], summary.total[c])), legend, note);
+
+  const hoods = activeArea.area.data.hoods;
+  hoodBox.hidden = !hoods.length;
+  const head = '<tr><th></th>' + cats.map(c => `<th>${CAT_LABELS[c]}</th>`).join('') + '</tr>';
+  const rows = hoods.map((h, i) => {
+    const cells = cats.map(c => {
+      const t = summary.byHood[i][c];
+      return `<td>${t.len ? Math.round((t.covered / t.len) * 100) + '%' : '–'}</td>`;
+    });
+    return `<tr><th></th>${cells.join('')}</tr>`;
+  });
+  const table = hoodBox.querySelector('table');
+  table.innerHTML = head + rows.join('');
+  table.querySelectorAll('tr + tr th').forEach((th, i) => { th.textContent = hoods[i].name; });
+  renderTodo();
+}
+
+// Unfinished streets, nearest to the middle of the map first.
+function renderTodo() {
+  const list = document.getElementById('todo-list');
+  const todo = document.getElementById('todo');
+  if (!coverage) { todo.hidden = true; return; }
+  const centre = map.getCenter();
+  const { data } = activeArea.area;
+  const items = coverage.summary.groups
+    .filter(g => !g.done)
+    .map(g => {
+      let best = Infinity;
+      for (const w of g.ways) for (const run of data.streets[w].runs) {
+        for (let i = 0; i < run.length; i += 4) best = Math.min(best, centre.distanceTo(run[i]));
+      }
+      return { g, distance: best };
+    })
+    .sort((a, b) => a.distance - b.distance)
+    .slice(0, TODO_LIMIT);
+  todo.hidden = !items.length;
+  list.replaceChildren(...items.map(({ g }) => {
+    const li = document.createElement('li');
+    const share = g.len ? g.covered / g.len : 0;
+    li.innerHTML = '<span class="swatch"></span><div class="name"><strong></strong><small></small></div>';
+    li.querySelector('.swatch').style.background = streetColor(share);
+    li.querySelector('strong').textContent = groupLabel(g);
+    li.querySelector('small').textContent = [
+      CAT_NAMES[g.cat], hoodName(g.hood), `${Math.round(share * 100)}%`, `${km(g.len - g.covered)} left`,
+    ].filter(Boolean).join(' · ');
+    li.title = 'Show on map';
+    li.onclick = () => showGroup(g);
+    return li;
+  }));
+}
+
+// Zooms to a street and flashes it.
+function showGroup(g) {
+  const { data } = activeArea.area;
+  const lines = g.ways.flatMap(w => data.streets[w].runs);
+  if (highlightLayer) highlightLayer.remove();
+  highlightLayer = L.layerGroup(lines.map(line =>
+    L.polyline(line, { renderer: streetRenderer, color: '#1a73e8', weight: 9, opacity: 0.55, interactive: false })
+  )).addTo(map);
+  map.fitBounds(L.latLngBounds(lines.flat()), { padding: [60, 60], maxZoom: 17 });
+  setTimeout(() => { if (highlightLayer) highlightLayer.remove(); }, 4000);
+}
+
+map.on('moveend', () => { if (streetsMode && coverage) renderTodo(); });
+
+areaSelect.onchange = () => {
+  setActiveArea(areaSelect.value);
+  if (activeArea) map.fitBounds(L.latLngBounds(activeArea.area.data.boundary.flat()), { padding: [20, 20] });
+};
+
+// Adding an area: list the OSM boundaries around the current view, then
+// fetch the chosen one's streets and save it.
+document.getElementById('area-add').onclick = async () => {
+  if (map.getZoom() < 12) {
+    areaStatus.textContent = 'Zoom in to the area you want first, then click Add area.';
+    return;
+  }
+  const b = map.getBounds();
+  areaStatus.textContent = 'Looking up areas here…';
+  try {
+    const found = await OSM.candidates(b.getSouth(), b.getWest(), b.getNorth(), b.getEast());
+    if (!found.length) {
+      areaStatus.textContent = 'OpenStreetMap has no neighbourhood boundaries here.';
+      return;
+    }
+    // Grouped by kind, nearest first: the bigger kinds come first because
+    // they include their neighbourhoods.
+    const groups = new Map();
+    for (const c of found) {
+      const kind = areaKind(c.level);
+      if (!groups.has(kind)) groups.set(kind, []);
+      if (groups.get(kind).length < 8) groups.get(kind).push(c);
+    }
+    const order = ['district', 'community', 'neighbourhood', 'sub-area'];
+    document.getElementById('area-candidates').replaceChildren(...order.filter(k => groups.has(k)).map(kind => {
+      const group = document.createElement('optgroup');
+      group.label = { district: 'Districts', community: 'Communities', neighbourhood: 'Neighbourhoods', 'sub-area': 'Sub-areas' }[kind];
+      group.append(...groups.get(kind).map(c => new Option(c.name, String(c.osmId))));
+      return group;
+    }));
+    // Preselect the nearest neighbourhood-sized area, or else the nearest of any kind.
+    const best = found.find(c => areaKind(c.level) === 'neighbourhood') || found[0];
+    document.getElementById('area-candidates').value = String(best.osmId);
+    document.getElementById('area-picker').hidden = false;
+    areaStatus.textContent = 'Pick one. Bigger areas include their neighbourhoods.';
+  } catch (err) {
+    areaStatus.textContent = err.message;
+  }
+};
+
+document.getElementById('area-cancel').onclick = () => {
+  document.getElementById('area-picker').hidden = true;
+  areaStatus.textContent = '';
+};
+
+async function fetchAndSaveArea(osmId) {
+  const buttons = ['area-add', 'area-confirm', 'area-refresh'].map(id => document.getElementById(id));
+  buttons.forEach(b => { b.disabled = true; });
+  try {
+    const built = await OSM.buildArea(osmId, message => { areaStatus.textContent = message; });
+    areaStatus.textContent = 'Saving…';
+    const saved = await Store.saveArea({ osmId, name: built.name, data: built.data });
+    areas = [...areas.filter(a => a.id !== saved.id), saved].sort((a, b) => a.name.localeCompare(b.name));
+    fillAreaSelect();
+    setActiveArea(saved.id);
+    document.getElementById('area-picker').hidden = true;
+    map.fitBounds(L.latLngBounds(saved.data.boundary.flat()), { padding: [20, 20] });
+    areaStatus.textContent = `${saved.name}: ${saved.data.streets.length} streets, paths and trails.`;
+  } catch (err) {
+    areaStatus.textContent = err.message;
+  } finally {
+    buttons.forEach(b => { b.disabled = false; });
+  }
+}
+
+document.getElementById('area-confirm').onclick = () =>
+  fetchAndSaveArea(Number(document.getElementById('area-candidates').value));
+
+document.getElementById('area-refresh').onclick = () => {
+  if (activeArea) fetchAndSaveArea(activeArea.area.osmId);
+};
+
+document.getElementById('area-remove').onclick = async () => {
+  if (!activeArea || !confirm(`Remove ${activeArea.area.name}? Your tracks aren't affected.`)) return;
+  try {
+    await Store.deleteArea(activeArea.area.id);
+    areas = areas.filter(a => a.id !== activeArea.area.id);
+    fillAreaSelect();
+    setActiveArea(areas[0] ? areas[0].id : '');
+    areaStatus.textContent = '';
+  } catch (err) {
+    alert(err.message);
+  }
+};
+
 for (const button of document.querySelectorAll('#mode button')) {
   button.onclick = () => setMode(button.dataset.mode);
 }
 let startMode = 'tracks';
 try {
-  if (localStorage.getItem('feets-mode') === 'heatmap') startMode = 'heatmap';
+  const saved = localStorage.getItem('feets-mode');
+  if (['heatmap', 'streets'].includes(saved)) startMode = saved;
 } catch {}
 setMode(startMode);
 
@@ -503,6 +817,7 @@ async function signedIn(user) {
   document.getElementById('user-bar').hidden = false;
   clearTracks();
   await loadTracks();
+  await loadAreas();
   await initStrava();
 }
 
@@ -510,6 +825,7 @@ function signedOut() {
   currentUser = null;
   clearTimeout(stravaResumeTimer);
   clearTracks();
+  clearAreas();
   stravaBox.hidden = true;
   showAuth('login');
 }

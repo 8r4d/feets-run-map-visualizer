@@ -58,6 +58,11 @@ const Store = (() => {
       ? json('POST', '?action=strava_auto_on', { siteUrl: new URL('.', location.href).href })
       : json('POST', '?action=strava_auto_off'),
 
+    // Street coverage areas, prepared in the browser by osm.js.
+    areas: () => json('GET', '?action=areas'),
+    saveArea: area => json('POST', '?action=area_save', area),  // { osmId, name, data } → stored area
+    deleteArea: id => json('POST', `?action=area_delete&id=${id}`),
+
     // Tracks
     all: () => json('GET', ''),
     // track includes the original file text as track.gpx; resolves to the new id.

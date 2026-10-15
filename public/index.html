@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>feets</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=14">
+  <link rel="stylesheet" href="style.css?v=15">
 </head>
 <body>
   <aside id="sidebar">
@@ -38,12 +38,38 @@
     <div id="mode" role="group" aria-label="Map style">
       <button type="button" data-mode="tracks" aria-pressed="true">Tracks</button>
       <button type="button" data-mode="heatmap" aria-pressed="false">Heatmap</button>
+      <button type="button" data-mode="streets" aria-pressed="false">Streets</button>
     </div>
     <label id="fade-control">
       <span>Fade map</span>
       <input id="fade" type="range" min="0" max="90" step="5" value="0">
       <output id="fade-value">0%</output>
     </label>
+    <section id="streets-panel" hidden>
+      <div class="filter-row">
+        <select id="area-select" aria-label="Area"></select>
+        <button id="area-add" type="button">Add area</button>
+      </div>
+      <div id="area-picker" class="filter-row" hidden>
+        <select id="area-candidates" aria-label="Areas here"></select>
+        <button id="area-confirm" type="button">Add</button>
+        <button id="area-cancel" class="link-button" type="button">Cancel</button>
+      </div>
+      <div id="area-status"></div>
+      <div id="coverage"></div>
+      <details id="hood-coverage" hidden>
+        <summary>By neighbourhood</summary>
+        <table></table>
+      </details>
+      <div id="todo" hidden>
+        <h2>Still to run, nearest first</h2>
+        <ul id="todo-list"></ul>
+      </div>
+      <div id="area-tools" hidden>
+        <button id="area-refresh" class="link-button" type="button">Refresh from OpenStreetMap</button>
+        <button id="area-remove" class="link-button" type="button">Remove area</button>
+      </div>
+    </section>
     <div id="filters">
       <input id="filter-text" type="search" placeholder="Search track names">
       <div class="filter-row">
@@ -81,8 +107,10 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="gpx.js?v=14"></script>
-  <script src="store.js?v=14"></script>
-  <script src="app.js?v=14"></script>
+  <script src="gpx.js?v=15"></script>
+  <script src="store.js?v=15"></script>
+  <script src="osm.js?v=15"></script>
+  <script src="coverage.js?v=15"></script>
+  <script src="app.js?v=15"></script>
 </body>
 </html>

@@ -33,6 +33,11 @@
 //   POST api.php?action=strava_auto_on     admin only: subscribe to Strava's webhook
 //   POST api.php?action=strava_auto_off    admin only
 //   strava-webhook.php                     Strava's webhook calls land here (see strava_webhook)
+//
+// Street coverage areas (each user picks their own)
+//   GET  api.php?action=areas                all of the user's areas, with streets
+//   POST api.php?action=area_save            {osmId, name, data} prepared by osm.js; replaces an existing one
+//   POST api.php?action=area_delete&id=ID
 
 const SESSION_COOKIE = 'feets_session';
 const SESSION_DAYS = 30;
@@ -100,6 +105,17 @@ const SCHEMA = [
       aspect_type VARCHAR(20) NOT NULL,
       received_at TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
       INDEX (owner_id)
+    ) CHARACTER SET utf8mb4
+    SQL,
+    <<<SQL
+    CREATE TABLE IF NOT EXISTS areas (  -- street coverage areas, prepared by osm.js
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      user_id     INT          NOT NULL,
+      osm_id      BIGINT       NOT NULL,  -- OSM boundary relation
+      name        VARCHAR(255) NOT NULL,
+      data        LONGTEXT     NOT NULL,  -- JSON: {boundary, hoods, streets}
+      fetched_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (user_id, osm_id)
     ) CHARACTER SET utf8mb4
     SQL,
     <<<SQL
@@ -1236,6 +1252,63 @@ function strava_auto_off(array $user): array {
     return ['ok' => true];
 }
 
+// --- Street coverage areas ---
+// An area is an OSM boundary, e.g. a neighbourhood, with its roads, paths and
+// trails. The browser fetches and prepares them from OpenStreetMap (osm.js) -
+// Overpass can take minutes when busy, longer than shared hosting lets PHP
+// run - and the server only stores the result. Coverage is worked out in the
+// browser too (coverage.js).
+
+const AREA_MAX_BYTES = 8 * 1024 * 1024;
+
+// Area rows are sent with their stored JSON spliced in, not decoded and re-encoded.
+function area_json(array $row): string {
+    $meta = json_encode(['id' => (int) $row['id'], 'osmId' => (int) $row['osm_id'], 'name' => $row['name'], 'fetchedAt' => $row['fetched_at']]);
+    return substr($meta, 0, -1) . ',"data":' . $row['data'] . '}';
+}
+
+function send_areas(int $userId, ?int $onlyId = null): void {
+    $stmt = db()->prepare('SELECT * FROM areas WHERE user_id = ?' . ($onlyId ? ' AND id = ?' : '') . ' ORDER BY name');
+    $stmt->execute($onlyId ? [$userId, $onlyId] : [$userId]);
+    header('Content-Type: application/json');
+    header('Cache-Control: no-store');
+    $rows = array_map('area_json', $stmt->fetchAll());
+    echo $onlyId ? ($rows[0] ?? 'null') : '[' . implode(',', $rows) . ']';
+    exit;
+}
+
+// Stores an area prepared by the browser: {osmId, name, data}. Adding one
+// that's already there replaces it (that's how "refresh" works).
+function area_save(int $userId, array $b): void {
+    $osmId = (int) ($b['osmId'] ?? 0);
+    $name = trim((string) ($b['name'] ?? ''));
+    $data = $b['data'] ?? null;
+    if ($osmId <= 0 || $name === '' || !is_array($data) || !is_array($data['streets'] ?? null)) {
+        fail('Incomplete area data', 400);
+    }
+    $json = json_encode($data);
+    if (strlen($json) > AREA_MAX_BYTES) {
+        fail('That area is too big. Pick a smaller one, like a neighbourhood.', 400);
+    }
+    $stmt = db()->prepare('SELECT id FROM areas WHERE user_id = ? AND osm_id = ?');
+    $stmt->execute([$userId, $osmId]);
+    $id = (int) $stmt->fetchColumn();
+    if ($id) {
+        db()->prepare('UPDATE areas SET name = ?, data = ?, fetched_at = CURRENT_TIMESTAMP WHERE id = ?')
+            ->execute([mb_substr($name, 0, 255), $json, $id]);
+    } else {
+        db()->prepare('INSERT INTO areas (user_id, osm_id, name, data) VALUES (?, ?, ?, ?)')
+            ->execute([$userId, $osmId, mb_substr($name, 0, 255), $json]);
+        $id = (int) db()->lastInsertId();
+    }
+    send_areas($userId, $id);
+}
+
+function area_delete(int $userId, int $id): array {
+    db()->prepare('DELETE FROM areas WHERE user_id = ? AND id = ?')->execute([$userId, $id]);
+    return ['ok' => true];
+}
+
 // --- Routing ---
 
 $method = $_SERVER['REQUEST_METHOD'];
@@ -1281,6 +1354,12 @@ if ($method === 'POST' && $action === 'invite') {
     send_json(strava_sync($userId));
 } elseif ($method === 'POST' && $action === 'strava_disconnect') {
     send_json(strava_disconnect($userId));
+} elseif ($method === 'GET' && $action === 'areas') {
+    send_areas($userId);
+} elseif ($method === 'POST' && $action === 'area_save') {
+    area_save($userId, read_json());
+} elseif ($method === 'POST' && $action === 'area_delete' && $id) {
+    send_json(area_delete($userId, $id));
 } elseif ($method === 'POST' && $action === 'strava_auto_on') {
     send_json(strava_auto_on($user, read_json()));
 } elseif ($method === 'POST' && $action === 'strava_auto_off') {
