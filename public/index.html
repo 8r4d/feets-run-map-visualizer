@@ -5,37 +5,45 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>feets</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=17">
+  <link rel="stylesheet" href="style.css?v=18">
 </head>
 <body>
   <aside id="sidebar">
     <h1>feets</h1>
     <div id="user-bar" hidden>
       <span>Signed in as <strong id="user-name"></strong></span>
-      <span>
-        <button id="invite" type="button" hidden>Invite</button>
+      <button id="logout" type="button">Log out</button>
+    </div>
+    <details id="settings-box" class="panel" hidden>
+      <summary>Account</summary>
+      <div class="panel-body">
+        <button id="change-password" type="button">Change password</button>
+        <button id="invite" type="button" title="Invite someone to use feets with their own tracks" hidden>Invite member</button>
         <button id="invite-viewer" type="button" title="Invite someone to look at your map without changing anything" hidden>Invite viewer</button>
-        <button id="reset-link" type="button" title="Make a password reset link for someone" hidden>Reset user</button>
-        <button id="change-password" type="button" title="Change your password">Password</button>
-        <button id="logout" type="button">Log out</button>
-      </span>
-    </div>
-    <label id="dropzone">
-      <input id="file-input" type="file" accept=".gpx" multiple hidden>
-      Drop GPX files here<br><small>or click to choose</small>
-    </label>
-    <div id="strava" hidden>
-      <a id="strava-connect" class="strava-button" href="api.php?action=strava_connect" hidden>Connect with Strava</a>
-      <div id="strava-connected" hidden>
-        <button id="strava-import" class="strava-button" type="button">Import from Strava</button>
-        <button id="strava-disconnect" class="link-button" type="button">Disconnect</button>
+        <button id="reset-link" type="button" title="Make a password reset link for someone" hidden>Reset a password</button>
       </div>
-      <div id="strava-status"></div>
-      <div id="strava-auto" hidden>
-        <span id="strava-auto-text"></span>
-        <button id="strava-auto-toggle" class="link-button" type="button" hidden></button>
+    </details>
+    <details id="import-box" class="panel" hidden>
+      <summary>Add tracks <span id="import-summary"></span></summary>
+      <div class="panel-body">
+        <label id="dropzone">
+          <input id="file-input" type="file" accept=".gpx" multiple hidden>
+          Drop GPX files here<br><small>or click to choose</small>
+        </label>
+        <div id="strava" hidden>
+          <a id="strava-connect" class="strava-button" href="api.php?action=strava_connect" hidden>Connect with Strava</a>
+          <div id="strava-connected" hidden>
+            <button id="strava-import" class="strava-button" type="button">Import from Strava</button>
+            <button id="strava-disconnect" class="link-button" type="button">Disconnect</button>
+          </div>
+          <div id="strava-status"></div>
+          <div id="strava-auto" hidden>
+            <span id="strava-auto-text"></span>
+            <button id="strava-auto-toggle" class="link-button" type="button" hidden></button>
+          </div>
+        </div>
       </div>
-    </div>
+    </details>
     <div id="mode" role="group" aria-label="Map style">
       <button type="button" data-mode="tracks" aria-pressed="true">Tracks</button>
       <button type="button" data-mode="heatmap" aria-pressed="false">Heatmap</button>
@@ -112,10 +120,10 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="gpx.js?v=17"></script>
-  <script src="store.js?v=17"></script>
-  <script src="osm.js?v=17"></script>
-  <script src="coverage.js?v=17"></script>
-  <script src="app.js?v=17"></script>
+  <script src="gpx.js?v=18"></script>
+  <script src="store.js?v=18"></script>
+  <script src="osm.js?v=18"></script>
+  <script src="coverage.js?v=18"></script>
+  <script src="app.js?v=18"></script>
 </body>
 </html>

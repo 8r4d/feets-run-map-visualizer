@@ -22,11 +22,11 @@ The database tables are created automatically on the first request.
 
 ## Inviting people
 
-Click **Invite** (only the admin sees it) to get a link. Each link works once,
+Open **Account & admin** and click **Invite member** (only the admin sees it) to get a link. Each link works once,
 within 7 days. The person opens it, chooses a username and password, and gets
 their own empty track list.
 
-**Invite viewer** makes a view-only link instead, for showing feets to someone:
+**Invite viewer**, in the same box, makes a view-only link instead, for showing feets to someone:
 - **What they see:** your tracks, heatmap and street areas.
 - **What they can do:** pan, zoom, switch modes and use the filters. Showing or
   hiding tracks only affects their own browser.
@@ -88,9 +88,9 @@ Things to know:
 ## Passwords
 
 feets doesn't send email, so password resets go through the admin:
-- **Change password:** anyone logged in clicks **Password**, then enters their
+- **Change password:** anyone logged in opens **Account**, clicks **Change password**, then enters their
   current password and a new one.
-- **Reset someone's password:** the admin clicks **Reset user** and enters a
+- **Reset someone's password:** the admin clicks **Reset a password** and enters a
   username. That creates a link which works once, within 48 hours. Send it
   to the person, and they choose a new password from it.
 - **Admin locked out:** on the login screen, click **Forgot password?** and
@@ -177,7 +177,8 @@ load quickly. The original GPX is kept for the ↓ download.
 
 | File                 | Purpose                                                  |
 |----------------------|----------------------------------------------------------|
-| `feets-config.php`   | Database credentials, the one-time setup password, and Strava app keys. Ignored by git. |
+| `feets-config.php`   | Database credentials, the setup/recovery password, and Strava app keys. Ignored by git. |
+| `feets-config.example.php` | The same file with placeholders, kept in git. Copy it to `feets-config.php` to set up a new install. |
 | `public/api.php`     | Accounts, logins, invites, tracks and Strava import, all in MySQL. It's the only backend code. |
 | `public/index.html`  | Page layout. Loads Leaflet from a CDN.                   |
 | `public/app.js`      | Map setup, track list UI, file upload handling, login form. |

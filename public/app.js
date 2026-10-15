@@ -354,6 +354,9 @@ fileInput.onchange = () => {
 document.addEventListener('dragover', e => {
   e.preventDefault();
   dropzone.classList.add('over');
+  // Show the drop zone if its box is collapsed.
+  const box = document.getElementById('import-box');
+  if (!box.hidden) box.open = true;
 });
 document.addEventListener('dragleave', e => {
   if (!e.relatedTarget) dropzone.classList.remove('over');
@@ -878,7 +881,9 @@ function showAuth(mode, options = {}) {
   document.getElementById('auth-forgot').hidden = !m.forgot;
   document.getElementById('auth-cancel').hidden = !m.cancel;
   authError.textContent = '';
-  if (mode !== 'change') document.getElementById('user-bar').hidden = true;
+  if (mode !== 'change') {
+    for (const id of ['user-bar', 'settings-box', 'import-box']) document.getElementById(id).hidden = true;
+  }
   auth.hidden = false;
   m.fields.map(f => inputs[f]).find(input => !input.readOnly).focus();
 }
@@ -911,6 +916,10 @@ async function signedIn(user) {
   document.body.classList.toggle('read-only', Boolean(user.readOnly));
   document.getElementById('invite').hidden = !user.isAdmin;
   document.getElementById('invite-viewer').hidden = !user.isAdmin;
+  // View-only accounts have nothing to add and no settings.
+  document.getElementById('import-box').hidden = Boolean(user.readOnly);
+  document.getElementById('settings-box').hidden = Boolean(user.readOnly);
+  document.querySelector('#settings-box summary').textContent = user.isAdmin ? 'Account & admin' : 'Account';
   document.getElementById('reset-link').hidden = !user.isAdmin;
   document.getElementById('user-bar').hidden = false;
   clearTracks();
@@ -937,6 +946,21 @@ const stravaAutoToggle = document.getElementById('strava-auto-toggle');
 let stravaImporting = false;
 let stravaResumeTimer = null;
 let stravaAutoImport = false;
+
+// --- Collapsible boxes ---
+// "Account" and "Add tracks" start collapsed and remember whether they were
+// left open. While "Add tracks" is collapsed, its heading repeats the Strava
+// status so import progress stays visible.
+for (const id of ['settings-box', 'import-box']) {
+  const box = document.getElementById(id);
+  try { box.open = localStorage.getItem('feets-open-' + id) === '1'; } catch {}
+  box.addEventListener('toggle', () => {
+    try { localStorage.setItem('feets-open-' + id, box.open ? '1' : '0'); } catch {}
+  });
+}
+new MutationObserver(() => {
+  document.getElementById('import-summary').textContent = stravaStatus.textContent;
+}).observe(stravaStatus, { childList: true, characterData: true, subtree: true });
 
 async function refreshStrava() {
   const status = await Store.stravaStatus();

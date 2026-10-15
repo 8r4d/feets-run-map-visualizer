@@ -530,6 +530,8 @@ body {
 
 /* View-only accounts: hide everything that would change data or settings.
    The server refuses those requests anyway. */
+.read-only #import-box,
+.read-only #settings-box,
 .read-only #dropzone,
 .read-only #strava,
 .read-only #change-password,
@@ -573,4 +575,70 @@ body {
   padding: 4px 8px;
   font: inherit;
   cursor: pointer;
+}
+
+/* Collapsible "Account" and "Add tracks" boxes */
+.panel {
+  background: #fff;
+  border: 1px solid #e3e3e3;
+  border-radius: 8px;
+}
+
+.panel summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;  /* the title stays on one line; the status after it shortens */
+  padding: 8px 10px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.panel summary::-webkit-details-marker {
+  display: none;
+}
+
+.panel summary::before {
+  content: '▸';
+  color: #888;
+  transition: transform 0.15s;
+}
+
+.panel[open] summary::before {
+  transform: rotate(90deg);
+}
+
+/* Strava progress in the heading, only while collapsed */
+#import-summary {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  font-weight: normal;
+  color: #777;
+}
+
+.panel[open] #import-summary {
+  display: none;
+}
+
+.panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 10px 10px;
+}
+
+#settings-box .panel-body {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+#settings-box .panel-body button {
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 13px;
 }
