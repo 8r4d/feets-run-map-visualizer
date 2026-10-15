@@ -3,8 +3,12 @@
 const Store = (() => {
   // Set by app.js: called whenever the server says we're not logged in.
   let onLoggedOut = () => {};
+  // Set by app.js when the page was opened with a view link (?view=CODE):
+  // sent with every request in place of a login.
+  let viewCode = '';
 
   async function send(method, query, body) {
+    if (viewCode) query += (query ? '&' : '?') + 'view=' + encodeURIComponent(viewCode);
     const res = await fetch('api.php' + query, {
       method,
       headers: body ? { 'Content-Type': 'application/json' } : {},
@@ -31,6 +35,7 @@ const Store = (() => {
 
   return {
     onLoggedOut: fn => { onLoggedOut = fn; },
+    setViewCode: code => { viewCode = code || ''; },
 
     // Accounts: setup, login and signup resolve to { username, isAdmin, readOnly, owner? }.
     me: () => json('GET', '?action=me'),
@@ -40,6 +45,11 @@ const Store = (() => {
     logout: () => json('POST', '?action=logout'),
     // viewer: a view-only account that sees this admin's data and can't change anything.
     createInvite: async (viewer = false) => (await json('POST', '?action=invite', { viewer })).code,
+
+    // View links: show your map to people without an account.
+    viewLinks: () => json('GET', '?action=view_links'),  // [{ code, label, createdAt }]
+    createViewLink: async label => (await json('POST', '?action=view_link_create', { label })).code,
+    deleteViewLink: code => json('POST', '?action=view_link_delete', { code }),
 
     // Passwords. resetPassword and recover log in and resolve to { username, isAdmin }.
     changePassword: (current, password) => json('POST', '?action=change_password', { current, password }),

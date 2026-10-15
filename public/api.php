@@ -14,6 +14,12 @@
 //   GET  api.php?action=reset_info&code=CODE  {username} for a reset link
 //   POST api.php?action=reset_password {code, password}
 //   POST api.php?action=recover        {setupPassword, username, password}  locked-out admin
+//   GET  api.php?action=view_links     the user's view links: [{code, label, createdAt}]
+//   POST api.php?action=view_link_create  {label}, returns {code}
+//   POST api.php?action=view_link_delete  {code}
+//
+// View links: any request with ?view=CODE is answered as a view-only account
+// of the link's owner, with no login, until the owner turns the link off.
 //
 // Tracks (must be logged in; each user only sees their own)
 //   GET  api.php                       list tracks
@@ -92,6 +98,15 @@ const SCHEMA = [
       read_only   BOOLEAN   NOT NULL DEFAULT FALSE,  -- invites a view-only account
       created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       used_by     INT       NULL
+    ) CHARACTER SET utf8mb4
+    SQL,
+    <<<SQL
+    CREATE TABLE IF NOT EXISTS view_links (  -- ?view=CODE shows the owner's map without logging in
+      code        CHAR(24)     PRIMARY KEY,
+      owner       INT          NOT NULL,
+      label       VARCHAR(100) NOT NULL,
+      created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX (owner)
     ) CHARACTER SET utf8mb4
     SQL,
     <<<SQL
@@ -307,7 +322,24 @@ function start_session(int $userId): void {
     set_session_cookie($token, time() + SESSION_DAYS * 86400);
 }
 
+// A view link stands in for a view-only account of its owner. It takes
+// precedence over a session, so a member opening a club's link sees what the
+// club sees. An unknown or turned-off code means nobody is logged in.
+function view_link_user(string $code): ?array {
+    if (!preg_match('/^[0-9a-f]{24}$/', $code)) {
+        return null;
+    }
+    $stmt = db()->prepare('SELECT v.label, v.owner FROM view_links v JOIN users u ON u.id = v.owner WHERE v.code = ?');
+    $stmt->execute([$code]);
+    $row = $stmt->fetch();
+    return $row ? ['id' => 0, 'username' => $row['label'], 'is_admin' => false, 'read_only' => true,
+                   'data_owner' => (int) $row['owner'], 'view_link' => true] : null;
+}
+
 function current_user(): ?array {
+    if (isset($_GET['view'])) {
+        return view_link_user((string) $_GET['view']);
+    }
     $token = $_COOKIE[SESSION_COOKIE] ?? '';
     if ($token === '') {
         return null;
@@ -329,7 +361,8 @@ function require_user(): array {
 }
 
 function user_json(array $user): array {
-    $json = ['username' => $user['username'], 'isAdmin' => (bool) $user['is_admin'], 'readOnly' => !empty($user['read_only'])];
+    $json = ['username' => $user['username'], 'isAdmin' => (bool) $user['is_admin'], 'readOnly' => !empty($user['read_only']),
+             'viewLink' => !empty($user['view_link'])];
     if ($json['readOnly']) {
         $owner = db()->prepare('SELECT username FROM users WHERE id = ?');
         $owner->execute([$user['data_owner']]);
@@ -375,7 +408,8 @@ function needs_setup(): bool {
 
 function me(): array {
     $user = current_user();
-    return ['user' => $user ? user_json($user) : null, 'needsSetup' => !$user && needs_setup()];
+    return ['user' => $user ? user_json($user) : null, 'needsSetup' => !$user && needs_setup(),
+            'viewLinkOff' => !$user && isset($_GET['view'])];
 }
 
 // Creates the first (admin) account. Guarded by app_password from feets-config.php,
@@ -447,6 +481,29 @@ function create_invite(array $user): array {
     db()->prepare('INSERT INTO invites (code, created_by, read_only) VALUES (?, ?, ?)')
         ->execute([$code, $user['id'], $viewer ? 1 : 0]);
     return ['code' => $code];
+}
+
+// --- View links ---
+
+function list_view_links(int $userId): array {
+    $stmt = db()->prepare('SELECT code, label, created_at AS createdAt FROM view_links WHERE owner = ? ORDER BY created_at DESC');
+    $stmt->execute([$userId]);
+    return $stmt->fetchAll();
+}
+
+function create_view_link(int $userId, array $b): array {
+    $label = mb_substr(trim((string) ($b['label'] ?? '')), 0, 100);
+    if ($label === '') {
+        fail('Give the link a name, like who it is for', 400);
+    }
+    $code = bin2hex(random_bytes(12));
+    db()->prepare('INSERT INTO view_links (code, owner, label) VALUES (?, ?, ?)')->execute([$code, $userId, $label]);
+    return ['code' => $code];
+}
+
+function delete_view_link(int $userId, array $b): array {
+    db()->prepare('DELETE FROM view_links WHERE owner = ? AND code = ?')->execute([$userId, (string) ($b['code'] ?? '')]);
+    return ['ok' => true];
 }
 
 // --- Passwords ---
@@ -1514,6 +1571,12 @@ if (!empty($user['read_only'])) {
 
 if ($method === 'POST' && $action === 'invite') {
     send_json(create_invite($user));
+} elseif ($method === 'GET' && $action === 'view_links') {
+    send_json(list_view_links($userId));
+} elseif ($method === 'POST' && $action === 'view_link_create') {
+    send_json(create_view_link($userId, read_json()));
+} elseif ($method === 'POST' && $action === 'view_link_delete') {
+    send_json(delete_view_link($userId, read_json()));
 } elseif ($method === 'POST' && $action === 'change_password') {
     send_json(change_password($user, read_json()));
 } elseif ($method === 'POST' && $action === 'reset_link') {

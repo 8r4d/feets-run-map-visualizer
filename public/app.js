@@ -1097,6 +1097,13 @@ function renderRouteList() {
     li.querySelector('small').textContent = km(r.distance);
     li.querySelector('button:last-child').onclick = () => downloadRoute(r.name, r.data);
     if (!readOnly()) {
+      const share = document.createElement('button');
+      share.className = 'link-button';
+      share.type = 'button';
+      share.textContent = 'Link';
+      share.title = 'A link that opens this route, no login needed';
+      share.onclick = () => shareRoute(r);
+      li.append(share);
       const del = document.createElement('button');
       del.className = 'link-button';
       del.type = 'button';
@@ -1200,6 +1207,11 @@ const setupInput = document.getElementById('auth-setup');
 const params = new URLSearchParams(location.search);
 const inviteCode = params.get('invite');
 const resetCode = params.get('reset');  // ?reset=CODE from a password reset link
+// ?view=CODE from a view link: the owner's map, view-only, with no login.
+// &route=ID opens that saved route in Plan mode.
+const viewCode = params.get('view');
+const routeParam = Number(params.get('route')) || null;
+Store.setViewCode(viewCode);
 let stravaResult = params.get('strava');
 const stravaMessage = params.get('message');
 let authMode = 'login';
@@ -1296,9 +1308,12 @@ async function signedIn(user) {
   currentUser = user;
   auth.hidden = true;
   authForm.reset();
-  if (location.search) history.replaceState(null, '', location.pathname);
-  document.getElementById('user-name').textContent = user.readOnly
-    ? `${user.username} (view-only: ${user.owner}'s map)` : user.username;
+  // A view link keeps its code in the address, so it can be bookmarked.
+  if (location.search && !user.viewLink) history.replaceState(null, '', location.pathname);
+  document.getElementById('user-name').textContent = user.viewLink ? `${user.owner}'s map`
+    : user.readOnly ? `${user.username} (view-only: ${user.owner}'s map)` : user.username;
+  document.getElementById('user-bar').firstElementChild.firstChild.textContent = user.viewLink ? 'Viewing ' : 'Signed in as ';
+  document.getElementById('logout').textContent = user.viewLink ? 'Log in' : 'Log out';
   document.body.classList.toggle('read-only', Boolean(user.readOnly));
   document.getElementById('invite').hidden = !user.isAdmin;
   document.getElementById('invite-viewer').hidden = !user.isAdmin;
@@ -1316,11 +1331,18 @@ async function signedIn(user) {
   scheduleTrophies();
   await loadRoutes();
   if (planMode) renderPlan();
+  if (!user.readOnly) loadViewLinks();
   await initStrava();
+  const shared = routeParam && routes.find(r => r.id === routeParam);
+  if (shared) {
+    setMode('plan');
+    openRoute(shared);
+  }
 }
 
 function signedOut() {
   currentUser = null;
+  Store.setViewCode('');  // a turned-off view link: logging in works normally
   document.body.classList.remove('read-only');
   clearTimeout(stravaResumeTimer);
   clearTracks();
@@ -1495,6 +1517,11 @@ authForm.onsubmit = async e => {
 };
 
 document.getElementById('logout').onclick = async () => {
+  // Someone on a view link has no session: "Log in" just drops the link.
+  if (currentUser && currentUser.viewLink) {
+    location.href = location.pathname;
+    return;
+  }
   await Store.logout().catch(() => {});
   signedOut();
 };
@@ -1512,6 +1539,63 @@ async function invite(viewer) {
   } catch (err) {
     alert(err.message);
   }
+}
+
+// View links: the map for people without an account, e.g. a running club.
+async function loadViewLinks() {
+  let links = [];
+  try {
+    links = await Store.viewLinks();
+  } catch {}
+  const list = document.getElementById('view-link-list');
+  list.hidden = !links.length;
+  list.replaceChildren(...links.map(link => {
+    const li = document.createElement('li');
+    li.innerHTML = '<span></span><button class="link-button" type="button">Copy link</button>'
+      + '<button class="link-button" type="button">Turn off</button>';
+    li.querySelector('span').textContent = link.label;
+    const [copy, off] = li.querySelectorAll('button');
+    copy.onclick = () => prompt('Anyone with this link can see your map, tracks and routes:', viewUrl(link.code));
+    off.onclick = async () => {
+      if (!confirm(`Turn off the "${link.label}" link? Anyone using it will see the login screen instead.`)) return;
+      await Store.deleteViewLink(link.code).catch(err => alert(err.message));
+      loadViewLinks();
+    };
+    return li;
+  }));
+  return links;
+}
+
+const viewUrl = (code, routeId) => `${location.origin}${location.pathname}?view=${code}` + (routeId ? `&route=${routeId}` : '');
+
+async function createViewLink() {
+  const label = prompt("Name this link, e.g. who it's for. Anyone with it can see your map, tracks and routes "
+    + 'without logging in, until you turn it off.', 'Run club');
+  if (!label || !label.trim()) return null;
+  try {
+    const code = await Store.createViewLink(label.trim());
+    loadViewLinks();
+    return code;
+  } catch (err) {
+    alert(err.message);
+    return null;
+  }
+}
+
+document.getElementById('view-link-create').onclick = async () => {
+  const code = await createViewLink();
+  if (code) prompt('Send this link. It works until you turn it off under Account:', viewUrl(code));
+};
+
+// A link that opens one saved route, made from your newest view link.
+async function shareRoute(r) {
+  let links = [];
+  try {
+    links = await Store.viewLinks();
+  } catch {}
+  const code = links.length ? links[0].code
+    : confirm('Sharing a route needs a view link, which also shows your whole map. Make one?') && await createViewLink();
+  if (code) prompt(`Send this link to open "${r.name}". It works until you turn off its view link under Account:`, viewUrl(code, r.id));
 }
 
 document.getElementById('invite').onclick = () => invite(false);
@@ -1558,9 +1642,14 @@ document.getElementById('reset-link').onclick = async () => {
     }
   }
   try {
-    const { user, needsSetup } = await Store.me();
-    if (user) await signedIn(user);
-    else showAuth(needsSetup ? 'setup' : inviteCode ? 'signup' : 'login');
+    const { user, needsSetup, viewLinkOff } = await Store.me();
+    if (user) {
+      await signedIn(user);
+    } else {
+      if (viewLinkOff) Store.setViewCode('');
+      showAuth(needsSetup ? 'setup' : inviteCode ? 'signup' : 'login');
+      if (viewLinkOff) authError.textContent = 'That view link has been turned off. Log in, or ask for a new link.';
+    }
   } catch (err) {
     document.getElementById('summary').textContent = 'Could not reach the server: ' + err.message;
   }

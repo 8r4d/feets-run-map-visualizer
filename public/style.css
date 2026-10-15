@@ -808,6 +808,36 @@ body {
   gap: 6px;
 }
 
+#view-link-list {
+  flex-basis: 100%;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+#view-link-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+#settings-box #view-link-list button {
+  padding: 0;
+  font-size: 12px;
+}
+
+#view-link-list span {
+  margin-right: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 #settings-box .panel-body button {
   padding: 4px 8px;
   font: inherit;
