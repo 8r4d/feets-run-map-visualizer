@@ -220,5 +220,7 @@ marathon.
 - **Yearly trophies:** from 2026 on, each calendar year has its own set,
   counting only that year's tracks: distance, km of unique streets,
   neighbourhoods finished, and longest run. A neighbourhood counts for a year
-  when every street is run again within it. Earlier years don't get these.
+  when every street is run again within it. Earlier years don't get these. The box lists
+  this year's trophies first, then all-time ones; past years' are kept but
+  not shown.
 - View-only accounts see the owner's trophies.

@@ -841,35 +841,37 @@ async function checkTrophies() {
   }
 }
 
+// Shows this year's trophies, then all-time ones. Earlier years' are kept on
+// the server but not listed.
 function renderTrophies() {
-  document.getElementById('trophy-count').textContent = trophies.length ? String(trophies.length) : '';
+  const year = new Date().getFullYear();
+  const groups = [[year, []], [null, []]];
+  for (const a of [...trophies].reverse()) {  // newest first
+    const group = groups.find(([y]) => y === Achievements.yearOfCode(a.code));
+    if (group) group[1].push(a);
+  }
+  const shown = groups[0][1].length + groups[1][1].length;
+  document.getElementById('trophy-count').textContent = shown ? String(shown) : '';
   const list = document.getElementById('trophy-list');
-  if (!trophies.length) {
+  if (!shown) {
     const empty = document.createElement('li');
     empty.className = 'trophy-empty';
     empty.textContent = 'None yet. Add a street area and go run it.';
     list.replaceChildren(empty);
     return;
   }
-  // All-time first, then each year, newest first; within each, newest first.
-  const groups = new Map([[null, []]]);
-  const years = [...new Set(trophies.map(a => Achievements.yearOfCode(a.code)).filter(Boolean))].sort((a, b) => b - a);
-  years.forEach(y => groups.set(y, []));
-  [...trophies].reverse().forEach(a => groups.get(Achievements.yearOfCode(a.code)).push(a));
   const items = [];
-  for (const [year, group] of groups) {
+  for (const [y, group] of groups) {
     if (!group.length) continue;
-    if (years.length) {
-      const heading = document.createElement('li');
-      heading.className = 'trophy-group';
-      heading.textContent = year ? String(year) : 'All time';
-      items.push(heading);
-    }
+    const heading = document.createElement('li');
+    heading.className = 'trophy-group';
+    heading.textContent = y ? String(y) : 'All time';
+    items.push(heading);
     for (const a of group) {
       const li = document.createElement('li');
       li.innerHTML = '<strong></strong><time></time><small></small>';
-      // The year heading already says which year.
-      li.querySelector('strong').textContent = year ? a.title.replace(/^\d{4}: /, '') : a.title;
+      // The heading already says which year.
+      li.querySelector('strong').textContent = y ? a.title.replace(/^\d{4}: /, '') : a.title;
       li.querySelector('small').textContent = a.detail || '';
       li.querySelector('time').textContent = new Date(a.earnedAt.replace(' ', 'T')).toLocaleDateString();
       items.push(li);
