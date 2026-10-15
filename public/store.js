@@ -32,13 +32,14 @@ const Store = (() => {
   return {
     onLoggedOut: fn => { onLoggedOut = fn; },
 
-    // Accounts: setup, login and signup resolve to { username, isAdmin }.
+    // Accounts: setup, login and signup resolve to { username, isAdmin, readOnly, owner? }.
     me: () => json('GET', '?action=me'),
     setup: (setupPassword, username, password) => json('POST', '?action=setup', { setupPassword, username, password }),
     login: (username, password) => json('POST', '?action=login', { username, password }),
     signup: (invite, username, password) => json('POST', '?action=signup', { invite, username, password }),
     logout: () => json('POST', '?action=logout'),
-    createInvite: async () => (await json('POST', '?action=invite')).code,
+    // viewer: a view-only account that sees this admin's data and can't change anything.
+    createInvite: async (viewer = false) => (await json('POST', '?action=invite', { viewer })).code,
 
     // Passwords. resetPassword and recover log in and resolve to { username, isAdmin }.
     changePassword: (current, password) => json('POST', '?action=change_password', { current, password }),

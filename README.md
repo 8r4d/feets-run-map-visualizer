@@ -26,6 +26,14 @@ Click **Invite** (only the admin sees it) to get a link. Each link works once,
 within 7 days. The person opens it, chooses a username and password, and gets
 their own empty track list.
 
+**Invite viewer** makes a view-only link instead, for showing feets to someone:
+- **What they see:** your tracks, heatmap and street areas.
+- **What they can do:** pan, zoom, switch modes and use the filters. Showing or
+  hiding tracks only affects their own browser.
+- **What they can't do:** upload, import from Strava, download, edit, delete,
+  add areas or change any setting, including their own password. The server
+  refuses those requests, not just the page.
+
 When you change any JS or CSS file, raise the `?v=` number on its link in
 `index.html`. Otherwise the host may keep serving the old file.
 

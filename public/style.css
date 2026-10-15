@@ -523,3 +523,17 @@ body {
 #todo-list small {
   color: #777;
 }
+
+/* View-only accounts: hide everything that would change data or settings.
+   The server refuses those requests anyway. */
+.read-only #dropzone,
+.read-only #strava,
+.read-only #change-password,
+.read-only #edit-toggle,
+.read-only #track-list button.download,
+.read-only #track-list button.delete,
+.read-only #area-add,
+.read-only #area-picker,
+.read-only #area-tools {
+  display: none !important;
+}

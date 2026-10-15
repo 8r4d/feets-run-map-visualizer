@@ -267,11 +267,14 @@ function show(track) {
   loaded.set(track.id, { track, layer: buildLayer(track) });
 }
 
+// View-only accounts can show and hide tracks too, but only in their own browser.
+const readOnly = () => Boolean(currentUser && currentUser.readOnly);
+
 async function setVisible(id, visible) {
   const entry = loaded.get(id);
   entry.track.visible = visible;
   render();
-  await Store.update(entry.track);
+  if (!readOnly()) await Store.update(entry.track);
 }
 
 async function removeTrack(id) {
@@ -302,7 +305,7 @@ async function setVisibleMatching(visible) {
   }
   if (!ids.length) return;
   render();
-  await Store.setVisible(ids, visible).catch(err => alert(err.message));
+  if (!readOnly()) await Store.setVisible(ids, visible).catch(err => alert(err.message));
 }
 
 function setFilter(key, value) {
@@ -358,7 +361,7 @@ document.addEventListener('dragleave', e => {
 document.addEventListener('drop', e => {
   e.preventDefault();
   dropzone.classList.remove('over');
-  if (!auth.hidden) return;
+  if (!auth.hidden || readOnly()) return;
   const files = Array.from(e.dataTransfer.files).filter(f => /\.gpx$/i.test(f.name));
   if (files.length) addFiles(files);
 });
@@ -811,8 +814,11 @@ async function signedIn(user) {
   auth.hidden = true;
   authForm.reset();
   if (location.search) history.replaceState(null, '', location.pathname);
-  document.getElementById('user-name').textContent = user.username;
+  document.getElementById('user-name').textContent = user.readOnly
+    ? `${user.username} (view-only: ${user.owner}'s map)` : user.username;
+  document.body.classList.toggle('read-only', Boolean(user.readOnly));
   document.getElementById('invite').hidden = !user.isAdmin;
+  document.getElementById('invite-viewer').hidden = !user.isAdmin;
   document.getElementById('reset-link').hidden = !user.isAdmin;
   document.getElementById('user-bar').hidden = false;
   clearTracks();
@@ -823,6 +829,7 @@ async function signedIn(user) {
 
 function signedOut() {
   currentUser = null;
+  document.body.classList.remove('read-only');
   clearTimeout(stravaResumeTimer);
   clearTracks();
   clearAreas();
@@ -979,17 +986,23 @@ document.getElementById('logout').onclick = async () => {
   signedOut();
 };
 
-document.getElementById('invite').onclick = async () => {
+async function invite(viewer) {
   try {
-    const code = await Store.createInvite();
+    const code = await Store.createInvite(viewer);
     prompt(
-      'Send this link to the person you are inviting. It works once, within 7 days:',
+      viewer
+        ? "Send this link to the person you're inviting. They'll see your tracks and areas but can't change, " +
+          'import, download or delete anything. It works once, within 7 days:'
+        : "Send this link to the person you're inviting. It works once, within 7 days:",
       `${location.origin}${location.pathname}?invite=${code}`
     );
   } catch (err) {
     alert(err.message);
   }
-};
+}
+
+document.getElementById('invite').onclick = () => invite(false);
+document.getElementById('invite-viewer').onclick = () => invite(true);
 
 document.getElementById('change-password').onclick = () => showAuth('change');
 document.getElementById('auth-forgot').onclick = () => showAuth('recover');

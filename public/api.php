@@ -7,7 +7,8 @@
 //   POST api.php?action=login          {username, password}
 //   POST api.php?action=logout
 //   POST api.php?action=signup         {invite, username, password}
-//   POST api.php?action=invite         admin only, returns {code}
+//   POST api.php?action=invite         admin only: {viewer}, returns {code}. Viewers get a view-only account
+//                                      that sees the admin's tracks and areas and can't change anything.
 //   POST api.php?action=change_password  {current, password}
 //   POST api.php?action=reset_link     admin only: {username}, returns {code, username}
 //   GET  api.php?action=reset_info&code=CODE  {username} for a reset link
@@ -44,6 +45,9 @@ const SESSION_DAYS = 30;
 const INVITE_DAYS = 7;
 const RESET_HOURS = 48;
 
+// Columns every user lookup returns (users table aliased as u).
+const USER_COLUMNS = 'u.id, u.username, u.is_admin, u.read_only, u.data_owner';
+
 const STRAVA_STATE_COOKIE = 'feets_strava_state';
 const STRAVA_BATCH = 10;          // activities imported per strava_sync request
 const STRAVA_TIME_BUDGET = 20;    // seconds; stay under shared hosting's execution limit
@@ -58,6 +62,8 @@ const SCHEMA = [
       username      VARCHAR(32)  NOT NULL UNIQUE,
       password_hash VARCHAR(255) NOT NULL,
       is_admin      BOOLEAN      NOT NULL DEFAULT FALSE,
+      read_only     BOOLEAN      NOT NULL DEFAULT FALSE,  -- view-only account
+      data_owner    INT          NULL,                    -- whose data a view-only account sees
       created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) CHARACTER SET utf8mb4
     SQL,
@@ -73,6 +79,7 @@ const SCHEMA = [
     CREATE TABLE IF NOT EXISTS invites (
       code        CHAR(24)  PRIMARY KEY,
       created_by  INT       NOT NULL,
+      read_only   BOOLEAN   NOT NULL DEFAULT FALSE,  -- invites a view-only account
       created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       used_by     INT       NULL
     ) CHARACTER SET utf8mb4
@@ -216,6 +223,12 @@ function db(): PDO {
             $pdo->exec('ALTER TABLE tracks ADD COLUMN sport VARCHAR(40) NULL AFTER name,
                         ADD COLUMN simplified BOOLEAN NOT NULL DEFAULT FALSE AFTER sport');
         }
+        // View-only accounts came later too.
+        if (!$pdo->query("SHOW COLUMNS FROM users LIKE 'read_only'")->fetch()) {
+            $pdo->exec('ALTER TABLE users ADD COLUMN read_only BOOLEAN NOT NULL DEFAULT FALSE AFTER is_admin,
+                        ADD COLUMN data_owner INT NULL AFTER read_only');
+            $pdo->exec('ALTER TABLE invites ADD COLUMN read_only BOOLEAN NOT NULL DEFAULT FALSE AFTER created_by');
+        }
     }
     return $pdo;
 }
@@ -263,7 +276,7 @@ function current_user(): ?array {
         return null;
     }
     $stmt = db()->prepare(
-        'SELECT u.id, u.username, u.is_admin FROM sessions s JOIN users u ON u.id = s.user_id
+        'SELECT ' . USER_COLUMNS . ' FROM sessions s JOIN users u ON u.id = s.user_id
          WHERE s.token_hash = ? AND s.expires_at > NOW()'
     );
     $stmt->execute([hash('sha256', $token)]);
@@ -279,7 +292,13 @@ function require_user(): array {
 }
 
 function user_json(array $user): array {
-    return ['username' => $user['username'], 'isAdmin' => (bool) $user['is_admin']];
+    $json = ['username' => $user['username'], 'isAdmin' => (bool) $user['is_admin'], 'readOnly' => !empty($user['read_only'])];
+    if ($json['readOnly']) {
+        $owner = db()->prepare('SELECT username FROM users WHERE id = ?');
+        $owner->execute([$user['data_owner']]);
+        $json['owner'] = $owner->fetchColumn() ?: '';
+    }
+    return $json;
 }
 
 function credentials(array $b): array {
@@ -298,17 +317,19 @@ function new_password(string $password): string {
     return $password;
 }
 
-function create_user(string $username, string $password, bool $isAdmin): array {
+// $viewerOf: for a view-only account, the id of the user whose data it sees.
+function create_user(string $username, string $password, bool $isAdmin, ?int $viewerOf = null): array {
     try {
-        db()->prepare('INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, ?)')
-            ->execute([$username, password_hash($password, PASSWORD_DEFAULT), $isAdmin ? 1 : 0]);
+        db()->prepare('INSERT INTO users (username, password_hash, is_admin, read_only, data_owner) VALUES (?, ?, ?, ?, ?)')
+            ->execute([$username, password_hash($password, PASSWORD_DEFAULT), $isAdmin ? 1 : 0, $viewerOf ? 1 : 0, $viewerOf]);
     } catch (PDOException $e) {
         if (($e->errorInfo[1] ?? 0) === 1062) {
             fail('That username is taken', 409);
         }
         throw $e;
     }
-    return ['id' => (int) db()->lastInsertId(), 'username' => $username, 'is_admin' => $isAdmin];
+    return ['id' => (int) db()->lastInsertId(), 'username' => $username, 'is_admin' => $isAdmin,
+            'read_only' => (bool) $viewerOf, 'data_owner' => $viewerOf];
 }
 
 function needs_setup(): bool {
@@ -339,7 +360,7 @@ function setup(array $b): array {
 }
 
 function login(array $b): array {
-    $stmt = db()->prepare('SELECT id, username, is_admin, password_hash FROM users WHERE username = ?');
+    $stmt = db()->prepare('SELECT ' . USER_COLUMNS . ', u.password_hash FROM users u WHERE u.username = ?');
     $stmt->execute([trim($b['username'] ?? '')]);
     $user = $stmt->fetch();
     if (!$user || !password_verify($b['password'] ?? '', $user['password_hash'])) {
@@ -364,15 +385,16 @@ function signup(array $b): array {
     $pdo = db();
     $pdo->beginTransaction();
     $stmt = $pdo->prepare(
-        'SELECT code FROM invites WHERE code = ? AND used_by IS NULL
+        'SELECT created_by, read_only FROM invites WHERE code = ? AND used_by IS NULL
          AND created_at > NOW() - INTERVAL ' . INVITE_DAYS . ' DAY FOR UPDATE'
     );
     $stmt->execute([$b['invite'] ?? '']);
-    if (!$stmt->fetch()) {
+    $invite = $stmt->fetch();
+    if (!$invite) {
         $pdo->rollBack();
         fail('This invite link is invalid, already used, or expired', 403);
     }
-    $user = create_user($username, $password, false);
+    $user = create_user($username, $password, false, $invite['read_only'] ? (int) $invite['created_by'] : null);
     $pdo->prepare('UPDATE invites SET used_by = ? WHERE code = ?')->execute([$user['id'], $b['invite']]);
     $pdo->commit();
     start_session($user['id']);
@@ -383,8 +405,10 @@ function create_invite(array $user): array {
     if (!$user['is_admin']) {
         fail('Only the admin can invite people', 403);
     }
+    $viewer = !empty((json_decode(file_get_contents('php://input'), true) ?: [])['viewer']);
     $code = bin2hex(random_bytes(12));
-    db()->prepare('INSERT INTO invites (code, created_by) VALUES (?, ?)')->execute([$code, $user['id']]);
+    db()->prepare('INSERT INTO invites (code, created_by, read_only) VALUES (?, ?, ?)')
+        ->execute([$code, $user['id'], $viewer ? 1 : 0]);
     return ['code' => $code];
 }
 
@@ -402,7 +426,7 @@ function set_password(int $userId, string $password): void {
 }
 
 function find_user(string $username): ?array {
-    $stmt = db()->prepare('SELECT id, username, is_admin, password_hash FROM users WHERE username = ?');
+    $stmt = db()->prepare('SELECT ' . USER_COLUMNS . ', u.password_hash FROM users u WHERE u.username = ?');
     $stmt->execute([trim($username)]);
     return $stmt->fetch() ?: null;
 }
@@ -433,7 +457,7 @@ function create_reset_link(array $admin, array $b): array {
 // The user a reset link is for, or null if it's unknown, used or expired.
 function reset_link_user(string $code): ?array {
     $stmt = db()->prepare(
-        'SELECT u.id, u.username, u.is_admin FROM password_resets r JOIN users u ON u.id = r.user_id
+        'SELECT ' . USER_COLUMNS . ' FROM password_resets r JOIN users u ON u.id = r.user_id
          WHERE r.code = ? AND r.used_at IS NULL AND r.created_at > NOW() - INTERVAL ' . RESET_HOURS . ' HOUR'
     );
     $stmt->execute([$code]);
@@ -1339,6 +1363,18 @@ if ($method === 'GET' && $action === 'me') {
 
 $user = require_user();
 $userId = (int) $user['id'];
+
+// View-only accounts may only read their inviter's tracks and areas.
+// Everything else - uploads, edits, deletes, downloads, Strava, settings - is refused here.
+if (!empty($user['read_only'])) {
+    $userId = (int) $user['data_owner'];
+    if ($method === 'GET' && $action === 'strava_status') {
+        send_json(['configured' => false, 'connected' => false, 'athlete' => null, 'autoImport' => false]);
+    }
+    if ($method !== 'GET' || !in_array($action, ['', 'areas'], true) || isset($_GET['gpx'])) {
+        fail('This is a view-only account', 403);
+    }
+}
 
 if ($method === 'POST' && $action === 'invite') {
     send_json(create_invite($user));
