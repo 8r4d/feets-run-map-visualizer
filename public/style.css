@@ -361,9 +361,31 @@ body {
   background: none;
 }
 
+#panel-toggle {
+  display: none;
+}
+
+/* Phones: map on top with two thirds of the screen, the panel underneath.
+   #panel-toggle sits between them (column-reverse puts it after the map). */
 @media (max-width: 640px) {
   body { flex-direction: column-reverse; }
-  #sidebar { width: 100%; max-height: 40vh; border-right: none; border-top: 1px solid #ddd; }
+  #sidebar { width: 100%; max-height: 33vh; border-right: none; }
+  #panel-toggle {
+    display: block;
+    flex-shrink: 0;
+    width: 100%;
+    padding: 8px;
+    border: none;
+    border-top: 1px solid #ddd;
+    background: #f0f0f0;
+    color: #444;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  #panel-toggle::before { content: '▾  '; }
+  .panel-collapsed #panel-toggle::before { content: '▴  '; }
+  .panel-collapsed #sidebar { display: none; }
 }
 
 /* Plan mode */

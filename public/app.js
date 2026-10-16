@@ -23,6 +23,21 @@ map.on('baselayerchange', e => { baseLayer = e.layer; });
 L.control.layers(baseLayers).addTo(map);
 L.control.scale().addTo(map);
 
+// Leaflet only notices window resizes; the map also changes size when the
+// phone panel folds away (below) or the sidebar's contents change.
+new ResizeObserver(() => map.invalidateSize()).observe(map.getContainer());
+
+// Phones: fold the panel under the map away for a full-screen map. Remembered per browser.
+const panelToggle = document.getElementById('panel-toggle');
+function setPanelCollapsed(collapsed) {
+  document.body.classList.toggle('panel-collapsed', collapsed);
+  panelToggle.textContent = collapsed ? 'Show panel' : 'Hide panel';
+  panelToggle.setAttribute('aria-expanded', String(!collapsed));
+  try { localStorage.setItem('feets-panel', collapsed ? 'collapsed' : 'open'); } catch {}
+}
+panelToggle.onclick = () => setPanelCollapsed(!document.body.classList.contains('panel-collapsed'));
+try { if (localStorage.getItem('feets-panel') === 'collapsed') setPanelCollapsed(true); } catch {}
+
 // --- Locate me ---
 // A button under the zoom controls drops a dot where the device is. It only
 // asks on a tap (no watching), so pressing it again updates the dot.
