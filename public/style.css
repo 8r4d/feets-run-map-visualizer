@@ -763,6 +763,7 @@ body {
 .public-view #mode,
 .public-view #fade-control,
 .public-view #plan-edit,
+.public-view #plan-explore,
 .public-view #filters,
 .public-view #list-header,
 .public-view #track-list,
@@ -1277,4 +1278,21 @@ body {
   .calendar-months { grid-template-columns: repeat(auto-fill, minmax(95px, 1fr)); }
   .calendar-grid { grid-template-columns: repeat(7, 11px); }
   .calendar-grid span, .calendar-grid i { width: 11px; height: 11px; }
+}
+
+/* Plan mode: "Fill with unrun streets" */
+#plan-explore label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+#plan-explore input {
+  width: 4em;
+  font: inherit;
+}
+
+#plan-explore button {
+  flex: 1;
 }

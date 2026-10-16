@@ -1650,19 +1650,25 @@ function drawPlan() {
   planLayer.addTo(map);
 }
 
+// Coverage of an area by the tracks on the map. It only changes when they
+// do, so it's kept between clicks.
+function trackCoverage(area) {
+  const prep = Coverage.prepared(area);
+  let base = planBase.get(prep);
+  if (!base || base.version !== trackVersion) {
+    const shown = [...loaded.values()].filter(e => onMap(e.track)).map(e => e.track.segments);
+    base = { version: trackVersion, result: Coverage.compute(prep, shown) };
+    planBase.set(prep, base);
+  }
+  return base.result;
+}
+
 // Metres of the route on streets the tracks on the map haven't covered.
 function newStreetMetres(points) {
-  const shown = [...loaded.values()].filter(e => onMap(e.track)).map(e => e.track.segments);
   const byWay = new Map();  // areas can overlap, so count each street once
   for (const area of areas) {
     const prep = Coverage.prepared(area);
-    // The tracks' own coverage only changes when they do, so it's kept between clicks.
-    let base = planBase.get(prep);
-    if (!base || base.version !== trackVersion) {
-      base = { version: trackVersion, result: Coverage.compute(prep, shown) };
-      planBase.set(prep, base);
-    }
-    for (const [id, m] of Coverage.gain(prep, base.result, [[points]])) byWay.set(id, Math.max(byWay.get(id) || 0, m));
+    for (const [id, m] of Coverage.gain(prep, trackCoverage(area), [[points]])) byWay.set(id, Math.max(byWay.get(id) || 0, m));
   }
   let metres = 0;
   for (const m of byWay.values()) metres += m;
@@ -1689,8 +1695,10 @@ function renderPlan() {
         + 'Click the line to make a part of it straight.';
   } else {
     const points = routePoints(plan);
-    const fresh = newStreetMetres(points);
-    stats.textContent = `${km(lineMetres(points))}${climb} · ${km(fresh)} on streets you haven't run`
+    const metres = lineMetres(points);
+    // Street lengths are shared out by their points, so a short route can come out a little over.
+    const fresh = Math.min(metres, newStreetMetres(points));
+    stats.textContent = `${km(metres)}${climb} · ${km(fresh)} on streets you haven't run`
       + (plan.straight.some(Boolean) ? '. Dashed parts are straight lines.' : '');
   }
   document.getElementById('plan-undo').disabled = !n;
@@ -1825,6 +1833,55 @@ async function renameRoute(r) {
     alert(err.message);
   }
 }
+
+// "Fill with unrun streets": a loop of about the chosen length over streets
+// the tracks on the map haven't covered (see Planner.explore). It starts at
+// the route's first point if there is one, else where you are if the ⌖ dot is
+// in view, else the middle of the map. The result is an ordinary route to
+// edit, save or download.
+const exploreKm = document.getElementById('explore-km');
+try { exploreKm.value = localStorage.getItem('feets-explore-km') || exploreKm.value; } catch {}
+
+document.getElementById('plan-explore').onsubmit = async e => {
+  e.preventDefault();
+  const target = Number(exploreKm.value);
+  if (!(target > 0)) return;
+  try { localStorage.setItem('feets-explore-km', exploreKm.value); } catch {}
+  if (!areas.length) {
+    planStatus.textContent = 'Add an area in Streets mode first: routes follow its streets.';
+    return;
+  }
+  const here = lastFix && map.getBounds().contains(lastFix);
+  const [from, where] = plan.waypoints.length ? [plan.waypoints[0], 'the first point']
+    : here ? [[lastFix.lat, lastFix.lng], 'you'] : [[map.getCenter().lat, map.getCenter().lng], 'the middle of the map'];
+  const g = planGraph();
+  const start = Planner.snap(g, from);
+  if (start < 0) {
+    planStatus.textContent = `There's no street of your areas near ${where}.`;
+    return;
+  }
+  if (!mayDiscard()) return;
+  const button = document.getElementById('explore');
+  button.disabled = true;
+  planStatus.textContent = "Looking for streets you haven't run…";
+  try {
+    const chains = Planner.chains(g, areas, area => trackCoverage(area).visited);
+    const found = await Planner.explore(g, start, chains, target * 1000, (i, n) => {
+      planStatus.textContent = `Looking for streets you haven't run… (try ${i} of ${n})`;
+    });
+    if (!found) {
+      planStatus.textContent = `No unrun streets fit in a ${target} km loop from ${where}. Try a longer one.`;
+      return;
+    }
+    resetPlan();
+    Object.assign(plan, { waypoints: found.waypoints, legs: found.legs, straight: found.legs.map(() => false), name: `Unrun streets, ${target} km` });
+    planChanged();
+    planStatus.textContent = `A loop from ${where}. Change it like any route: drag points, or click them to remove them.`;
+    map.fitBounds(L.latLngBounds(routePoints(plan)), { padding: [40, 40], maxZoom: 17 });
+  } finally {
+    button.disabled = false;
+  }
+};
 
 document.getElementById('plan-streets').checked = planStreets;
 document.getElementById('plan-streets').onchange = e => {

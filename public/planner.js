@@ -85,7 +85,7 @@ const Planner = (() => {
       if (!grid.has(key)) grid.set(key, []);
       grid.get(key).push(i);
     }
-    const graph = { lat, lon, adj, grid };
+    const graph = { lat, lon, adj, grid, index };
 
     const linked = (a, b) => adj[a].some((n, k) => k % 3 === 0 && n === b);
     for (const e of new Set(ends)) {
@@ -228,6 +228,217 @@ const Planner = (() => {
     return out;
   }
 
+  // --- Exploring: a loop over streets you haven't run ---
+
+  const USED = 1.5;   // a street the route already ran counts this much longer, so it tries new ways back
+  const FRESH = 0.7;  // and one not run yet counts this much shorter, so getting about picks some up too
+
+  // Dijkstra from `from`, over points reachable within `limit` cost. Cost is
+  // metres, times AVOID on unrunnable streets, USED on edges in `used`, and
+  // FRESH between two points flagged in `fresh`. Returns cost, real metres
+  // and the previous point on each best path.
+  function search(graph, from, limit, used, fresh) {
+    const { adj } = graph;
+    const n = graph.lat.length;
+    const cost = new Float64Array(n).fill(Infinity);
+    const metres = new Float64Array(n).fill(Infinity);
+    const prev = new Int32Array(n).fill(-1);
+    cost[from] = 0;
+    metres[from] = 0;
+    const heap = new Heap();
+    heap.push(from, 0);
+    while (heap.size) {
+      const a = heap.pop();
+      const base = cost[a];
+      if (base > limit) break;
+      const edges = adj[a];
+      for (let k = 0; k < edges.length; k += 3) {
+        const b = edges[k];
+        let c = edges[k + 1];
+        if (edges[k + 2]) c *= AVOID;
+        if (used && used.has(edgeKey(a, b, n))) c *= USED;
+        else if (fresh && fresh[a] && fresh[b]) c *= FRESH;
+        if (base + c < cost[b]) {
+          cost[b] = base + c;
+          metres[b] = metres[a] + edges[k + 1];
+          prev[b] = a;
+          heap.push(b, base + c);
+        }
+      }
+    }
+    return { cost, metres, prev };
+  }
+
+  const edgeKey = (a, b, n) => (a < b ? a * n + b : b * n + a);
+
+  // The points from search()'s start to `to`, in order.
+  function pathTo(prev, to) {
+    const path = [];
+    for (let i = to; i >= 0; i = prev[i]) path.push(i);
+    return path.reverse();
+  }
+
+  // A loop from `start` (a graph point) back to it, of at most `budget`
+  // metres, that runs as many of `chains` as it can. Each chain is a list of
+  // neighbouring graph points along a street not yet run, e.g. from
+  // Planner.chains. Greedy: from where it is, it goes for the chain with the
+  // most new street per metre of getting there and along it, as long as it
+  // can still get home; then the next, until none fits. Going out too far
+  // can leave only the same way back, so it's tried with a few shorter
+  // reaches and the loop with the most new street wins. Calls
+  // `progress(try, tries)` before each and yields to the browser between chains.
+  // Resolves to { waypoints, legs, metres, fresh } (a waypoint at each
+  // chain's ends, as for a drawn route), or null if no chain fits.
+  const REACHES = [1, 0.9, 0.8, 0.7];
+
+  async function explore(graph, start, chains, budget, progress = () => {}) {
+    const home = search(graph, start, budget / 2, null).metres;  // nothing further than halfway is any use
+    let best = null;
+    for (const [i, reach] of REACHES.entries()) {
+      progress(i + 1, REACHES.length);
+      const loop = await greedy(graph, start, chains, budget, budget * reach, home);
+      if (loop && (!best || loop.fresh > best.fresh + 1)) best = loop;
+    }
+    return best;
+  }
+
+  // One greedy loop: chains are taken while they fit in `limit`, then home
+  // within `budget`.
+  async function greedy(graph, start, chains, budget, limit, home) {
+    const { lat, lon } = graph;
+    const n = lat.length;
+    const ran = new Uint8Array(n);  // points the route passes
+    const used = new Set();
+    const unrun = new Uint8Array(n);  // chain points the route hasn't passed yet
+    for (const c of chains) for (const i of c) unrun[i] = 1;
+    const onChain = unrun.slice();
+    const lengths = chains.map(c => {
+      let m = 0;
+      for (let i = 1; i < c.length; i++) m += distance(lat[c[i - 1]], lon[c[i - 1]], lat[c[i]], lon[c[i]]);
+      return m;
+    });
+    // Metres of a chain the route hasn't run yet.
+    const fresh = (c, len) => {
+      let m = 0;
+      for (let i = 1; i < c.length; i++) if (!ran[c[i - 1]] || !ran[c[i]]) m += len / (c.length - 1);
+      return m;
+    };
+    const point = i => [lat[i], lon[i]];
+    let metres = 0, freshMetres = 0;
+    const follow = path => {
+      for (let i = 0; i < path.length; i++) {
+        if (i) {
+          const a = path[i - 1], b = path[i], key = edgeKey(a, b, n), d = distance(lat[a], lon[a], lat[b], lon[b]);
+          metres += d;
+          if (onChain[a] && onChain[b] && !used.has(key)) freshMetres += d;
+          used.add(key);
+        }
+        ran[path[i]] = 1;
+        unrun[path[i]] = 0;
+      }
+    };
+
+    const waypoints = [point(start)], legs = [];
+    let at = start, spent = 0, taken = 0;
+    for (;;) {
+      const s = search(graph, at, limit - spent, used, unrun);
+      let best = null;
+      chains.forEach((c, ci) => {
+        const len = lengths[ci];
+        const value = fresh(c, len);
+        if (value < len / 2) return;  // mostly run already, by this route
+        for (const [entry, exit] of [[0, c.length - 1], [c.length - 1, 0]]) {
+          const reach = s.metres[c[entry]];
+          if (spent + reach + len + home[c[exit]] > limit) continue;
+          const score = value / (reach + len + 1);
+          if (!best || score > best.score) best = { score, ci, entry, reach, len };
+        }
+      });
+      if (!best) break;
+      const c = chains[best.ci];
+      const there = pathTo(s.prev, c[best.entry]);
+      const along = best.entry === 0 ? c : [...c].reverse();
+      if (there.length > 1) {
+        legs.push(there.map(point));
+        waypoints.push(point(there[there.length - 1]));
+      }
+      legs.push(along.map(point));
+      waypoints.push(point(along[along.length - 1]));
+      follow(there);
+      follow(along);
+      spent += best.reach + best.len;
+      at = along[along.length - 1];
+      taken++;
+      await new Promise(r => setTimeout(r));
+    }
+    if (!taken) return null;
+    // Home: by new streets if that still fits the budget, else avoiding
+    // repeats, else the shortest way (which always fits: every chain was
+    // only taken if home[] was in reach).
+    if (at !== start) {
+      let back;
+      for (const [u, f] of [[used, unrun], [used, null], [null, null]]) {
+        const s = search(graph, at, Infinity, u, f);
+        back = pathTo(s.prev, start);
+        if (spent + s.metres[start] <= budget) break;
+      }
+      legs.push(back.map(point));
+      waypoints.push(point(start));
+      follow(back);
+    }
+    return { waypoints, legs, metres, fresh: freshMetres };
+  }
+
+  const PIECE = 400;     // metres: longer unrun stretches are cut up, so a route can take part of a long road
+  const MIN_PIECE = 40;  // metres: shorter ones are left out (often just GPS missing a corner)
+
+  // The stretches of the areas' streets not yet run, as chains of graph
+  // points for explore(). visitedFor(area): Coverage.compute's visited flags
+  // for that area. Unrunnable streets are left out; stretches shared by
+  // overlapping areas are counted once.
+  function chains(graph, areas, visitedFor) {
+    const out = [], seen = new Set();
+    for (const area of areas) {
+      const visited = visitedFor(area);
+      const excluded = new Set(area.excluded || []);
+      let k = 0;  // point index, in Coverage.prepare's order
+      for (const s of area.data.streets) {
+        for (const run of s.runs) {
+          let piece = [], metres = 0;
+          const finish = () => {
+            const key = piece.length > 1 && `${Math.min(piece[0], piece[piece.length - 1])}:${Math.max(piece[0], piece[piece.length - 1])}`;
+            if (key && metres >= MIN_PIECE && !seen.has(key)) {
+              seen.add(key);
+              out.push(piece);
+            }
+            piece = [];
+            metres = 0;
+          };
+          for (const [a, b] of run) {
+            const node = graph.index.get(a + ',' + b);
+            const done = visited[k++];
+            if (done || excluded.has(s.id) || node === undefined) {
+              finish();
+              continue;
+            }
+            if (piece.length) {
+              const last = piece[piece.length - 1];
+              if (node === last) continue;
+              metres += distance(graph.lat[last], graph.lon[last], a, b);
+            }
+            piece.push(node);
+            if (metres >= PIECE) {
+              finish();
+              piece.push(node);  // the next piece starts where this one ended
+            }
+          }
+          finish();
+        }
+      }
+    }
+    return out;
+  }
+
   // A binary min-heap of ids by priority.
   class Heap {
     constructor() { this.ids = []; this.keys = []; }
@@ -284,5 +495,5 @@ ${pts}
 `;
   }
 
-  return { build, snap, route, trace, distance, gpx };
+  return { build, snap, route, trace, explore, chains, distance, gpx };
 })();

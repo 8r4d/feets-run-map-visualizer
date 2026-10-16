@@ -243,6 +243,22 @@ routing service.
    **Download GPX** gives a file for a watch, or to import into Strava as a
    route. Saved routes can be renamed from the list.
 
+**Fill with unrun streets** makes the route for you: set a length and press it
+for a loop over as many streets you haven't run as fit.
+- **Where it starts:** the route's first point if you've placed one, else
+  where you are if the ⌖ dot is in view, else the middle of the map.
+- **How:** from where it is, it heads for the stretch of unrun street that
+  gives the most new street per metre of running (long streets are taken up
+  to 400 m at a time), as long as it can still get home in time; then the
+  next, until nothing more fits. Getting between them, it prefers streets you
+  haven't run and avoids ones it already used. It tries a few ways and keeps
+  the one with the most new street.
+- **"Unrun"** means not covered by the tracks on the map, as in Streets mode,
+  and leaves out streets marked unrunnable.
+- The loop is never longer than the length you set, and is often a little
+  shorter. The result is an ordinary route: drag or remove points, then save
+  or download it.
+
 Things to know:
 - Routes only follow streets in areas you've added, and skip streets marked
   unrunnable. Click within 150 m of a street.
