@@ -144,8 +144,9 @@ body {
   color: #c00;
 }
 
-/* Delete buttons only show in edit mode. */
-#track-list:not(.editing) button.delete {
+/* Delete and plan-a-route buttons only show in edit mode. */
+#track-list:not(.editing) button.delete,
+#track-list:not(.editing) button.to-route {
   display: none;
 }
 
