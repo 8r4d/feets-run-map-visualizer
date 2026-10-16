@@ -169,26 +169,35 @@ function syncLayers() {
   else if (streetLayer) streetLayer.remove();
 }
 
-// --- Plan bar ---
-// On a wide screen, Plan mode's panel moves out of the sidebar into a bar
-// under the map, laid out across. The same element moves, so its buttons keep
-// working. It stays in the sidebar on phones and windows under 1300px (too
-// tight for its four columns) and on a view link, where it's all the sidebar shows.
-const planPanel = document.getElementById('plan-panel');
-const planBar = document.getElementById('plan-bar');
-const planHome = document.getElementById('filters');  // the panel sits just before it in the sidebar
+// --- Mode bar ---
+// On a wide screen, the Streets and Plan panels move out of the sidebar into a
+// bar under the map, laid out across. The same elements move, so their
+// buttons keep working. They stay in the sidebar on phones and windows under
+// 1300px (too tight for four columns), and Plan's on a view link, where it's
+// all the sidebar shows. A comment marks each one's place in the sidebar.
+const modeBar = document.getElementById('mode-bar');
 const wideScreen = matchMedia('(min-width: 1300px)');
+const barPanels = ['streets-panel', 'plan-panel'].map(id => {
+  const panel = document.getElementById(id);
+  const home = document.createComment(id);
+  panel.before(home);
+  return { panel, home };
+});
 
-function placePlanPanel() {
-  const out = planMode && wideScreen.matches && !publicView();
-  if (out && planPanel.parentElement !== planBar) planBar.append(planPanel);
-  if (!out && planPanel.parentElement === planBar) planHome.before(planPanel);
-  planBar.hidden = !out;
+function placePanels() {
+  let any = false;
+  for (const { panel, home } of barPanels) {
+    const out = wideScreen.matches && (panel.id === 'streets-panel' ? streetsMode : planMode && !publicView());
+    if (out && panel.parentElement !== modeBar) modeBar.append(panel);
+    if (!out && panel.parentElement === modeBar) home.after(panel);
+    any ||= out;
+  }
+  modeBar.hidden = !any;
 }
-wideScreen.addEventListener('change', placePlanPanel);
+wideScreen.addEventListener('change', placePanels);
 new ResizeObserver(() => {
-  document.documentElement.style.setProperty('--plan-bar-height', planBar.offsetHeight + 'px');
-}).observe(planBar);
+  document.documentElement.style.setProperty('--mode-bar-height', modeBar.offsetHeight + 'px');
+}).observe(modeBar);
 
 function setMode(mode) {
   const heat = mode === 'heatmap';
@@ -206,7 +215,7 @@ function setMode(mode) {
   mapMode = mode;
   document.getElementById('streets-panel').hidden = !streetsMode;
   document.getElementById('plan-panel').hidden = !planMode;
-  placePlanPanel();
+  placePanels();
   map.getContainer().classList.toggle('planning', planMode);
   for (const button of document.querySelectorAll('#mode button')) {
     button.setAttribute('aria-pressed', String(button.dataset.mode === mode));

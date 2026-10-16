@@ -56,7 +56,8 @@ When you change any JS or CSS file, raise the `?v=` number on its link in
 ## Street coverage
 
 **Streets** mode shows how much of an area's roads, paths and trails your
-tracks cover, for "run every street" projects.
+tracks cover, for "run every street" projects. On a screen at least 1300 px
+wide its panel sits in a bar under the map, as Plan mode's does.
 
 1. Switch to **Streets** and zoom the map to the neighbourhood.
 2. Click **Add area** and pick one. Areas come from OpenStreetMap's boundaries.
