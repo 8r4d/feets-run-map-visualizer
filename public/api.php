@@ -82,6 +82,7 @@ const SCHEMA = [
       is_admin      BOOLEAN      NOT NULL DEFAULT FALSE,
       read_only     BOOLEAN      NOT NULL DEFAULT FALSE,  -- view-only account
       data_owner    INT          NULL,                    -- whose data a view-only account sees
+      goals         TEXT         NULL,                    -- JSON: { week, month } in km, see save_goals()
       created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) CHARACTER SET utf8mb4
     SQL,
@@ -201,6 +202,8 @@ const SCHEMA = [
       visible     BOOLEAN      NOT NULL DEFAULT TRUE,
       distance_m  DOUBLE       NOT NULL DEFAULT 0,
       track_time  VARCHAR(40)  NULL,
+      metrics     TEXT         NULL,     -- JSON from gpx_metrics(); NULL until worked out
+      profile     MEDIUMTEXT   NULL,     -- JSON [[km, metres], ...] elevation profile, or null
       added_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
       geometry    LONGTEXT     NOT NULL,
       gpx         LONGTEXT     NOT NULL,
@@ -282,6 +285,15 @@ function db(): PDO {
         // ...and unrunnable streets.
         if (!$pdo->query("SHOW COLUMNS FROM areas LIKE 'excluded'")->fetch()) {
             $pdo->exec('ALTER TABLE areas ADD COLUMN excluded LONGTEXT NULL AFTER data');
+        }
+        // ...and pace, time and elevation. Existing rows get them from backfill_metrics().
+        if (!$pdo->query("SHOW COLUMNS FROM tracks LIKE 'metrics'")->fetch()) {
+            $pdo->exec('ALTER TABLE tracks ADD COLUMN metrics TEXT NULL AFTER track_time,
+                        ADD COLUMN profile MEDIUMTEXT NULL AFTER metrics');
+        }
+        // ...and distance goals.
+        if (!$pdo->query("SHOW COLUMNS FROM users LIKE 'goals'")->fetch()) {
+            $pdo->exec('ALTER TABLE users ADD COLUMN goals TEXT NULL AFTER data_owner');
         }
     }
     return $pdo;
@@ -669,6 +681,201 @@ function normalize_sport(?string $raw): ?string {
     return $known[$key] ?? mb_substr(ucfirst($raw), 0, 40);
 }
 
+// --- Pace, time and elevation ---
+// Worked out here from the stored GPX, not in the browser, so old tracks and
+// Strava imports get the same numbers as new uploads. Times need a <time> on
+// the points and the climb an <ele>; tracks without them get nulls.
+
+const EFFORTS = [1000, 5000, 10000, 21097, 42195];  // metres: the best efforts kept per track
+const MOVING_SPEED = 0.5;   // m/s: slower than this between two points counts as stopped
+const GLITCH_SPEED = 50.0;  // m/s: a jump faster than this is a GPS glitch, not movement
+const MIN_STEP = 5.0;       // metres: see gpx_metrics()
+const CLIMB_STEP = 3.0;     // metres: rises smaller than this are GPS noise
+const PROFILE_POINTS = 150;
+
+function haversine(float $lat1, float $lon1, float $lat2, float $lon2): float {
+    $dLat = deg2rad($lat2 - $lat1);
+    $dLon = deg2rad($lon2 - $lon1);
+    $a = sin($dLat / 2) ** 2 + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLon / 2) ** 2;
+    return 2 * 6371000 * asin(sqrt($a));
+}
+
+// The track points of a GPX, one at a time: [segment, lat, lon, ele|null,
+// time|null], segment counting up from 0 at each <trkseg>. Matched one small
+// piece at a time, so a long file needs little memory and doesn't hit PCRE's limits.
+function gpx_points(string $gpx): Generator {
+    $segment = 0;
+    $offset = 0;
+    while (preg_match('#<(/?trkseg)\b[^>]*>|<trkpt\b([^>]*?)(?:/>|>(.*?)</trkpt>)#s', $gpx, $m, PREG_OFFSET_CAPTURE, $offset)) {
+        $offset = $m[0][1] + strlen($m[0][0]);
+        if ($m[1][0] !== '') {  // a segment starts or ends
+            $segment++;
+            continue;
+        }
+        if (!preg_match('#\blat\s*=\s*["\']([-+\d.eE]+)#', $m[2][0], $lat)
+            || !preg_match('#\blon\s*=\s*["\']([-+\d.eE]+)#', $m[2][0], $lon)) {
+            continue;
+        }
+        $body = $m[3][0] ?? '';
+        $ele = preg_match('#<ele>\s*([-+\d.eE]+)\s*</ele>#', $body, $e) ? (float) $e[1] : null;
+        $time = preg_match('#<time>\s*([^<]+?)\s*</time>#', $body, $t) ? strtotime($t[1]) : false;
+        yield [$segment, (float) $lat[1], (float) $lon[1], $ele, $time === false ? null : $time];
+    }
+}
+
+// Returns [metrics, profile]. metrics: { moving, elapsed (seconds), climb
+// (metres), efforts: { "5000": seconds, ... } }, null where the file has no
+// data for it. Efforts are the fastest stretch of each EFFORTS distance, by
+// the clock, like Strava's. profile: [[km, metres], ...] or null.
+function gpx_metrics(string $gpx): array {
+    // One line through every segment: the distance along it (gaps between
+    // segments don't count), and the time and elevation at each point.
+    // The line only moves on once a point is MIN_STEP from the last one it
+    // moved to, so GPS jitter (standing still, or wobbling either side of the
+    // path) doesn't add distance or moving time.
+    $dist = $times = $eles = [];
+    $total = $moving = 0.0;
+    $anchor = null;  // [segment, lat, lon, ele, time]
+    foreach (gpx_points($gpx) as $point) {
+        [$segment, $lat, $lon, $ele, $time] = $point;
+        if ($anchor && $anchor[0] === $segment) {
+            $d = haversine($anchor[1], $anchor[2], $lat, $lon);
+            $dt = $time !== null && $anchor[4] !== null ? $time - $anchor[4] : 0;
+            if ($d >= MIN_STEP && !($dt > 0 && $d / $dt > GLITCH_SPEED)) {
+                if ($dt > 0 && $d / $dt >= MOVING_SPEED) {
+                    $moving += $dt;
+                }
+                $total += $d;
+                $anchor = $point;
+            }
+        } else {
+            $anchor = $point;
+        }
+        $dist[] = $total;
+        $times[] = $time;
+        $eles[] = $ele;
+    }
+
+    // Times: only if most points have one.
+    $d = $t = [];
+    foreach ($times as $k => $time) {
+        if ($time !== null) {
+            $d[] = $dist[$k];
+            $t[] = $time;
+        }
+    }
+    $timed = count($t) > 1 && count($t) >= count($times) / 2 && end($t) > $t[0];
+    $efforts = [];
+    if ($timed) {
+        $n = count($d);
+        foreach (EFFORTS as $target) {
+            if (end($d) < $target) {
+                break;
+            }
+            // For each end point, the start is where the line was $target metres earlier.
+            $best = INF;
+            $i = 0;
+            for ($j = 1; $j < $n; $j++) {
+                $start = $d[$j] - $target;
+                if ($start < 0) {
+                    continue;
+                }
+                while ($d[$i + 1] <= $start) {
+                    $i++;
+                }
+                $span = $d[$i + 1] - $d[$i];
+                $startTime = $t[$i] + ($span > 0 ? ($t[$i + 1] - $t[$i]) * ($start - $d[$i]) / $span : 0);
+                $best = min($best, $t[$j] - $startTime);
+            }
+            if ($best > 0 && $best < INF) {
+                $efforts[(string) $target] = (int) round($best);
+            }
+        }
+    }
+
+    // Elevation: only if most points have one. Smoothed over 5 points, then
+    // only rises of CLIMB_STEP or more count towards the climb.
+    $climb = $profile = null;
+    $e = $ed = [];
+    foreach ($eles as $k => $ele) {
+        if ($ele !== null) {
+            $e[] = $ele;
+            $ed[] = $dist[$k];
+        }
+    }
+    $n = count($e);
+    if ($n > 1 && $n >= count($eles) / 2) {
+        $smooth = [];
+        for ($k = 0; $k < $n; $k++) {
+            $lo = max(0, $k - 2);
+            $hi = min($n - 1, $k + 2);
+            $smooth[] = array_sum(array_slice($e, $lo, $hi - $lo + 1)) / ($hi - $lo + 1);
+        }
+        $climb = 0.0;
+        $ref = $smooth[0];
+        foreach ($smooth as $v) {
+            if ($v - $ref >= CLIMB_STEP) {
+                $climb += $v - $ref;
+                $ref = $v;
+            } elseif ($ref - $v >= CLIMB_STEP) {
+                $ref = $v;
+            }
+        }
+        $length = end($ed);
+        if ($length > 0) {
+            $profile = [];
+            $k = 0;
+            for ($s = 0; $s < PROFILE_POINTS; $s++) {
+                $at = $length * $s / (PROFILE_POINTS - 1);
+                while ($k < $n - 1 && $ed[$k + 1] <= $at) {
+                    $k++;
+                }
+                $profile[] = [round($at / 1000, 3), round($smooth[$k], 1)];
+            }
+        }
+    }
+
+    return [[
+        'moving' => $timed ? (int) round($moving) : null,
+        'elapsed' => $timed ? (int) (end($t) - $t[0]) : null,
+        'climb' => $climb === null ? null : (int) round($climb),
+        'efforts' => (object) $efforts,
+    ], $profile];
+}
+
+// Works out pace, time and elevation for tracks stored before feets kept
+// them, a few seconds' worth per request: reading every GPX at once could run
+// out of time or memory. Returns { metrics: { id: metrics }, remaining }.
+function backfill_metrics(int $userId): array {
+    @set_time_limit(60);
+    $ids = db()->prepare('SELECT id FROM tracks WHERE user_id = ? AND metrics IS NULL ORDER BY id LIMIT 500');
+    $ids->execute([$userId]);
+    $select = db()->prepare('SELECT gpx FROM tracks WHERE id = ?');
+    $update = db()->prepare('UPDATE tracks SET metrics = ?, profile = ? WHERE id = ?');
+    $done = [];
+    $until = microtime(true) + 8;
+    foreach ($ids->fetchAll(PDO::FETCH_COLUMN) as $id) {
+        if (microtime(true) > $until) {
+            break;
+        }
+        $select->execute([$id]);
+        [$metrics, $profile] = gpx_metrics((string) $select->fetchColumn());
+        $update->execute([json_encode($metrics), $profile === null ? null : json_encode($profile), $id]);
+        $done[$id] = $metrics;
+    }
+    $left = db()->prepare('SELECT COUNT(*) FROM tracks WHERE user_id = ? AND metrics IS NULL');
+    $left->execute([$userId]);
+    return ['metrics' => (object) $done, 'remaining' => (int) $left->fetchColumn()];
+}
+
+// A track's elevation profile, fetched when its popup opens: { profile: [[km, metres]] | null }.
+function track_profile(int $userId, int $id): array {
+    $stmt = db()->prepare('SELECT profile FROM tracks WHERE id = ? AND user_id = ?');
+    $stmt->execute([$id, $userId]);
+    $profile = $stmt->fetchColumn();
+    return ['profile' => $profile ? json_decode($profile) : null];
+}
+
 // A track for the client, without its route.
 function track_meta(array $row): array {
     return [
@@ -680,6 +887,8 @@ function track_meta(array $row): array {
         'visible' => (bool) $row['visible'],
         'distance' => (float) $row['distance_m'],
         'time' => $row['track_time'],
+        // null: not worked out yet (see backfill_metrics). Decoded as objects so {} stays {}.
+        'metrics' => isset($row['metrics']) ? json_decode($row['metrics']) : null,
     ];
 }
 
@@ -698,7 +907,7 @@ function send_track_list(int $userId): void {
     echo '[';
     $first = true;
     $select = db()->prepare(
-        'SELECT id, strava_id, name, sport, simplified, file_name, color, visible, distance_m, track_time, geometry,
+        'SELECT id, strava_id, name, sport, simplified, file_name, color, visible, distance_m, track_time, metrics, geometry,
                 IF(simplified, NULL, gpx) AS gpx
          FROM tracks WHERE user_id = ? AND id > ? ORDER BY id LIMIT 200'
     );
@@ -728,10 +937,13 @@ function send_track_list(int $userId): void {
     exit;
 }
 
+// Resolves to { id, metrics }.
 function add_track(int $userId, array $t): array {
+    [$metrics, $profile] = gpx_metrics((string) $t['gpx']);
     $stmt = db()->prepare(
-        'INSERT INTO tracks (user_id, name, sport, simplified, file_name, color, visible, distance_m, track_time, geometry, gpx)
-         VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO tracks (user_id, name, sport, simplified, file_name, color, visible, distance_m, track_time,
+                             metrics, profile, geometry, gpx)
+         VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     $stmt->execute([
         $userId,
@@ -742,10 +954,12 @@ function add_track(int $userId, array $t): array {
         $t['visible'] ? 1 : 0,
         (float) $t['distance'],
         $t['time'] ?? null,
+        json_encode($metrics),
+        $profile === null ? null : json_encode($profile),
         simplify_geometry($t['segments'], $t['waypoints']),
         $t['gpx'],
     ]);
-    return ['id' => (int) db()->lastInsertId()];
+    return ['id' => (int) db()->lastInsertId(), 'metrics' => $metrics];
 }
 
 function set_visible(int $userId, array $b): array {
@@ -1051,12 +1265,16 @@ function strava_save(int $userId, array $activity, array $streams): ?array {
         'geometry' => simplify_geometry([$latlng], []),
     ];
     $gpx = strava_gpx($name, $start, $latlng, $streams['time']['data'] ?? [], $streams['altitude']['data'] ?? []);
+    [$metrics, $profile] = gpx_metrics($gpx);
+    $row['metrics'] = json_encode($metrics);
     try {
         db()->prepare(
-            'INSERT INTO tracks (user_id, strava_id, name, sport, simplified, file_name, color, visible, distance_m, track_time, geometry, gpx)
-             VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO tracks (user_id, strava_id, name, sport, simplified, file_name, color, visible, distance_m, track_time,
+                                 metrics, profile, geometry, gpx)
+             VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         )->execute([$userId, $activity['id'], $row['name'], $row['sport'], $row['file_name'], $row['color'], $row['visible'],
-                    $row['distance_m'], $row['track_time'], $row['geometry'], $gpx]);
+                    $row['distance_m'], $row['track_time'], $row['metrics'], $profile === null ? null : json_encode($profile),
+                    $row['geometry'], $gpx]);
     } catch (PDOException $e) {
         if (($e->errorInfo[1] ?? 0) === 1062) {
             return null;  // already imported
@@ -1525,6 +1743,23 @@ function route_delete(int $userId, int $id): array {
     return ['ok' => true];
 }
 
+// --- Goals ---
+// Distance goals per week and per month, in km: { week, month }, null when not set.
+
+function goals(int $userId): array {
+    $stmt = db()->prepare('SELECT goals FROM users WHERE id = ?');
+    $stmt->execute([$userId]);
+    $goals = json_decode((string) $stmt->fetchColumn(), true) ?: [];
+    return ['week' => $goals['week'] ?? null, 'month' => $goals['month'] ?? null];
+}
+
+function save_goals(int $userId, array $b): array {
+    $clean = fn($v) => is_numeric($v) && $v > 0 ? min(round((float) $v, 1), 10000.0) : null;
+    $goals = ['week' => $clean($b['week'] ?? null), 'month' => $clean($b['month'] ?? null)];
+    db()->prepare('UPDATE users SET goals = ? WHERE id = ?')->execute([json_encode($goals), $userId]);
+    return $goals;
+}
+
 // --- Achievements ---
 
 function list_achievements(int $userId): array {
@@ -1589,7 +1824,7 @@ if (!empty($user['read_only'])) {
     if ($method === 'GET' && $action === 'strava_status') {
         send_json(['configured' => false, 'connected' => false, 'athlete' => null, 'autoImport' => false]);
     }
-    $readable = !empty($user['view_link']) ? ['routes'] : ['', 'areas', 'achievements', 'routes'];
+    $readable = !empty($user['view_link']) ? ['routes'] : ['', 'areas', 'achievements', 'routes', 'goals', 'track_profile'];
     if ($method !== 'GET' || !in_array($action, $readable, true) || isset($_GET['gpx'])) {
         fail('This is a view-only account', 403);
     }
@@ -1631,6 +1866,14 @@ if ($method === 'POST' && $action === 'invite') {
     route_rename($userId, $id, read_json());
 } elseif ($method === 'POST' && $action === 'route_delete' && $id) {
     send_json(route_delete($userId, $id));
+} elseif ($method === 'GET' && $action === 'goals') {
+    send_json(goals($userId));
+} elseif ($method === 'POST' && $action === 'goals_save') {
+    send_json(save_goals($userId, read_json()));
+} elseif ($method === 'POST' && $action === 'track_metrics') {
+    send_json(backfill_metrics($userId));
+} elseif ($method === 'GET' && $action === 'track_profile' && $id) {
+    send_json(track_profile($userId, $id));
 } elseif ($method === 'GET' && $action === 'achievements') {
     send_json(list_achievements($userId));
 } elseif ($method === 'POST' && $action === 'achievement_add') {

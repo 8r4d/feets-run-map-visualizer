@@ -26,7 +26,9 @@ L.control.scale().addTo(map);
 // --- Locate me ---
 // A button under the zoom controls drops a dot where the device is. It only
 // asks on a tap (no watching), so pressing it again updates the dot.
+// Streets mode's "Still to run" list sorts from it while it's in view.
 const youAreHere = L.layerGroup().addTo(map);
+let lastFix = null;  // L.LatLng of the dot
 const LocateControl = L.Control.extend({
   options: { position: 'topleft' },
   onAdd() {
@@ -57,8 +59,10 @@ map.on('locationfound', e => {
   L.circleMarker(e.latlng, { radius: 7, color: '#fff', weight: 2, fillColor: '#2a7fff', fillOpacity: 1 })
     .bindTooltip(`You are here (±${Math.round(e.accuracy)} m)`)
     .addTo(youAreHere);
+  lastFix = e.latlng;
   // Keep the current zoom if it is already close in; otherwise zoom to street level.
   map.setView(e.latlng, Math.max(map.getZoom(), 16));
+  if (streetsMode && coverage) renderTodo();
 });
 
 map.on('locationerror', e => {
@@ -213,6 +217,7 @@ function buildLayer(track) {
   for (const seg of track.segments) {
     L.polyline(seg, { renderer: trackRenderer, color: track.color, weight: 4, opacity: 0.85 })
       .bindTooltip(track.name, { sticky: true })
+      .on('click', e => trackPopup(track, e.latlng))
       .addTo(group);
   }
   for (const wpt of track.waypoints) {
@@ -225,6 +230,92 @@ function buildLayer(track) {
 
 function formatKm(m) {
   return (m / 1000).toFixed(m < 10000 ? 2 : 1) + ' km';
+}
+
+// --- Pace, time and elevation ---
+// api.php works them out from each track's GPX (track.metrics; null until it
+// has, see backfillMetrics). Rides get a speed instead of a pace.
+const isRide = track => /Ride|Bike|Cycl/i.test(track.sport || '');
+
+// 52:07, or 1:04:09 with hours.
+function clock(seconds) {
+  const s = Math.round(seconds);
+  const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, sec = String(s % 60).padStart(2, '0');
+  return h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
+}
+
+// 42 h 10 min, for totals.
+function hours(seconds) {
+  const h = Math.floor(seconds / 3600), m = Math.round(seconds / 60) % 60;
+  return h ? `${h.toLocaleString()} h ${m} min` : `${m} min`;
+}
+
+const paceText = secondsPerKm => `${clock(secondsPerKm)} /km`;
+const climbText = m => `↑ ${Math.round(m).toLocaleString()} m`;
+
+// "5:12 /km", or "24.3 km/h" for a ride; null without times.
+function speedText(track) {
+  const moving = track.metrics && track.metrics.moving;
+  if (!moving || !track.distance) return null;
+  return isRide(track) ? `${(track.distance / moving * 3.6).toFixed(1)} km/h` : paceText(moving / (track.distance / 1000));
+}
+
+const EFFORT_LABELS = { 1000: '1K', 5000: '5K', 10000: '10K', 21097: 'Half', 42195: 'Marathon' };
+
+// Profiles are fetched when a popup first needs one: id -> promise of [[km, metres]] or null.
+const profiles = new Map();
+
+// Clicking a track: its numbers and an elevation chart.
+function trackPopup(track, latlng) {
+  const m = track.metrics;
+  const box = document.createElement('div');
+  box.className = 'track-popup';
+  const title = document.createElement('strong');
+  title.textContent = track.name;
+  const sub = document.createElement('small');
+  sub.textContent = [
+    track.sport && sportLabel(track.sport),
+    track.time && new Date(track.time).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }),
+  ].filter(Boolean).join(' · ');
+  const facts = document.createElement('dl');
+  const fact = (label, value) => {
+    if (!value) return;
+    const dt = document.createElement('dt');
+    const dd = document.createElement('dd');
+    dt.textContent = label;
+    dd.textContent = value;
+    facts.append(dt, dd);
+  };
+  fact('Distance', formatKm(track.distance));
+  if (m) {
+    fact('Moving', m.moving && clock(m.moving));
+    // Elapsed only when stops made a real difference.
+    fact('Elapsed', m.elapsed && m.moving && m.elapsed - m.moving >= 60 && clock(m.elapsed));
+    fact(isRide(track) ? 'Speed' : 'Pace', speedText(track));
+    fact('Climb', m.climb !== null && m.climb !== undefined && climbText(m.climb));
+    if (!isRide(track)) {
+      const efforts = Object.entries(m.efforts || {}).map(([d, s]) => `${EFFORT_LABELS[d] || d} ${clock(s)}`);
+      fact('Best', efforts.join(' · '));
+    }
+  }
+  box.append(title, sub, facts);
+  const note = document.createElement('small');
+  if (!m) note.textContent = 'Pace and elevation are still being worked out.';
+  else if (!m.moving && m.climb === null) note.textContent = 'This GPX has no times or elevations.';
+  if (note.textContent) box.append(note);
+
+  const chart = document.createElement('div');
+  chart.className = 'chart';
+  box.append(chart);
+  if (m && m.climb !== null && m.climb !== undefined) {
+    if (!profiles.has(track.id)) profiles.set(track.id, Store.profile(track.id).catch(() => null));
+    profiles.get(track.id).then(profile => {
+      if (!profile || profile.length < 2) return;
+      chart.append(Elevation.chart(profile));
+      if (popup.isOpen()) popup.update();  // it's taller now: re-pan so it all shows
+    });
+  }
+  const popup = L.popup({ maxWidth: 300, minWidth: 240 }).setLatLng(latlng).setContent(box).openOn(map);
 }
 
 // The list shows the newest matching tracks, PAGE at a time.
@@ -273,6 +364,17 @@ function renderStats(tracks) {
     row('Distance', statKm(s.metres));
     row('Activities', s.count.toLocaleString(), s.activeDays && `on ${plural(s.activeDays, 'day')}`);
     row('Average', `${statKm(s.average)} each`, s.weeklyAverage !== null && `${statKm(s.weeklyAverage)} a week`);
+    if (s.moving) row('Time', hours(s.moving.seconds), `moving, over ${plural(s.moving.count, 'activity', 'activities')} with times`);
+    if (s.pace) row('Pace', paceText(s.pace), 'average on foot');
+    if (s.climb) {
+      const most = s.climb.most;
+      row('Climb', `${s.climb.metres.toLocaleString()} m`, most.metrics.climb && `most: ${most.metrics.climb.toLocaleString()} m, ${most.name}`);
+    }
+    if (s.fastest.length) {
+      const [first, ...others] = s.fastest.map(f => `${EFFORT_LABELS[f.metres]} ${clock(f.seconds)}`
+        + (f.track.time ? ` · ${new Date(f.track.time).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: filters.year ? undefined : 'numeric' })}` : ''));
+      row('Fastest', first, ...others);
+    }
     const t = s.longestTrack;
     row('Longest', statKm(t.distance), [t.name, t.time && new Date(t.time).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: filters.year ? undefined : 'numeric' })].filter(Boolean).join(' · '));
     const { longest, current } = s.streaks;
@@ -325,7 +427,38 @@ function renderList() {
 
   document.getElementById('summary').textContent = !all.length
     ? 'No tracks yet.'
-    : `${filtered ? `${matching.length} of ${all.length}` : all.length} tracks · ${shown.length} on map · ${formatKm(km)}`;
+    : `${filtered ? `${matching.length} of ${all.length}` : all.length} tracks · ${shown.length} on map · ${formatKm(km)}`
+      + (metricsLeft ? ` · working out pace and climb, ${metricsLeft} to go` : '');
+  renderGoals();
+}
+
+// Tracks stored before feets kept pace and elevation get them here, a batch
+// per request, after the list has loaded. View-only accounts can't ask; their
+// owner's next visit fills them in.
+let metricsLeft = 0;
+
+async function backfillMetrics() {
+  const user = currentUser;
+  metricsLeft = [...loaded.values()].filter(e => e.track.metrics === null).length;
+  if (readOnly() || !metricsLeft) {
+    metricsLeft = 0;
+    return;
+  }
+  try {
+    while (metricsLeft && currentUser === user) {
+      const { metrics, remaining } = await Store.trackMetrics();
+      for (const [id, m] of Object.entries(metrics)) {
+        const entry = loaded.get(Number(id));
+        if (entry) entry.track.metrics = m;
+      }
+      metricsLeft = Object.keys(metrics).length ? remaining : 0;
+      renderList();
+    }
+  } catch (err) {
+    console.error('Pace and elevation:', err);
+    metricsLeft = 0;
+    renderList();
+  }
 }
 
 function listItem({ track, layer }) {
@@ -343,11 +476,13 @@ function listItem({ track, layer }) {
 
   const name = document.createElement('div');
   name.className = 'name';
-  name.title = 'Zoom to track';
+  name.title = 'Zoom to track and show its details';
   const details = [
     track.sport && sportLabel(track.sport),
     track.time && new Date(track.time).toLocaleDateString(),
     formatKm(track.distance),
+    speedText(track),
+    track.metrics && track.metrics.climb ? climbText(track.metrics.climb) : null,
   ];
   name.innerHTML = '<strong></strong><small></small>';
   name.querySelector('strong').textContent = track.name;
@@ -355,6 +490,29 @@ function listItem({ track, layer }) {
   name.onclick = () => {
     if (!track.visible) setVisible(track.id, true);
     map.fitBounds(layer.getBounds(), { padding: [30, 30] });
+    // The popup sits halfway along the longest segment, on the line. It
+    // opens once the zoom has finished, or its panning would fight the zoom;
+    // the timer covers a map that was already there and doesn't move.
+    const seg = track.segments.reduce((a, b) => (b.length > a.length ? b : a), []);
+    if (!seg.length || mapMode !== 'tracks') return;
+    const half = lineMetres(seg) / 2;
+    let i = 1, m = 0, d = 0;
+    for (; i < seg.length; i++) {
+      d = Planner.distance(...seg[i - 1], ...seg[i]);
+      if (m + d >= half) break;
+      m += d;
+    }
+    const a = seg[i - 1], b = seg[Math.min(i, seg.length - 1)], f = d ? (half - m) / d : 0;
+    const middle = [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+    let opened = false;
+    const open = () => {
+      if (opened) return;
+      opened = true;
+      map.off('moveend', open);
+      trackPopup(track, middle);
+    };
+    map.once('moveend', open);
+    setTimeout(open, 700);
   };
 
   const download = document.createElement('button');
@@ -451,7 +609,7 @@ async function addFiles(files) {
         visible: true,
         addedAt: new Date().toISOString(),
       };
-      track.id = await Store.add({ ...track, gpx: text });
+      Object.assign(track, await Store.add({ ...track, gpx: text }));  // id and metrics
       show(track);
       added++;
     } catch (err) {
@@ -777,12 +935,17 @@ async function setUnrunnable(w, unrunnable) {
   }
 }
 
-// Unfinished streets, nearest to the middle of the map first.
+// Unfinished streets, nearest first: to you, if "Show my location" put a dot
+// on the map that's still in view, otherwise to the middle of the map.
 function renderTodo() {
   const list = document.getElementById('todo-list');
   const todo = document.getElementById('todo');
   if (!coverage) { todo.hidden = true; return; }
-  const centre = map.getCenter();
+  const here = lastFix && map.getBounds().contains(lastFix) ? lastFix : null;
+  const centre = here || map.getCenter();
+  todo.querySelector('.hint').textContent = here
+    ? 'Nearest to you first'
+    : 'Nearest to the middle of the map first. Tap ⌖ on the map to sort from where you are.';
   const { data } = activeArea.area;
   const unfinished = coverage.summary.groups.filter(g => !g.done);
   todo.hidden = !unfinished.length;
@@ -798,7 +961,7 @@ function renderTodo() {
     })
     .sort((a, b) => a.distance - b.distance)
     .slice(0, TODO_LIMIT);
-  list.replaceChildren(...items.map(({ g }) => {
+  list.replaceChildren(...items.map(({ g, distance }) => {
     const li = document.createElement('li');
     const share = g.len ? g.covered / g.len : 0;
     li.innerHTML = '<span class="swatch"></span><div class="name"><strong></strong><small></small></div>'
@@ -811,6 +974,7 @@ function renderTodo() {
     li.querySelector('strong').textContent = groupLabel(g);
     li.querySelector('small').textContent = [
       CAT_NAMES[g.cat], hoodName(g.hood), `${Math.round(share * 100)}%`, `${km(g.len - g.covered)} left`,
+      here && `${km(distance)} away`,
     ].filter(Boolean).join(' · ');
     li.title = 'Show on map';
     li.onclick = () => showGroup(g);
@@ -834,7 +998,7 @@ map.on('moveend', () => { if (streetsMode && coverage) renderTodo(); });
 
 // The "Still to run", "Unrunnable streets" and "Saved routes" boxes remember
 // whether they're open.
-for (const id of ['todo', 'unrunnable', 'routes', 'stats-box']) {
+for (const id of ['todo', 'unrunnable', 'routes', 'stats-box', 'goals-box']) {
   const box = document.getElementById(id);
   try {
     const saved = localStorage.getItem(`feets-${id}-open`);
@@ -1032,6 +1196,113 @@ function toast(title, detail) {
   setTimeout(() => el.remove(), 8000);
 }
 
+// --- Goals ---
+// A distance to cover each week and/or month, on foot. Stats.goal does the
+// sums; the goals themselves are saved on the server, so they follow you
+// between devices. Reaching one while the page is open gets a note.
+const GOAL_PERIODS = { week: { label: 'Week', every: 'week' }, month: { label: 'Month', every: 'month' } };
+let goals = { week: null, month: null };
+let goalsMet = {};  // period -> whether it was met at the last render, to notice reaching it
+
+async function loadGoals() {
+  try {
+    goals = await Store.goals();
+  } catch {
+    goals = { week: null, month: null };
+  }
+  goalsMet = {};
+  renderGoals();
+}
+
+function renderGoals() {
+  const box = document.getElementById('goals-box');
+  if (box.hidden) return;
+  const tracks = [...loaded.values()].map(e => e.track);
+  const rows = [];
+  const summary = [];
+  for (const [period, { label, every }] of Object.entries(GOAL_PERIODS)) {
+    const target = goals[period] && goals[period] * 1000;
+    if (!target) continue;
+    const g = Stats.goal(tracks, period);
+    const share = g.metres / target;
+    const met = share >= 1;
+    if (goalsMet[period] === false && met && loaded.size) {
+      toast(`🎯 ${label}ly goal reached`, `${statKm(g.metres)} this ${every}`);
+    }
+    goalsMet[period] = met;
+    summary.push(met ? `${label} ✓` : `${label} ${Math.round(share * 100)}%`);
+
+    const row = document.createElement('div');
+    row.className = 'progress goal';
+    row.classList.toggle('met', met);
+    row.innerHTML = '<span class="progress-label"></span><span class="bar"><span></span></span><strong></strong><small></small>';
+    row.querySelector('.progress-label').textContent = label;
+    row.querySelector('.bar span').style.width = Math.min(100, share * 100).toFixed(1) + '%';
+    row.querySelector('strong').textContent = Math.round(share * 100) + '%';
+    const daysLeft = g.daysLeft === 1 ? 'last day' : `${g.daysLeft} days left`;
+    row.querySelector('small').textContent = met
+      ? `${statKm(g.metres)} of ${statKm(target)}: done 🎉`
+      : `${statKm(g.metres)} of ${statKm(target)} · ${statKm(target - g.metres)} to go · ${daysLeft}`;
+
+    // The ones before: a bar each, full height at the goal, green if it was met.
+    const history = document.createElement('div');
+    history.className = 'goal-history';
+    const hit = g.history.filter(h => h.metres >= target).length;
+    const top = Math.max(target, ...g.history.map(h => h.metres));
+    for (const h of g.history) {
+      const bar = document.createElement('span');
+      bar.classList.toggle('met', h.metres >= target);
+      bar.style.height = Math.max(4, (h.metres / top) * 100) + '%';
+      bar.title = `${period === 'week' ? 'Week of ' + h.start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+        : h.start.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}: ${statKm(h.metres)}`;
+      history.append(bar);
+    }
+    const line = document.createElement('div');
+    line.className = 'goal-past';
+    const text = document.createElement('small');
+    text.textContent = `Met ${hit} of last ${g.history.length}`;
+    text.title = `Goal met in ${hit} of the last ${g.history.length} ${every}s`;
+    line.append(history, text);
+    rows.push(row, line);
+  }
+  if (!rows.length) {
+    const empty = document.createElement('small');
+    empty.className = 'hint';
+    empty.textContent = readOnly() ? 'No goals set.' : 'No goals yet. Set a distance to cover each week or month.';
+    rows.push(empty);
+  }
+  document.getElementById('goals-progress').replaceChildren(...rows);
+  document.getElementById('goals-summary').textContent = summary.join(' · ');
+}
+
+const goalsForm = document.getElementById('goals-form');
+document.getElementById('goals-edit').onclick = () => {
+  document.getElementById('goal-week').value = goals.week || '';
+  document.getElementById('goal-month').value = goals.month || '';
+  goalsForm.hidden = false;
+  document.getElementById('goals-edit').hidden = true;
+  document.getElementById('goal-week').focus();
+};
+const closeGoalsForm = () => {
+  goalsForm.hidden = true;
+  document.getElementById('goals-edit').hidden = false;
+};
+document.getElementById('goals-cancel').onclick = closeGoalsForm;
+goalsForm.onsubmit = async e => {
+  e.preventDefault();
+  try {
+    goals = await Store.saveGoals({
+      week: Number(document.getElementById('goal-week').value) || null,
+      month: Number(document.getElementById('goal-month').value) || null,
+    });
+    goalsMet = {};  // a new target isn't "reaching" it
+    closeGoalsForm();
+    renderGoals();
+  } catch (err) {
+    alert(err.message);
+  }
+};
+
 // --- Plan mode: route planning ---
 // Click the map to add points; planner.js routes between them along the
 // streets of your areas. The active area's streets are coloured by coverage,
@@ -1162,8 +1433,35 @@ function removeWaypoint(i) {
 function planChanged() {
   plan.dirty = true;
   planStatus.textContent = '';
+  scheduleElevation();
   drawPlan();
   renderPlan();
+}
+
+// The route's elevation, from Elevation.forRoute: { profile, climb }, or
+// 'loading' / 'failed'. Looked up after a pause in changes; a saved route
+// keeps its own, so opening one needs no lookup.
+let planElevation = null;
+let elevationTimer = null;
+let elevationRun = 0;  // only the newest lookup's answer is used
+
+function scheduleElevation() {
+  clearTimeout(elevationTimer);
+  const run = ++elevationRun;
+  planElevation = plan.waypoints.length > 1 ? 'loading' : null;
+  if (!planElevation) return;
+  elevationTimer = setTimeout(async () => {
+    let result;
+    try {
+      result = await Elevation.forRoute(routePoints(plan));
+    } catch (err) {
+      console.error('Elevation:', err);
+      result = 'failed';
+    }
+    if (run !== elevationRun) return;
+    planElevation = result;
+    renderPlan();
+  }, 700);
 }
 
 // Starts a new, empty route, or (with route) opens a saved one. The saved
@@ -1179,6 +1477,13 @@ function resetPlan(route = null) {
     dirty: false,
   });
   planStatus.textContent = '';
+  if (data.elevation) {
+    clearTimeout(elevationTimer);
+    elevationRun++;
+    planElevation = data.elevation;
+  } else {
+    scheduleElevation();  // routes saved before elevation existed
+  }
   drawPlan();
   renderPlan();
 }
@@ -1267,8 +1572,13 @@ function renderPlan() {
   const title = document.getElementById('plan-title');
   title.textContent = (plan.name || 'New route') + (plan.dirty && n > 1 ? ' (not saved)' : '');
   const stats = document.getElementById('plan-stats');
+  const climb = n < 2 || !planElevation ? ''
+    : planElevation === 'loading' ? ' · climb…'
+      : planElevation === 'failed' ? ' · climb unavailable' : ` · ${climbText(planElevation.climb)}`;
+  const chart = document.getElementById('plan-elevation');
+  chart.replaceChildren(...(n > 1 && planElevation && planElevation.profile ? [Elevation.chart(planElevation.profile)] : []));
   if (publicView()) {
-    stats.textContent = n > 1 ? km(lineMetres(routePoints(plan))) : routes.length ? 'Pick a route below.' : 'No routes shared yet.';
+    stats.textContent = n > 1 ? km(lineMetres(routePoints(plan))) + climb : routes.length ? 'Pick a route below.' : 'No routes shared yet.';
   } else if (n < 2) {
     stats.textContent = !areas.length ? 'Add an area in Streets mode first: routes follow its streets.'
       : n ? 'Now click where to go next.' : 'Click the map to start a route. Each click adds a point, '
@@ -1277,7 +1587,7 @@ function renderPlan() {
   } else {
     const points = routePoints(plan);
     const fresh = newStreetMetres(points);
-    stats.textContent = `${km(lineMetres(points))} · ${km(fresh)} on streets you haven't run`
+    stats.textContent = `${km(lineMetres(points))}${climb} · ${km(fresh)} on streets you haven't run`
       + (plan.straight.some(Boolean) ? '. Dashed parts are straight lines.' : '');
   }
   document.getElementById('plan-undo').disabled = !n;
@@ -1300,7 +1610,7 @@ function renderRouteList() {
       + '<span class="actions"></span>';
     li.querySelector('.name').textContent = r.name;
     li.querySelector('.name').onclick = () => openRoute(r);
-    li.querySelector('small').textContent = km(r.distance);
+    li.querySelector('small').textContent = km(r.distance) + (r.data.elevation ? ` · ${climbText(r.data.elevation.climb)}` : '');
     const actions = li.querySelector('.actions');
     const action = (label, onclick, title) => {
       const button = document.createElement('button');
@@ -1427,7 +1737,11 @@ document.getElementById('plan-save').onclick = async () => {
   try {
     const saved = await Store.saveRoute({
       id: plan.id, name, distance: lineMetres(routePoints(plan)),
-      data: { waypoints: plan.waypoints, legs: plan.legs, straight: plan.straight },
+      data: {
+        waypoints: plan.waypoints, legs: plan.legs, straight: plan.straight,
+        // Kept with the route if the lookup has finished; otherwise it's looked up when opened.
+        ...(planElevation && planElevation.profile ? { elevation: planElevation } : {}),
+      },
     });
     routes = [saved, ...routes.filter(r => r.id !== saved.id)];
     Object.assign(plan, { id: saved.id, name: saved.name, dirty: false });
@@ -1595,8 +1909,11 @@ async function signedIn(user) {
   }
   trophyBox.hidden = false;
   document.getElementById('stats-box').hidden = false;
+  document.getElementById('goals-box').hidden = false;
   clearTracks();
   await loadTracks();
+  await loadGoals();
+  backfillMetrics();  // in the background
   await loadAreas();
   await loadTrophies();
   scheduleTrophies();
@@ -1623,6 +1940,9 @@ function signedOut() {
   trophies = [];
   trophyBox.hidden = true;
   document.getElementById('stats-box').hidden = true;
+  document.getElementById('goals-box').hidden = true;
+  goals = { week: null, month: null };
+  metricsLeft = 0;
   routes = [];
   resetPlan();
   stravaBox.hidden = true;

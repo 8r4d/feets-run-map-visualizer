@@ -92,6 +92,9 @@ Things to know:
     to-do list.
   - They can't take credit from a path running beside them either.
   - Undo it with **Count again** in the "Unrunnable streets" list.
+- **Still to run:** the list of unfinished streets starts with the nearest to
+  the middle of the map. Tap ⌖ on the map to show where you are, and while that
+  dot is in view the list starts from you instead, with how far away each is.
   - Marks are kept when you refresh the area.
   - Motorways and trunk roads (like the Anthony Henday) never count anyway.
 - **New streets:** OpenStreetMap changes over time. **Refresh from
@@ -202,6 +205,10 @@ load quickly. The original GPX is kept for the ↓ download.
 | `public/store.js`    | Calls `api.php`.                                         |
 | `public/osm.js`      | Fetches an area's boundary and streets from OpenStreetMap and prepares them. |
 | `public/coverage.js` | Works out which streets the tracks cover.                |
+| `public/planner.js`  | Routes planned routes along the areas' streets.          |
+| `public/stats.js`    | The Stats box's sums, and progress towards goals.        |
+| `public/achievements.js` | Which trophies are earned.                           |
+| `public/elevation.js`| Elevation charts, and planned routes' elevation from Open-Meteo. |
 | `public/strava-webhook.php` | Address Strava's webhook calls. Passes them on to `api.php`. |
 | `public/style.css`   | Styles.                                                  |
 
@@ -229,8 +236,9 @@ routing service.
 2. Click the map to add points. Each one is routed along the streets from the
    last. Drag a point to move it, click it to remove it. **Back to start**
    closes the loop.
-3. The panel shows the distance and how much of it is on streets you haven't
-   run yet (counting the tracks on the map, as in Streets mode).
+3. The panel shows the distance, the climb, and how much of it is on streets
+   you haven't run yet (counting the tracks on the map, as in Streets mode),
+   with an elevation chart below.
 4. **Save** keeps the route under a name (a route you opened is saved over);
    **Download GPX** gives a file for a watch, or to import into Strava as a
    route. Saved routes can be renamed from the list.
@@ -242,6 +250,11 @@ Things to know:
   joined to any other street within 15 m. If two points still can't be
   joined, that part is drawn as a dashed straight line.
 - View-only accounts can open saved routes and plan their own, but can't save.
+- **Elevation** comes from [Open-Meteo](https://open-meteo.com/en/docs/elevation-api)'s
+  free elevation API, a ~90 m terrain model: the browser sends it points along
+  the route, so it learns where the route goes. A saved route keeps its
+  elevation, so opening one doesn't ask again. Fine for hills, too coarse to
+  see a bridge or an underpass.
 
 ## Stats
 
@@ -251,8 +264,38 @@ distance, number of activities and active days, average per activity and per
 week, the longest activity, the longest and current streak of days in a row,
 the best week (Monday to Sunday) and month, and distance by type.
 
-feets doesn't store how long an activity took, so there's no pace or time.
-Hiding tracks with their checkboxes doesn't change the stats.
+From each track's GPX it also adds moving time, average pace on foot, total
+climb, and the fastest 1K, 5K, 10K, half and marathon on foot. Hiding tracks
+with their checkboxes doesn't change the stats.
+
+## Pace, time and elevation
+
+`api.php` works these out from each track's GPX when it's added, Strava
+imports included. Click a track on the map, or its name in the list, for its
+moving and elapsed time, pace (speed for rides), climb, best efforts and an
+elevation chart.
+
+- **Older tracks** get them in the background the first time you open feets
+  after updating; the track list counts down while it works. View-only accounts
+  see them once the owner has opened feets.
+- **Moving time** leaves out stops: the time between points where you moved
+  slower than 0.5 m/s. GPS wobble under 5 m doesn't count as moving.
+- **Best efforts** are the fastest stretch of each distance within a run, by
+  the clock, like Strava's.
+- **Climb** adds up rises of 3 m or more, after smoothing, so GPS noise doesn't
+  add up. Expect it to differ a little from Strava's or your watch's.
+- A GPX with no times or elevations (one drawn by hand, say) has none of these.
+
+## Goals
+
+The **Goals** box tracks a distance to cover each week (Monday to Sunday) and/or
+each month. Click **Set goals** to choose them; they're saved with your account.
+
+- **Which tracks count:** runs, trail runs, walks, hikes and tracks with no
+  type, as for trophies. The filters don't change it.
+- It shows how far you are this week or month, what's left, and the days
+  remaining, plus a bar for each of the last 8, green where you met the goal.
+- Reaching a goal while feets is open pops up a note.
 
 ## Trophies
 

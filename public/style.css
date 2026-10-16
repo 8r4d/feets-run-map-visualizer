@@ -737,6 +737,7 @@ body {
 /* A view link shows saved routes only */
 .public-view #trophies-box,
 .public-view #stats-box,
+.public-view #goals-box,
 .public-view #mode,
 .public-view #fade-control,
 .public-view #plan-edit,
@@ -753,7 +754,9 @@ body {
 
 .read-only #area-tools,
 .read-only #plan-save,
-.read-only #todo-list .skip {
+.read-only #todo-list .skip,
+.read-only #goals-edit,
+.read-only #goals-form {
   display: none !important;
 }
 
@@ -1038,4 +1041,141 @@ body {
 
 @keyframes locating {
   to { color: #2a7fff; }
+}
+
+/* Goals: progress bars like street coverage, blue until met */
+#goals-summary {
+  font-size: 12px;
+  font-weight: normal;
+  color: #777;
+}
+
+#goals-box .hint {
+  color: #777;
+}
+
+.progress.goal .bar span {
+  background: #1a73e8;
+}
+
+.progress.goal.met .bar span {
+  background: #2e9e44;
+}
+
+.goal-past {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin: 2px 0 8px calc(3.4em + 8px);  /* lines up with the bar above */
+  color: #666;
+  white-space: nowrap;
+}
+
+.goal-history {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 22px;
+}
+
+.goal-history span {
+  width: 7px;
+  background: #ccc;
+  border-radius: 1px;
+}
+
+.goal-history span.met {
+  background: #2e9e44;
+}
+
+#goals-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#goals-form label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+#goals-form input {
+  width: 6em;
+  font: inherit;
+}
+
+#goals-edit {
+  align-self: flex-start;
+  font-size: 12px;
+}
+
+/* Track popup */
+.track-popup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.track-popup > small {
+  color: #666;
+}
+
+.track-popup dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  margin: 4px 0 0;
+}
+
+.track-popup dt {
+  color: #777;
+}
+
+.track-popup dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Elevation chart (elevation.js) */
+.elevation {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: 4px;
+  touch-action: pan-y;
+}
+
+.elevation .area {
+  fill: rgba(26, 115, 232, 0.15);
+}
+
+.elevation .line {
+  fill: none;
+  stroke: #1a73e8;
+  stroke-width: 1.5;
+}
+
+.elevation .axis {
+  stroke: #bbb;
+}
+
+.elevation .cursor {
+  stroke: #444;
+  stroke-dasharray: 2 2;
+}
+
+.elevation text {
+  font-size: 9px;
+  fill: #666;
+}
+
+.elevation .readout {
+  fill: #222;
+  font-weight: 600;
+}
+
+#plan-elevation:empty {
+  display: none;
 }

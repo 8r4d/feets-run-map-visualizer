@@ -82,14 +82,21 @@ const Store = (() => {
     renameRoute: (id, name) => json('POST', `?action=route_rename&id=${id}`, { name }),  // → stored route
     deleteRoute: id => json('POST', `?action=route_delete&id=${id}`),
 
+    // Distance goals in km: { week, month }, null when not set.
+    goals: () => json('GET', '?action=goals'),
+    saveGoals: goals => json('POST', '?action=goals_save', goals),
+
     // Achievements: each resolves to [{ code, title, detail, earnedAt }], oldest first.
     achievements: () => json('GET', '?action=achievements'),
     addAchievements: achievements => json('POST', '?action=achievement_add', { achievements }),
 
     // Tracks
     all: () => json('GET', ''),
-    // track includes the original file text as track.gpx; resolves to the new id.
-    add: async track => (await json('POST', '?action=add', track)).id,
+    // track includes the original file text as track.gpx; resolves to { id, metrics }.
+    add: track => json('POST', '?action=add', track),
+    // Works out pace, time and elevation for some older tracks: { metrics: { id: metrics }, remaining }.
+    trackMetrics: () => json('POST', '?action=track_metrics'),
+    profile: async id => (await json('GET', `?action=track_profile&id=${id}`)).profile,  // [[km, metres]] or null
     update: track => json('POST', `?action=update&id=${track.id}`, { visible: track.visible, color: track.color }),
     setVisible: (ids, visible) => json('POST', '?action=set_visible', { ids, visible }),
     remove: id => json('POST', `?action=delete&id=${id}`),

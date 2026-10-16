@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>feets</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=33">
+  <link rel="stylesheet" href="style.css?v=34">
 </head>
 <body>
   <aside id="sidebar">
@@ -59,6 +59,22 @@
         <small class="hint">For the tracks matching the filters below; pick a year there for a time frame.</small>
       </div>
     </details>
+    <details id="goals-box" class="panel" hidden>
+      <summary>Goals <span id="goals-summary"></span></summary>
+      <div class="panel-body">
+        <div id="goals-progress"></div>
+        <form id="goals-form" hidden>
+          <label>Km per week <input id="goal-week" type="number" min="0" step="any" inputmode="decimal" placeholder="none"></label>
+          <label>Km per month <input id="goal-month" type="number" min="0" step="any" inputmode="decimal" placeholder="none"></label>
+          <div class="filter-row">
+            <button type="submit">Save</button>
+            <button id="goals-cancel" class="link-button" type="button">Cancel</button>
+          </div>
+        </form>
+        <button id="goals-edit" class="link-button" type="button">Set goals</button>
+        <small class="hint">Counts runs, walks, hikes and tracks with no type, whatever the filters say. Weeks start on Monday.</small>
+      </div>
+    </details>
     <div id="mode" role="group" aria-label="Map style">
       <button type="button" data-mode="tracks" aria-pressed="true">Tracks</button>
       <button type="button" data-mode="heatmap" aria-pressed="false">Heatmap</button>
@@ -107,6 +123,7 @@
     <section id="plan-panel" hidden>
       <h2 id="plan-title"></h2>
       <div id="plan-stats"></div>
+      <div id="plan-elevation"></div>
       <label id="plan-streets-toggle"><input id="plan-streets" type="checkbox" checked> Show street coverage</label>
       <div id="plan-edit" class="filter-row">
         <button id="plan-undo" type="button" title="Remove the last point">Undo</button>
@@ -176,12 +193,13 @@
 
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="gpx.js?v=18"></script>
-  <script src="store.js?v=25"></script>
+  <script src="store.js?v=26"></script>
   <script src="osm.js?v=18"></script>
   <script src="coverage.js?v=22"></script>
   <script src="planner.js?v=31"></script>
-  <script src="stats.js?v=28"></script>
+  <script src="stats.js?v=29"></script>
+  <script src="elevation.js?v=1"></script>
   <script src="achievements.js?v=22"></script>
-  <script src="app.js?v=33"></script>
+  <script src="app.js?v=34"></script>
 </body>
 </html>
