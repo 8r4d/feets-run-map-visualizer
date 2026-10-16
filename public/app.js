@@ -320,13 +320,19 @@ function listItem({ track, layer }) {
   download.title = 'Download original GPX';
   download.onclick = () => Store.downloadGpx(track).catch(err => alert(err.message));
 
+  const toRoute = document.createElement('button');
+  toRoute.className = 'to-route';
+  toRoute.textContent = '⤳';
+  toRoute.title = 'Plan a route from this run';
+  toRoute.onclick = () => routeFromTrack(track);
+
   const del = document.createElement('button');
   del.className = 'delete';
   del.textContent = '×';
   del.title = 'Delete';
   del.onclick = () => removeTrack(track.id);
 
-  li.append(checkbox, swatch, name, download, del);
+  li.append(checkbox, swatch, name, toRoute, download, del);
   return li;
 }
 
@@ -1107,6 +1113,30 @@ function resetPlan(route = null) {
   renderPlan();
 }
 
+// Starts a new route that retraces a run along the streets of your areas (see
+// Planner.trace), ready to change and save like one you drew.
+function routeFromTrack(track) {
+  if (!mayDiscard()) return;
+  setMode('plan');
+  resetPlan();
+  if (!areas.length) return;  // renderPlan says to add an area first
+  const waypoints = Planner.trace(planGraph(), track.segments.flat());
+  if (waypoints.length < 2) {
+    planStatus.textContent = `"${track.name}" isn't on the streets of your areas.`;
+    return;
+  }
+  for (let i = 1; i < waypoints.length; i++) {
+    const leg = legBetween(waypoints[i - 1], waypoints[i]);
+    plan.legs.push(leg.points);
+    plan.straight.push(leg.straight);
+  }
+  plan.waypoints = waypoints;
+  plan.name = `${track.name} (copy)`;
+  planChanged();
+  map.invalidateSize();
+  map.fitBounds(L.latLngBounds(routePoints(plan)), { padding: [40, 40], maxZoom: 17 });
+}
+
 // Asks before throwing away a route that hasn't been saved.
 const mayDiscard = () => !plan.dirty || plan.waypoints.length < 2 || confirm('Discard the route you were drawing?');
 
@@ -1319,7 +1349,7 @@ document.getElementById('plan-streets').onchange = e => {
 
 // A route you opened is saved over under its name; a new one asks for a name.
 document.getElementById('plan-save').onclick = async () => {
-  const name = plan.id ? plan.name : await askName('Save route', `Route ${new Date().toLocaleDateString()}`, 'Save');
+  const name = plan.id ? plan.name : await askName('Save route', plan.name || `Route ${new Date().toLocaleDateString()}`, 'Save');
   if (!name) return;
   try {
     const saved = await Store.saveRoute({

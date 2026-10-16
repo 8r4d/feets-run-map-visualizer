@@ -168,6 +168,58 @@ const Planner = (() => {
     return { points: points.reverse(), metres: cost.get(to) };
   }
 
+  // Waypoints on the streets that retrace a recorded run: its corners (where
+  // the line turns by more than TURN metres, by Douglas-Peucker) plus a point
+  // at least every STEP metres, so the shortest path between neighbours keeps
+  // to the way it went. Points not near a street are left out; if the run
+  // ends near where it started, the route ends exactly at its start.
+  // points: [[lat, lon], ...]. Returns [[lat, lon], ...] of street points.
+  const TURN = 25, STEP = 250, LOOP = 50;
+  function trace(graph, points) {
+    if (!points.length) return [];
+    // Flat metres around the first point are close enough for a run.
+    const [la0, lo0] = points[0];
+    const kx = 111320 * Math.cos(la0 * Math.PI / 180);
+    const xy = points.map(([la, lo]) => [(lo - lo0) * kx, (la - la0) * 111320]);
+    const keep = new Uint8Array(points.length);
+    keep[0] = keep[points.length - 1] = 1;
+    const stack = [[0, points.length - 1]];
+    while (stack.length) {
+      const [a, b] = stack.pop();
+      const [ax, ay] = xy[a], [bx, by] = xy[b];
+      const len = Math.hypot(bx - ax, by - ay);
+      let far = -1, farD = TURN;
+      for (let i = a + 1; i < b; i++) {
+        const [px, py] = xy[i];
+        const d = len ? Math.abs((bx - ax) * (ay - py) - (ax - px) * (by - ay)) / len : Math.hypot(px - ax, py - ay);
+        if (d > farD) { farD = d; far = i; }
+      }
+      if (far >= 0) {
+        keep[far] = 1;
+        stack.push([a, far], [far, b]);
+      }
+    }
+    let run = 0;
+    for (let i = 1; i < points.length; i++) {
+      run += Math.hypot(xy[i][0] - xy[i - 1][0], xy[i][1] - xy[i - 1][1]);
+      if (run >= STEP) keep[i] = 1;
+      if (keep[i]) run = 0;
+    }
+
+    const nodes = [];
+    for (let i = 0; i < points.length; i++) {
+      if (!keep[i]) continue;
+      const n = snap(graph, points[i]);
+      if (n >= 0 && n !== nodes[nodes.length - 1]) nodes.push(n);
+    }
+    const out = nodes.map(n => [graph.lat[n], graph.lon[n]]);
+    const first = points[0], last = points[points.length - 1];
+    if (out.length > 1 && distance(...first, ...last) < LOOP) {
+      out[out.length - 1] = [...out[0]];
+    }
+    return out;
+  }
+
   // A binary min-heap of ids by priority.
   class Heap {
     constructor() { this.ids = []; this.keys = []; }
@@ -224,5 +276,5 @@ ${pts}
 `;
   }
 
-  return { build, snap, route, distance, gpx };
+  return { build, snap, route, trace, distance, gpx };
 })();
