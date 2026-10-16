@@ -1824,6 +1824,7 @@ function renderRouteList() {
       actions.append(button);
     };
     action('GPX', () => downloadRoute(r.name, r.data));
+    if (publicView()) action('Share', () => shareRouteLink(r), 'Send someone a link to this route');
     if (!readOnly()) {
       action('Link', () => shareRoute(r), 'A link that opens this route, no login needed');
       action('Rename', () => renameRoute(r));
@@ -1831,6 +1832,26 @@ function renderRouteList() {
     }
     return li;
   }));
+}
+
+// Share on a view link: this view link, opening this route. Phones get the
+// system share sheet; elsewhere the link is copied, or shown to copy by hand.
+async function shareRouteLink(r) {
+  const url = viewUrl(viewCode, r.id);
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: r.name, text: `${r.name}: ${km(r.distance)} route`, url });
+      return;
+    } catch (err) {
+      if (err.name === 'AbortError') return;  // closed the share sheet
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    planStatus.textContent = `Link to "${r.name}" copied.`;
+  } catch {
+    prompt(`Link to "${r.name}":`, url);
+  }
 }
 
 // Clicking a saved route: opens it for editing (or just viewing, on a view
