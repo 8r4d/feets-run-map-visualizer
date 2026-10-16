@@ -1014,11 +1014,12 @@ function planGraph() {
 }
 
 // The part of the route from a to b: along the streets if they connect, or a
-// straight line (drawn dashed) if they don't.
-function legBetween(a, b) {
+// straight line (drawn dashed) if they don't. avoid: steer off unrunnable
+// streets (a route retraced from a run goes where the run went).
+function legBetween(a, b, avoid = true) {
   const g = planGraph();
   const from = Planner.snap(g, a), to = Planner.snap(g, b);
-  const found = from >= 0 && to >= 0 && Planner.route(g, from, to);
+  const found = from >= 0 && to >= 0 && Planner.route(g, from, to, avoid);
   return found ? { points: found.points, straight: false } : { points: [a, b], straight: true };
 }
 
@@ -1126,7 +1127,7 @@ function routeFromTrack(track) {
     return;
   }
   for (let i = 1; i < waypoints.length; i++) {
-    const leg = legBetween(waypoints[i - 1], waypoints[i]);
+    const leg = legBetween(waypoints[i - 1], waypoints[i], false);
     plan.legs.push(leg.points);
     plan.straight.push(leg.straight);
   }

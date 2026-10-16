@@ -7,12 +7,14 @@
 // Crossings and sidewalks aren't in the area data, so the end of a run is
 // also joined to any street within BRIDGE metres, and a way cut up by area
 // boundaries is joined back together (see build). Streets marked unrunnable
-// are left out.
+// stay in, so a route can still use the parts of them you can run, but cost
+// AVOID times their length unless the route says otherwise (see route).
 const Planner = (() => {
   const SNAP = 150;   // metres: a click must be this close to a street
   const BRIDGE = 15;  // metres: run ends this close to another street are joined
   const GAP = 500;    // metres: the most a way's pieces cut by a boundary are joined across
   const CELL = 50;    // grid cell size in metres for finding nearby points
+  const AVOID = 3;    // an unrunnable street is taken only if going round is this many times longer
 
   function distance(lat1, lon1, lat2, lon2) {
     const dy = (lat2 - lat1) * 111320;
@@ -27,7 +29,7 @@ const Planner = (() => {
   ];
 
   // areas: as from Store.areas(). The graph: point coordinates, and for each
-  // point a flat list of [neighbour, metres, neighbour, metres, ...].
+  // point a flat list of [neighbour, metres, unrunnable, neighbour, ...].
   function build(areas) {
     const index = new Map();
     const lat = [], lon = [], adj = [];
@@ -43,19 +45,20 @@ const Planner = (() => {
       }
       return i;
     };
-    const link = (a, b) => {
+    const link = (a, b, unrunnable = false) => {
       const d = distance(lat[a], lon[a], lat[b], lon[b]);
-      adj[a].push(b, d);
-      adj[b].push(a, d);
+      adj[a].push(b, d, unrunnable);
+      adj[b].push(a, d, unrunnable);
     };
 
     const ends = [];
     const pieces = new Map();  // OSM way id -> [{ start, end }] of its runs, from every area
     const seen = new Set();
+    // Unrunnable in any area is unrunnable here, as overlapping areas share runs.
+    const excluded = new Set(areas.flatMap(a => a.excluded || []));
     for (const area of areas) {
-      const excluded = new Set(area.excluded || []);
       for (const s of area.data.streets) {
-        if (excluded.has(s.id)) continue;
+        const unrunnable = excluded.has(s.id);
         for (const run of s.runs) {
           const start = node(run[0]);
           const end = node(run[run.length - 1]);
@@ -66,12 +69,12 @@ const Planner = (() => {
           let prev = start;
           for (let i = 1; i < run.length; i++) {
             const cur = node(run[i]);
-            if (cur !== prev) link(prev, cur);
+            if (cur !== prev) link(prev, cur, unrunnable);
             prev = cur;
           }
           ends.push(start, end);
           if (!pieces.has(s.id)) pieces.set(s.id, []);
-          pieces.get(s.id).push({ start, end });
+          pieces.get(s.id).push({ start, end, unrunnable });
         }
       }
     }
@@ -84,7 +87,7 @@ const Planner = (() => {
     }
     const graph = { lat, lon, adj, grid };
 
-    const linked = (a, b) => adj[a].some((n, k) => k % 2 === 0 && n === b);
+    const linked = (a, b) => adj[a].some((n, k) => k % 3 === 0 && n === b);
     for (const e of new Set(ends)) {
       for (const i of near(graph, lat[e], lon[e], BRIDGE)) {
         if (i !== e && !linked(e, i)) link(e, i);
@@ -105,7 +108,7 @@ const Planner = (() => {
           const d = distance(lat[a.end], lon[a.end], lat[b.start], lon[b.start]);
           if (d < bestD) { bestD = d; best = b.start; }
         }
-        if (best >= 0 && !linked(a.end, best)) link(a.end, best);
+        if (best >= 0 && !linked(a.end, best)) link(a.end, best, a.unrunnable);
       }
     }
     return graph;
@@ -136,9 +139,10 @@ const Planner = (() => {
     return best;
   }
 
-  // Shortest path between two points (A*). Returns [[lat, lon], ...] and its
-  // length in metres, or null if the streets don't connect them.
-  function route(graph, from, to) {
+  // Shortest path between two points (A*), counting unrunnable streets as
+  // AVOID times longer unless avoid is false. Returns [[lat, lon], ...] and
+  // its length in metres, or null if the streets don't connect them.
+  function route(graph, from, to, avoid = true) {
     const { lat, lon, adj } = graph;
     if (from === to) return { points: [[lat[from], lon[from]]], metres: 0 };
     const cost = new Map([[from, 0]]);
@@ -153,8 +157,8 @@ const Planner = (() => {
       done.add(n);
       const base = cost.get(n);
       const edges = adj[n];
-      for (let k = 0; k < edges.length; k += 2) {
-        const m = edges[k], c = base + edges[k + 1];
+      for (let k = 0; k < edges.length; k += 3) {
+        const m = edges[k], c = base + edges[k + 1] * (avoid && edges[k + 2] ? AVOID : 1);
         if (c < (cost.get(m) ?? Infinity)) {
           cost.set(m, c);
           came.set(m, n);
@@ -164,8 +168,12 @@ const Planner = (() => {
     }
     if (!cost.has(to)) return null;
     const points = [];
-    for (let n = to; n !== undefined; n = came.get(n)) points.push([lat[n], lon[n]]);
-    return { points: points.reverse(), metres: cost.get(to) };
+    let metres = 0;
+    for (let n = to; n !== undefined; n = came.get(n)) {
+      if (came.has(n)) metres += distance(lat[n], lon[n], lat[came.get(n)], lon[came.get(n)]);
+      points.push([lat[n], lon[n]]);
+    }
+    return { points: points.reverse(), metres };
   }
 
   // Waypoints on the streets that retrace a recorded run: its corners (where
