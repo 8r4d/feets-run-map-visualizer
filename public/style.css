@@ -1024,3 +1024,18 @@ body {
   font: inherit;
   font-size: 13px;
 }
+
+/* Locate-me button under the zoom controls; pulses while waiting for a fix. */
+#map .locate-button {
+  font-size: 20px;
+  line-height: 30px;
+  text-decoration: none;
+}
+
+#map .locate-button.locating {
+  animation: locating 1s ease-in-out infinite alternate;
+}
+
+@keyframes locating {
+  to { color: #2a7fff; }
+}

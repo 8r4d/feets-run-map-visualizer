@@ -23,6 +23,49 @@ map.on('baselayerchange', e => { baseLayer = e.layer; });
 L.control.layers(baseLayers).addTo(map);
 L.control.scale().addTo(map);
 
+// --- Locate me ---
+// A button under the zoom controls drops a dot where the device is. It only
+// asks on a tap (no watching), so pressing it again updates the dot.
+const youAreHere = L.layerGroup().addTo(map);
+const LocateControl = L.Control.extend({
+  options: { position: 'topleft' },
+  onAdd() {
+    const bar = L.DomUtil.create('div', 'leaflet-bar');
+    const button = L.DomUtil.create('a', 'locate-button', bar);
+    button.href = '#';
+    button.role = 'button';
+    button.title = 'Show my location';
+    button.setAttribute('aria-label', 'Show my location');
+    button.innerHTML = '&#8982;';
+    L.DomEvent.disableClickPropagation(bar);
+    L.DomEvent.on(button, 'click', e => {
+      L.DomEvent.preventDefault(e);
+      button.classList.add('locating');
+      map.locate({ enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+    });
+    this.button = button;
+    return bar;
+  },
+});
+const locateControl = new LocateControl().addTo(map);
+
+map.on('locationfound', e => {
+  locateControl.button.classList.remove('locating');
+  youAreHere.clearLayers();
+  L.circle(e.latlng, { radius: e.accuracy, color: '#2a7fff', weight: 1, fillOpacity: 0.1, interactive: false })
+    .addTo(youAreHere);
+  L.circleMarker(e.latlng, { radius: 7, color: '#fff', weight: 2, fillColor: '#2a7fff', fillOpacity: 1 })
+    .bindTooltip(`You are here (±${Math.round(e.accuracy)} m)`)
+    .addTo(youAreHere);
+  // Keep the current zoom if it is already close in; otherwise zoom to street level.
+  map.setView(e.latlng, Math.max(map.getZoom(), 16));
+});
+
+map.on('locationerror', e => {
+  locateControl.button.classList.remove('locating');
+  alert(e.code === 1 ? 'Location permission was denied.' : `Couldn't get your location: ${e.message}`);
+});
+
 function setBaseLayer(layer) {
   if (layer === baseLayer) return;
   map.removeLayer(baseLayer);
