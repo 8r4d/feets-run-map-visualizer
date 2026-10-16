@@ -1623,6 +1623,8 @@ const mayDiscard = () => !plan.dirty || plan.waypoints.length < 2 || confirm('Di
 function drawPlan() {
   if (planLayer) planLayer.remove();
   planLayer = null;
+  if (arrowLayer) arrowLayer.remove();
+  arrowLayer = null;
   if (!planMode || !plan.waypoints.length) return;
   planLayer = L.layerGroup();
   plan.legs.forEach((leg, i) => {
@@ -1648,7 +1650,47 @@ function drawPlan() {
     marker.addTo(planLayer);
   });
   planLayer.addTo(map);
+  drawArrows();
 }
+
+// Arrows along the route showing which way it goes: every ARROW_EVERY metres,
+// or further apart when zoomed out so they stay ARROW_GAP pixels apart.
+// Redrawn on zoom; they ignore clicks, which go to the line or the map.
+const ARROW_EVERY = 200, ARROW_GAP = 60;
+let arrowLayer = null;
+
+function drawArrows() {
+  if (arrowLayer) arrowLayer.remove();
+  arrowLayer = null;
+  if (!planLayer || plan.waypoints.length < 2) return;
+  const points = routePoints(plan);
+  const lat = map.getCenter().lat;
+  const metresPerPixel = 40075016 * Math.cos(lat * Math.PI / 180) / 2 ** (map.getZoom() + 8);
+  const every = Math.max(ARROW_EVERY, ARROW_GAP * metresPerPixel);
+  arrowLayer = L.layerGroup();
+  let next = every / 2;  // the first one a little way from the start marker
+  let along = 0;
+  for (let i = 1; i < points.length; i++) {
+    const [a, b] = [points[i - 1], points[i]];
+    const d = Planner.distance(...a, ...b);
+    // Web Mercator keeps angles, so the compass bearing is the angle on screen.
+    const bearing = Math.atan2((b[1] - a[1]) * Math.cos(a[0] * Math.PI / 180), b[0] - a[0]) * 180 / Math.PI;
+    while (d > 0 && next <= along + d) {
+      const f = (next - along) / d;
+      L.marker([a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f], {
+        interactive: false,
+        keyboard: false,
+        zIndexOffset: -1000,  // under the route's points
+        icon: L.divIcon({ className: 'plan-arrow', iconSize: [14, 14], html: `<span style="transform: rotate(${bearing.toFixed(0)}deg)"></span>` }),
+      }).addTo(arrowLayer);
+      next += every;
+    }
+    along += d;
+  }
+  arrowLayer.addTo(map);
+}
+
+map.on('zoomend', () => { if (planLayer) drawArrows(); });
 
 // Coverage of an area by the tracks on the map. It only changes when they
 // do, so it's kept between clicks.

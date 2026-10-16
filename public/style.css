@@ -560,6 +560,20 @@ body {
   border-color: #fff;
 }
 
+/* Direction arrows along a planned route: a dark arrowhead a little wider
+   than the blue line, with a white edge so it shows on any map */
+.plan-arrow span {
+  display: block;
+  width: 14px;
+  height: 14px;
+  background: #0b3f8f;
+  clip-path: polygon(50% 0, 100% 95%, 50% 70%, 0 95%);
+}
+
+.plan-arrow {
+  filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff);
+}
+
 /* Streets mode */
 #streets-panel {
   display: flex;

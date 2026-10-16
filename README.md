@@ -235,7 +235,8 @@ routing service.
    a plain map; routes still follow the streets.
 2. Click the map to add points. Each one is routed along the streets from the
    last. Drag a point to move it, click it to remove it. **Back to start**
-   closes the loop.
+   closes the loop. Arrows along the line show which way it goes, every
+   200 m (further apart when zoomed out).
 3. The panel shows the distance, the climb, and how much of it is on streets
    you haven't run yet (counting the tracks on the map, as in Streets mode),
    with an elevation chart below.
