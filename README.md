@@ -239,12 +239,16 @@ load quickly. The original GPX is kept for the ↓ download.
 **Plan** mode draws routes along the streets of your areas, with no outside
 routing service.
 
+On a screen at least 1300 px wide, Plan mode's controls move to a bar under
+the map: the route, its elevation, the buttons and your saved routes side by
+side. Narrower windows and phones keep them in the sidebar.
+
 1. Switch to **Plan**. The active area's streets are coloured as in Streets
    mode, so you can aim for the red ones. Untick **Show street coverage** for
    a plain map; routes still follow the streets.
 2. Click the map to add points. Each one is routed along the streets from the
    last. Drag a point to move it, click it to remove it. **Back to start**
-   closes the loop. Arrows along the line show which way it goes, every
+   closes the loop, and **Reverse** turns the route round. Arrows along the line show which way it goes, every
    200 m (further apart when zoomed out).
 3. The panel shows the distance, the climb, and how much of it is on streets
    you haven't run yet (counting the tracks on the map, as in Streets mode),

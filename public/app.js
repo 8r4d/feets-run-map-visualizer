@@ -169,6 +169,27 @@ function syncLayers() {
   else if (streetLayer) streetLayer.remove();
 }
 
+// --- Plan bar ---
+// On a wide screen, Plan mode's panel moves out of the sidebar into a bar
+// under the map, laid out across. The same element moves, so its buttons keep
+// working. It stays in the sidebar on phones and windows under 1300px (too
+// tight for its four columns) and on a view link, where it's all the sidebar shows.
+const planPanel = document.getElementById('plan-panel');
+const planBar = document.getElementById('plan-bar');
+const planHome = document.getElementById('filters');  // the panel sits just before it in the sidebar
+const wideScreen = matchMedia('(min-width: 1300px)');
+
+function placePlanPanel() {
+  const out = planMode && wideScreen.matches && !publicView();
+  if (out && planPanel.parentElement !== planBar) planBar.append(planPanel);
+  if (!out && planPanel.parentElement === planBar) planHome.before(planPanel);
+  planBar.hidden = !out;
+}
+wideScreen.addEventListener('change', placePlanPanel);
+new ResizeObserver(() => {
+  document.documentElement.style.setProperty('--plan-bar-height', planBar.offsetHeight + 'px');
+}).observe(planBar);
+
 function setMode(mode) {
   const heat = mode === 'heatmap';
   if (heat !== heatmap) {
@@ -185,6 +206,7 @@ function setMode(mode) {
   mapMode = mode;
   document.getElementById('streets-panel').hidden = !streetsMode;
   document.getElementById('plan-panel').hidden = !planMode;
+  placePlanPanel();
   map.getContainer().classList.toggle('planning', planMode);
   for (const button of document.querySelectorAll('#mode button')) {
     button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
@@ -1745,6 +1767,7 @@ function renderPlan() {
   }
   document.getElementById('plan-undo').disabled = !n;
   document.getElementById('plan-loop').disabled = n < 2;
+  document.getElementById('plan-reverse').disabled = n < 2;
   document.getElementById('plan-clear').disabled = !n;
   document.getElementById('plan-save').disabled = n < 2;  // view-only accounts don't see it (style.css)
   document.getElementById('plan-gpx').disabled = n < 2;
@@ -1842,6 +1865,23 @@ document.getElementById('plan-undo').onclick = () => {
   if (plan.waypoints.length) removeWaypoint(plan.waypoints.length - 1);
 };
 document.getElementById('plan-loop').onclick = () => addWaypoint([...plan.waypoints[0]]);
+// The same route the other way round. The elevation is flipped here rather
+// than looked up again; the climb changes, as what went down now goes up.
+document.getElementById('plan-reverse').onclick = () => {
+  const elevation = planElevation && planElevation.profile;
+  plan.waypoints.reverse();
+  plan.legs = plan.legs.reverse().map(leg => [...leg].reverse());
+  plan.straight.reverse();
+  planChanged();
+  if (elevation) {
+    const total = elevation[elevation.length - 1][0];
+    const profile = elevation.map(([d, m]) => [Math.round((total - d) * 1000) / 1000, m]).reverse();
+    clearTimeout(elevationTimer);
+    elevationRun++;
+    planElevation = { profile, climb: Math.round(Elevation.climb(profile.map(p => p[1]))) };
+    renderPlan();
+  }
+};
 document.getElementById('plan-clear').onclick = () => {
   if (mayDiscard()) resetPlan();
 };
