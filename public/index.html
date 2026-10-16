@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>feets</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=46">
+  <link rel="stylesheet" href="style.css?v=47">
 </head>
 <body>
   <aside id="sidebar">
@@ -173,6 +173,20 @@
     </div>
     <ul id="track-list"></ul>
     <button id="more" type="button" hidden>Show more</button>
+    <details id="about" class="panel">
+      <summary>About feets</summary>
+      <div class="panel-body">
+        <p>feets is a run data visualization and route planning app made by 8r4d.</p>
+        <ul>
+          <li><a href="https://run.8r4d.com/" target="_blank" rel="noopener">Check out my running blog</a></li>
+          <li><a href="https://github.com/8r4d/feets-run-map-visualizer" target="_blank" rel="noopener">Source code on GitHub</a></li>
+          <li><a href="https://8r4d.com/privacy-policy-2/" target="_blank" rel="noopener">Privacy Policy</a></li>
+        </ul>
+        <small>Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors.
+          Elevation from <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>.
+          Built with <a href="https://leafletjs.com/" target="_blank" rel="noopener">Leaflet</a>.</small>
+      </div>
+    </details>
   </aside>
   <!-- Phones only: the panel sits under the map, and this bar folds it away. -->
   <button id="panel-toggle" type="button" aria-controls="sidebar" aria-expanded="true">Hide panel</button>
@@ -207,6 +221,11 @@
       <p id="auth-error"></p>
       <button id="auth-forgot" class="link-button" type="button" hidden>Forgot password?</button>
       <button id="auth-cancel" class="link-button" type="button" hidden>Cancel</button>
+      <p class="credits">
+        feets by 8r4d ·
+        <a href="https://run.8r4d.com/" target="_blank" rel="noopener">running blog</a> ·
+        <a href="https://github.com/8r4d/feets-run-map-visualizer" target="_blank" rel="noopener">GitHub</a>
+      </p>
     </form>
   </div>
 
