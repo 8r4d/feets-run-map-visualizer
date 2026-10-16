@@ -517,6 +517,10 @@ body {
   cursor: move;
 }
 
+#map.planning .plan-leg {
+  cursor: pointer;
+}
+
 .plan-point {
   background: #fff;
   border: 3px solid #1a73e8;

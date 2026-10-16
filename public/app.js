@@ -996,7 +996,8 @@ function toast(title, detail) {
 const planStatus = document.getElementById('plan-status');
 let routes = [];  // saved, as from Store.routes()
 // The route being drawn. waypoints: [[lat, lon]] on streets; legs[i] joins
-// waypoints i and i+1, straight[i] when no streets connect them.
+// waypoints i and i+1, straight[i] when no streets connect them, or 'direct'
+// when you made it straight (see legPopup).
 const plan = { id: null, name: '', waypoints: [], legs: [], straight: [], dirty: false };
 let planLayer = null;
 let graph = null;
@@ -1065,12 +1066,37 @@ function moveWaypoint(i, latlng) {
     plan.waypoints[i] = p;
     for (const k of [i - 1, i]) {
       if (k < 0 || k >= plan.legs.length) continue;
+      if (plan.straight[k] === 'direct') {
+        plan.legs[k] = [plan.waypoints[k], plan.waypoints[k + 1]];
+        continue;
+      }
       const leg = legBetween(plan.waypoints[k], plan.waypoints[k + 1]);
       plan.legs[k] = leg.points;
       plan.straight[k] = leg.straight;
     }
   }
   planChanged();  // redraws, which also puts a point that couldn't move back
+}
+
+// Clicking the line: a part that wanders off can be a straight line between
+// its two points instead (straight[i] 'direct'), and back again.
+function legPopup(i, latlng) {
+  const direct = plan.straight[i] === 'direct';
+  const box = document.createElement('div');
+  box.className = 'street-popup';
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = direct ? 'Follow the streets' : 'Straight line here';
+  button.onclick = () => {
+    map.closePopup();
+    const [a, b] = [plan.waypoints[i], plan.waypoints[i + 1]];
+    const leg = direct ? legBetween(a, b) : { points: [a, b], straight: 'direct' };
+    plan.legs[i] = leg.points;
+    plan.straight[i] = leg.straight;
+    planChanged();
+  };
+  box.append(button);
+  L.popup().setLatLng(latlng).setContent(box).openOn(map);
 }
 
 // Removing the first or last point drops its one leg; removing a middle point
@@ -1149,9 +1175,11 @@ function drawPlan() {
   if (!planMode || !plan.waypoints.length) return;
   planLayer = L.layerGroup();
   plan.legs.forEach((leg, i) => {
-    L.polyline(leg, {
-      color: '#1a73e8', weight: 5, opacity: 0.85, interactive: false, dashArray: plan.straight[i] ? '6 8' : null,
+    const line = L.polyline(leg, {
+      color: '#1a73e8', weight: 5, opacity: 0.85, dashArray: plan.straight[i] ? '6 8' : null,
+      className: 'plan-leg', interactive: !publicView(), bubblingMouseEvents: false,  // not a map click: that adds a point
     }).addTo(planLayer);
+    line.on('click', e => legPopup(i, e.latlng));
   });
   const last = plan.waypoints.length - 1;
   plan.waypoints.forEach((p, i) => {
@@ -1201,12 +1229,13 @@ function renderPlan() {
   } else if (n < 2) {
     stats.textContent = !areas.length ? 'Add an area in Streets mode first: routes follow its streets.'
       : n ? 'Now click where to go next.' : 'Click the map to start a route. Each click adds a point, '
-        + 'routed along the streets of your areas. Drag a point to move it, click it to remove it.';
+        + 'routed along the streets of your areas. Drag a point to move it, click it to remove it. '
+        + 'Click the line to make a part of it straight.';
   } else {
     const points = routePoints(plan);
     const fresh = newStreetMetres(points);
     stats.textContent = `${km(lineMetres(points))} · ${km(fresh)} on streets you haven't run`
-      + (plan.straight.some(Boolean) ? '. Dashed parts have no street between them in your areas.' : '');
+      + (plan.straight.some(Boolean) ? '. Dashed parts are straight lines.' : '');
   }
   document.getElementById('plan-undo').disabled = !n;
   document.getElementById('plan-loop').disabled = n < 2;
