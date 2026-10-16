@@ -1572,9 +1572,10 @@ function planChanged() {
   renderPlan();
 }
 
-// The route's elevation, from Elevation.forRoute: { profile, climb }, or
-// 'loading' / 'failed'. Looked up after a pause in changes; a saved route
-// keeps its own, so opening one needs no lookup.
+// The route's elevation, from Elevation.forRoute: { profile, climb,
+// estimated }, or 'loading', or { error } if there are no heights at all.
+// Looked up after a pause in changes; a saved route keeps its own, so opening
+// one needs no lookup unless some of it was estimated.
 let planElevation = null;
 let elevationTimer = null;
 let elevationRun = 0;  // only the newest lookup's answer is used
@@ -1590,7 +1591,7 @@ function scheduleElevation() {
       result = await Elevation.forRoute(routePoints(plan));
     } catch (err) {
       console.error('Elevation:', err);
-      result = 'failed';
+      result = { error: err.message };
     }
     if (run !== elevationRun) return;
     planElevation = result;
@@ -1615,6 +1616,7 @@ function resetPlan(route = null) {
     clearTimeout(elevationTimer);
     elevationRun++;
     planElevation = data.elevation;
+    if (data.elevation.estimated) scheduleElevation();  // the missing heights may be available now
   } else {
     scheduleElevation();  // routes saved before elevation existed
   }
@@ -1754,9 +1756,13 @@ function renderPlan() {
   const title = document.getElementById('plan-title');
   title.textContent = (plan.name || 'New route') + (plan.dirty && n > 1 ? ' (not saved)' : '');
   const stats = document.getElementById('plan-stats');
-  const climb = n < 2 || !planElevation ? ''
-    : planElevation === 'loading' ? ' · climb…'
-      : planElevation === 'failed' ? ' · climb unavailable' : ` · ${climbText(planElevation.climb)}`;
+  const e = planElevation;
+  const climb = n < 2 || !e ? ''
+    : e === 'loading' ? ' · climb…'
+      : e.error ? ` · climb unavailable: ${e.error}`
+        // Some heights filled in from the ones either side (see Elevation.forRoute).
+        : e.estimated ? ` · ≈ ${climbText(e.climb)} (estimated${e.estimated >= 0.05 ? `, ${Math.round(e.estimated * 100)}% of heights missing` : ''})`
+          : ` · ${climbText(e.climb)}`;
   const chart = document.getElementById('plan-elevation');
   chart.replaceChildren(...(n > 1 && planElevation && planElevation.profile ? [Elevation.chart(planElevation.profile)] : []));
   if (publicView()) {
@@ -1812,7 +1818,8 @@ function renderRouteList() {
       + '<span class="actions"></span>';
     li.querySelector('.name').textContent = r.name;
     li.querySelector('.name').onclick = () => openRoute(r);
-    li.querySelector('small').textContent = km(r.distance) + (r.data.elevation ? ` · ${climbText(r.data.elevation.climb)}` : '');
+    li.querySelector('small').textContent = km(r.distance)
+      + (r.data.elevation ? ` · ${r.data.elevation.estimated ? '≈ ' : ''}${climbText(r.data.elevation.climb)}` : '');
     const actions = li.querySelector('.actions');
     const action = (label, onclick, title) => {
       const button = document.createElement('button');
@@ -1925,7 +1932,7 @@ document.getElementById('plan-reverse').onclick = () => {
     const profile = elevation.map(([d, m]) => [Math.round((total - d) * 1000) / 1000, m]).reverse();
     clearTimeout(elevationTimer);
     elevationRun++;
-    planElevation = { profile, climb: Math.round(Elevation.climb(profile.map(p => p[1]))) };
+    planElevation = { ...planElevation, profile, climb: Math.round(Elevation.climb(profile.map(p => p[1]))) };
     renderPlan();
   }
 };

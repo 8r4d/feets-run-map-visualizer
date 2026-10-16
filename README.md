@@ -287,6 +287,13 @@ Things to know:
   the route, so it learns where the route goes. A saved route keeps its
   elevation, so opening one doesn't ask again. Fine for hills, too coarse to
   see a bridge or an underpass.
+- **Open-Meteo's free tier has a daily limit** per internet address, and every
+  point looked up counts. So feets snaps points to a ~55 m grid and remembers
+  each height in your browser: editing a route, or planning near one you've
+  planned before, mostly needs no new lookups. If some heights still can't be
+  had (limit reached, offline), they're estimated from the heights either side
+  and the climb shows as "≈ … (estimated)". It only says "climb unavailable",
+  with the reason, when it has no heights for the route at all.
 
 ## Stats
 

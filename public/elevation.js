@@ -4,13 +4,27 @@
 //
 // Routes have no elevations of their own, so they're looked up from
 // Open-Meteo's free elevation API (a ~90 m terrain model, no key needed):
-// points every 50 m or so, up to 100 per request.
+// points every 50 m or so, up to 100 per request. Its free tier has a daily
+// limit per address, and every point counts towards it, so points are
+// snapped to a GRID and each one's height is kept in this browser
+// (localStorage): later edits, and other routes nearby, mostly ask for
+// nothing new. Heights it can't get (over the limit, offline) are estimated
+// from the ones either side.
 const Elevation = (() => {
   const API = 'https://api.open-meteo.com/v1/elevation';
   const STEP = 50;          // metres between looked-up points
   const MAX_POINTS = 300;   // per route, so a long one is 3 requests
   const CLIMB_STEP = 2;     // metres: the terrain model is smooth, so less than api.php's 3
-  const cache = new Map();  // "lat,lon" rounded to ~10 m -> metres
+  const GRID = 0.0005;      // degrees: ~55 m north-south, still finer than the terrain model
+  const STORE = 'feets-elevation', STORE_MAX = 20000;  // ~20k heights is ~0.5 MB
+
+  // "lat,lon" of a grid point -> metres, oldest first.
+  const cache = (() => {
+    try { return new Map(JSON.parse(localStorage.getItem(STORE)) || []); } catch { return new Map(); }
+  })();
+  function save() {
+    try { localStorage.setItem(STORE, JSON.stringify([...cache].slice(-STORE_MAX))); } catch {}
+  }
 
   function distance([lat1, lon1], [lat2, lon2]) {
     const dy = (lat2 - lat1) * 111320;
@@ -37,19 +51,49 @@ const Elevation = (() => {
     return out;
   }
 
-  const key = ([lat, lon]) => `${lat.toFixed(4)},${lon.toFixed(4)}`;
+  const snap = v => (Math.round(v / GRID) * GRID).toFixed(4);
+  const key = ([lat, lon]) => `${snap(lat)},${snap(lon)}`;
 
+  // Heights of points, from the cache or Open-Meteo: { metres, error }, with
+  // undefined in metres for any it couldn't get, and why in error.
   async function lookUp(points) {
-    const missing = [...new Set(points.map(key))].filter(k => !cache.has(k));
-    for (let i = 0; i < missing.length; i += 100) {
+    const keys = points.map(key);
+    const missing = [...new Set(keys)].filter(k => !cache.has(k));
+    let error = null;
+    for (let i = 0; i < missing.length && !error; i += 100) {
       const chunk = missing.slice(i, i + 100).map(k => k.split(','));
       const url = `${API}?latitude=${chunk.map(c => c[0]).join(',')}&longitude=${chunk.map(c => c[1]).join(',')}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`Elevation lookup failed (${res.status})`);
-      const { elevation } = await res.json();
-      chunk.forEach((c, j) => cache.set(c.join(','), elevation[j]));
+      try {
+        const res = await fetch(url);
+        if (res.status === 429) throw new Error("the elevation service's free daily limit is used up");
+        if (!res.ok) throw new Error(`the elevation service answered ${res.status}`);
+        const { elevation } = await res.json();
+        chunk.forEach((c, j) => { if (Number.isFinite(elevation[j])) cache.set(c.join(','), elevation[j]); });
+      } catch (err) {
+        error = err.message.startsWith('the elevation') ? err : new Error("the elevation service couldn't be reached");
+      }
     }
-    return points.map(p => cache.get(key(p)));
+    if (missing.length) save();
+    return { metres: keys.map(k => cache.get(k)), error };
+  }
+
+  // Fills in missing heights (undefined) along the line: straight between the
+  // known ones either side, or level with the nearest at the ends. at: each
+  // point's distance along. Returns how many were filled in, or -1 if none were known.
+  function fill(metres, at) {
+    const known = metres.map((m, i) => (m === undefined ? -1 : i)).filter(i => i >= 0);
+    if (!known.length) return -1;
+    let filled = 0, k = 0;
+    for (let i = 0; i < metres.length; i++) {
+      if (metres[i] !== undefined) continue;
+      while (k < known.length - 1 && known[k + 1] < i) k++;
+      const a = known[k] < i ? known[k] : null;
+      const b = known.find(j => j > i);
+      metres[i] = a === null ? metres[b] : b === undefined ? metres[a]
+        : metres[a] + (metres[b] - metres[a]) * (at[i] - at[a]) / (at[b] - at[a]);
+      filled++;
+    }
+    return filled;
   }
 
   // Metres climbed: only rises of `step` or more count, so noise doesn't add up.
@@ -67,13 +111,19 @@ const Elevation = (() => {
     return total;
   }
 
-  // A route's elevation: resolves to { profile, climb }.
+  // A route's elevation: resolves to { profile, climb, estimated }, where
+  // estimated is the share of heights filled in (0 when all were looked up)
+  // and why, if any were. Rejects if no heights at all could be had.
   async function forRoute(points) {
     const s = samples(points);
-    const metres = await lookUp(s.map(x => x.p));
+    const { metres, error } = await lookUp(s.map(x => x.p));
+    const filled = fill(metres, s.map(x => x.at));
+    if (filled < 0) throw error || new Error('no heights found');
     return {
       profile: s.map((x, i) => [Math.round(x.at) / 1000, Math.round(metres[i] * 10) / 10]),
       climb: Math.round(climb(metres)),
+      estimated: filled / metres.length,
+      ...(filled && error ? { why: error.message } : {}),
     };
   }
 
