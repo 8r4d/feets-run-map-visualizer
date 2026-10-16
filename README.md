@@ -256,7 +256,8 @@ side. Narrower windows and phones keep them in the sidebar.
    with an elevation chart below.
 4. **Save** keeps the route under a name (a route you opened is saved over);
    **Download GPX** gives a file for a watch, or to import into Strava as a
-   route. Saved routes can be renamed from the list.
+   route. Saved routes can be renamed from the list, and sorted newest first,
+   by name, or by distance.
 
 **Fill with unrun streets** makes the route for you: set a length and press it
 for a loop over as many streets you haven't run as fit.

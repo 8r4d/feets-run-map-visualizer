@@ -1783,11 +1783,28 @@ function renderPlan() {
   renderRouteList();
 }
 
+// How the saved routes are listed. `routes` itself stays newest first (last
+// changed), as the server sends them. Remembered per browser.
+const routeSort = document.getElementById('route-sort');
+try { routeSort.value = localStorage.getItem('feets-route-sort') || 'newest'; } catch {}
+routeSort.onchange = () => {
+  try { localStorage.setItem('feets-route-sort', routeSort.value); } catch {}
+  renderRouteList();
+};
+const ROUTE_ORDERS = {
+  newest: () => 0,
+  name: (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }),  // "Loop 2" before "Loop 10"
+  shortest: (a, b) => a.distance - b.distance,
+  longest: (a, b) => b.distance - a.distance,
+};
+
 function renderRouteList() {
   const box = document.getElementById('routes');
   box.hidden = !routes.length;
   box.querySelector('.count').textContent = `(${routes.length})`;
-  document.getElementById('route-list').replaceChildren(...routes.map(r => {
+  routeSort.hidden = routes.length < 2;
+  const sorted = [...routes].sort(ROUTE_ORDERS[routeSort.value] || ROUTE_ORDERS.newest);
+  document.getElementById('route-list').replaceChildren(...sorted.map(r => {
     const li = document.createElement('li');
     li.classList.toggle('current', r.id === plan.id);
     // Name and distance, then the actions on a line of their own.
