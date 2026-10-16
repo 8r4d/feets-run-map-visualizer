@@ -264,6 +264,10 @@ distance, number of activities and active days, average per activity and per
 week, the longest activity, the longest and current streak of days in a row,
 the best week (Monday to Sunday) and month, and distance by type.
 
+At the top, a calendar shades each day by distance: the filters' year, or else
+the last 12 months. Hover or tap a day to see what you did; click one to zoom
+the map to it.
+
 From each track's GPX it also adds moving time, average pace on foot, total
 climb, and the fastest 1K, 5K, 10K, half and marathon on foot. Hiding tracks
 with their checkboxes doesn't change the stats.

@@ -362,7 +362,95 @@ function render() {
 // time frame. stats.js does the sums.
 const statKm = m => (m / 1000).toFixed(m < 100000 ? 1 : 0) + ' km';
 
+// --- Calendar ---
+// A small calendar per month, each day shaded by the distance covered: the
+// filters' year, or else the last 12 months. Hovering or tapping a day says
+// what was done; clicking one with activities zooms the map to them.
+const CAL_BINS = [  // km below `to` get `color`: one blue, light to dark (checked with the dataviz validator)
+  { to: 5, color: '#86b6ef', label: '<5' },
+  { to: 10, color: '#3987e5', label: '5–10' },
+  { to: 20, color: '#1c5cab', label: '10–20' },
+  { to: Infinity, color: '#0d366b', label: '20+' },
+];
+const dayKey = d => `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+const calColor = metres => CAL_BINS.find(b => metres / 1000 < b.to).color;
+
+function renderCalendar(tracks) {
+  const box = document.getElementById('calendar');
+  const byDay = new Map();  // dayKey -> { metres, tracks }
+  for (const t of tracks) {
+    if (!t.time) continue;
+    const key = dayKey(new Date(t.time));
+    const day = byDay.get(key) || { metres: 0, tracks: [] };
+    day.metres += t.distance;
+    day.tracks.push(t);
+    byDay.set(key, day);
+  }
+  const now = new Date();
+  const first = filters.year ? new Date(Number(filters.year), 0, 1) : new Date(now.getFullYear(), now.getMonth() - 11, 1);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  const readout = document.createElement('small');
+  readout.className = 'calendar-readout';
+  const idle = filters.year ? `${filters.year}` : 'Last 12 months';
+  readout.textContent = idle;
+  const describe = (date, day) => date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+    + (!day ? ': nothing' : ` · ${statKm(day.metres)} · ${day.tracks.length === 1 ? day.tracks[0].name : `${day.tracks.length} activities`}`);
+
+  const months = document.createElement('div');
+  months.className = 'calendar-months';
+  for (let m = 0; m < 12; m++) {
+    const start = new Date(first.getFullYear(), first.getMonth() + m, 1);
+    const block = document.createElement('div');
+    block.className = 'calendar-month';
+    const name = document.createElement('span');
+    name.textContent = start.toLocaleDateString(undefined, { month: 'short' }) + (start.getMonth() === 0 && !filters.year ? ` ${start.getFullYear()}` : '');
+    const grid = document.createElement('div');
+    grid.className = 'calendar-grid';
+    // Weeks start on Monday: blank cells before the 1st.
+    for (let i = 0; i < (start.getDay() + 6) % 7; i++) grid.append(document.createElement('i'));
+    let active = 0, metres = 0;
+    for (const date = new Date(start); date.getMonth() === start.getMonth(); date.setDate(date.getDate() + 1)) {
+      const day = byDay.get(dayKey(date));
+      const cell = document.createElement('span');
+      if (date > today) cell.className = 'future';
+      else if (day) {
+        cell.style.background = calColor(day.metres);
+        active++;
+        metres += day.metres;
+      }
+      const text = describe(date, day);
+      cell.title = text;
+      cell.onpointerenter = () => { readout.textContent = text; };
+      if (day) {
+        cell.classList.add('active');
+        cell.onclick = () => {
+          readout.textContent = text;
+          const bounds = L.latLngBounds([]);
+          for (const t of day.tracks) {
+            const entry = loaded.get(t.id);
+            if (entry && onMap(t)) bounds.extend(entry.layer.getBounds());
+          }
+          if (bounds.isValid()) map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
+        };
+      }
+      grid.append(cell);
+    }
+    block.setAttribute('aria-label', `${start.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}: `
+      + `${active} active ${active === 1 ? 'day' : 'days'}, ${statKm(metres)}`);
+    block.append(name, grid);
+    months.append(block);
+  }
+  months.onpointerleave = () => { readout.textContent = idle; };
+
+  const legend = document.createElement('div');
+  legend.className = 'calendar-legend';
+  legend.innerHTML = '<span class="none"></span>0' + CAL_BINS.map(b => `<span style="background:${b.color}"></span>${b.label}`).join('') + ' km';
+  box.replaceChildren(months, readout, legend);
+}
+
 function renderStats(tracks) {
+  renderCalendar(tracks);
   const s = Stats.summarize(tracks);
   const period = [filters.year || 'All time', filters.sport && sportLabel(filters.sport), filters.text && `"${filters.text}"`]
     .filter(Boolean).join(' · ');

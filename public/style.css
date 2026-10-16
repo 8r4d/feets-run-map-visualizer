@@ -1201,3 +1201,80 @@ body {
 #plan-elevation:empty {
   display: none;
 }
+
+/* Calendar heatmap in the Stats box */
+.calendar-months {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(68px, 1fr));
+  gap: 8px 10px;
+}
+
+.calendar-month span:first-child {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 11px;
+  color: #777;
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 8px);
+  gap: 2px;
+}
+
+.calendar-grid span,
+.calendar-grid i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.calendar-grid span {
+  background: #ebebe8;
+}
+
+.calendar-grid span.future {
+  background: none;
+  box-shadow: inset 0 0 0 1px #ebebe8;
+}
+
+.calendar-grid span.active {
+  cursor: pointer;
+}
+
+.calendar-grid span:hover {
+  outline: 1.5px solid #222;
+  outline-offset: 1px;
+}
+
+.calendar-readout {
+  min-height: 1.4em;
+  color: #555;
+}
+
+.calendar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #777;
+}
+
+.calendar-legend span {
+  width: 8px;
+  height: 8px;
+  margin-left: 4px;
+  border-radius: 2px;
+}
+
+.calendar-legend span.none {
+  margin-left: 0;
+  background: #ebebe8;
+}
+
+@media (max-width: 640px) {
+  .calendar-months { grid-template-columns: repeat(auto-fill, minmax(95px, 1fr)); }
+  .calendar-grid { grid-template-columns: repeat(7, 11px); }
+  .calendar-grid span, .calendar-grid i { width: 11px; height: 11px; }
+}
