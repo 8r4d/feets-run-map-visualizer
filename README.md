@@ -285,7 +285,8 @@ Things to know:
 - **Elevation** comes from [Open-Meteo](https://open-meteo.com/en/docs/elevation-api)'s
   free elevation API, a ~90 m terrain model: the browser sends it points along
   the route, so it learns where the route goes. A saved route keeps its
-  elevation, so opening one doesn't ask again. Fine for hills, too coarse to
+  elevation, so opening one doesn't ask again. The climb shows in the panel
+  for the open route, not in the saved routes list. Fine for hills, too coarse to
   see a bridge or an underpass.
 - **Open-Meteo's free tier has a daily limit** per internet address, and every
   point looked up counts. So feets snaps points to a ~55 m grid and remembers

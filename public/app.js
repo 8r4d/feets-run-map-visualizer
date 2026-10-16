@@ -1818,8 +1818,9 @@ function renderRouteList() {
       + '<span class="actions"></span>';
     li.querySelector('.name').textContent = r.name;
     li.querySelector('.name').onclick = () => openRoute(r);
-    li.querySelector('small').textContent = km(r.distance)
-      + (r.data.elevation ? ` · ${r.data.elevation.estimated ? '≈ ' : ''}${climbText(r.data.elevation.climb)}` : '');
+    // Just the distance: not every saved route has its climb stored, so that's
+    // only shown in the panel for the route that's open.
+    li.querySelector('small').textContent = km(r.distance);
     const actions = li.querySelector('.actions');
     const action = (label, onclick, title) => {
       const button = document.createElement('button');
