@@ -2244,6 +2244,8 @@ async function importFromStrava({ fit = false } = {}) {
       ? `Imported ${total} new ${total === 1 ? 'activity' : 'activities'} from Strava.`
       : 'Up to date with Strava.';
     if (total && fit) fitAll();
+    // Renames on Strava: the newest 200 are checked on each visit.
+    refreshStravaNames({ all: false });
   } catch (err) {
     stravaStatus.textContent = `Strava import stopped after ${total}: ${err.message}`;
     refreshStrava().catch(() => {});
@@ -2254,6 +2256,57 @@ async function importFromStrava({ fit = false } = {}) {
 }
 
 stravaImport.onclick = () => importFromStrava({ fit: true });
+
+// Names and types changed on Strava since import. Strava's webhook would say
+// so as it happens, but Cloudflare (or any firewall in front of the site) can
+// keep Strava from reaching it, so feets asks instead: the newest 200
+// activities on every visit, or all of them (all: true), 200 per request.
+let stravaRefreshing = false;
+
+async function refreshStravaNames({ all }) {
+  if (stravaRefreshing) return;
+  stravaRefreshing = true;
+  const button = document.getElementById('strava-refresh');
+  button.disabled = true;
+  const user = currentUser;
+  let before = 0, checked = 0, renamed = 0;
+  try {
+    for (;;) {
+      if (all) stravaStatus.textContent = `Checking names on Strava… ${checked} activities so far`;
+      const result = await Store.stravaRefresh(before);
+      if (currentUser !== user) return;
+      checked += result.checked;
+      for (const { id, name, sport } of result.changed) {
+        const entry = loaded.get(id);
+        if (!entry) continue;
+        Object.assign(entry.track, { name, sport });
+        entry.layer.remove();
+        entry.layer = buildLayer(entry.track);  // its tooltip shows the name
+        renamed++;
+      }
+      if (result.changed.length) render();  // puts the rebuilt layers back on the map
+      if (result.rateLimited) {
+        if (all) stravaStatus.textContent = `Strava's rate limit was reached after ${checked} activities. Try again in 15 minutes.`;
+        return;
+      }
+      before = result.next;
+      if (!all || !before) break;
+    }
+    if (all) {
+      stravaStatus.textContent = `Checked ${checked} activities: ${renamed ? `${renamed} renamed or retyped.` : 'all names up to date.'}`;
+    } else if (renamed) {
+      stravaStatus.textContent = `Up to date with Strava, and picked up ${renamed} ${renamed === 1 ? 'rename' : 'renames'}.`;
+    }
+  } catch (err) {
+    if (all) stravaStatus.textContent = `Couldn't check names: ${err.message}`;
+    else console.error('Strava names:', err);
+  } finally {
+    stravaRefreshing = false;
+    button.disabled = false;
+  }
+}
+
+document.getElementById('strava-refresh').onclick = () => refreshStravaNames({ all: true });
 
 document.getElementById('strava-disconnect').onclick = async () => {
   if (!confirm('Disconnect Strava? Tracks you already imported stay in feets.')) return;

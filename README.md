@@ -138,11 +138,20 @@ activities.
 
 How it keeps up to date:
 - **Page load:** each time someone opens feets, it continues any unfinished
-  import and fetches activities added since their last visit.
+  import and fetches activities added since their last visit. It also checks
+  your newest 200 activities for names or types you've changed on Strava.
+- **Renaming:** rename runs on Strava, and feets picks the new names up the
+  next time you open it. **Refresh names**, next to Import, checks every
+  imported activity (one Strava request per 200), for renames older than your
+  newest 200. This only covers runs imported from Strava, not uploaded GPX files.
 - **Rate limit:** if the import hits Strava's limit, the page waits for the
   next 15-minute window and carries on by itself while the tab is open.
 - **Automatic import:** this uses Strava's webhook, which calls
-  `strava-webhook.php`. Strava doesn't sign these calls, so feets checks each
+  `strava-webhook.php`. Turning it on fails with "callback URL does not return
+  200" if a firewall such as Cloudflare blocks Strava's servers from reaching
+  that address. Either let `/strava-webhook.php` through, or leave it off: page
+  loads import new activities and pick up renames anyway, just not while
+  feets is closed. Strava doesn't sign these calls, so feets checks each
   one with Strava before importing, renaming or deleting anything.
 - **If the host can't keep working after replying:** some hosts stop PHP as soon
   as it has replied to Strava. In that case events are stored and handled the

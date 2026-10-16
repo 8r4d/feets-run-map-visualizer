@@ -25,10 +25,13 @@
 // Tracks (must be logged in; each user only sees their own)
 //   GET  api.php                       list tracks
 //   GET  api.php?gpx=ID                download the original GPX file
-//   POST api.php?action=add            body: track JSON, returns {id}
+//   POST api.php?action=add            body: track JSON, returns {id, metrics}
 //   POST api.php?action=update&id=ID   body: {visible, color}
 //   POST api.php?action=set_visible    body: {ids, visible}  show or hide many tracks at once
 //   POST api.php?action=delete&id=ID
+//   POST api.php?action=track_metrics  works out pace, time and elevation for older tracks, a batch at a time:
+//                                      {metrics: {id: metrics}, remaining}
+//   GET  api.php?action=track_profile&id=ID  {profile: [[km, metres]] or null}
 //
 // Routes are stored simplified (to ~3 m) for drawing; the original GPX is kept for download.
 //
@@ -37,6 +40,8 @@
 //   GET  api.php?action=strava_connect     page navigation: redirects to Strava's approval screen
 //   GET  api.php?action=strava_callback    Strava redirects back here, then on to the app
 //   POST api.php?action=strava_sync        imports the next batch, returns {tracks, done, rateLimited}
+//   POST api.php?action=strava_refresh     {before?}: picks up names and types changed on Strava, a page of
+//                                          200 activities at a time; returns {changed, checked, next, rateLimited}
 //   POST api.php?action=strava_disconnect
 //   POST api.php?action=strava_auto_on     admin only: subscribe to Strava's webhook
 //   POST api.php?action=strava_auto_off    admin only
@@ -53,6 +58,10 @@
 //   POST api.php?action=route_save           {id?, name, distance, data}; with id, replaces that route. Returns it
 //   POST api.php?action=route_rename&id=ID   {name}, returns the route
 //   POST api.php?action=route_delete&id=ID
+//
+// Goals
+//   GET  api.php?action=goals                {week, month} in km, null when not set
+//   POST api.php?action=goals_save           {week, month}, returns the goals
 //
 // Achievements (worked out in the browser by achievements.js; the server only remembers them)
 //   GET  api.php?action=achievements         [{code, title, detail, earnedAt}], oldest first
@@ -1382,6 +1391,48 @@ function strava_sync(int $userId): array {
     ];
 }
 
+// Names and types changed on Strava since import: compares one page (up to
+// 200, newest first) of the Strava activity list with the imported tracks.
+// $before: a start time (epoch) to page on from, 0 for the newest. One Strava
+// request, so it works without the webhook, which a firewall like Cloudflare
+// can keep Strava from reaching. Returns { changed: [{ id, name, sport }],
+// checked, next (the $before for the following page, or null at the end),
+// rateLimited }.
+function strava_refresh(int $userId, array $b): array {
+    $account = strava_account($userId);
+    $before = (int) ($b['before'] ?? 0);
+    [$status, $list] = strava_api($account, '/athlete/activities', ['per_page' => 200] + ($before > 0 ? ['before' => $before] : []));
+    if ($status === 429) {
+        return ['changed' => [], 'checked' => 0, 'next' => $before ?: null, 'rateLimited' => true];
+    }
+    if ($status !== 200 || !is_array($list)) {
+        throw new RuntimeException('Strava activity list failed: ' . ($list['message'] ?? "HTTP $status"));
+    }
+    $byId = [];
+    foreach ($list as $activity) {
+        $byId[(string) $activity['id']] = $activity;
+    }
+    $changed = [];
+    if ($byId) {
+        $marks = implode(',', array_fill(0, count($byId), '?'));
+        $tracks = db()->prepare("SELECT id, strava_id, name, sport FROM tracks WHERE user_id = ? AND strava_id IN ($marks)");
+        $tracks->execute(array_merge([$userId], array_keys($byId)));
+        $update = db()->prepare('UPDATE tracks SET name = ?, sport = ? WHERE id = ?');
+        foreach ($tracks->fetchAll() as $t) {
+            $activity = $byId[(string) $t['strava_id']];
+            $name = mb_substr(trim($activity['name'] ?? '') ?: 'Strava activity', 0, 255);
+            $sport = strava_sport($activity);
+            if ($name !== $t['name'] || $sport !== (string) $t['sport']) {
+                $update->execute([$name, $sport, $t['id']]);
+                $changed[] = ['id' => (int) $t['id'], 'name' => $name, 'sport' => $sport ?: null];
+            }
+        }
+    }
+    // Strava lists newest first; the next page is everything before this one's oldest.
+    $oldest = $list ? min(array_map(fn($a) => strtotime($a['start_date']), $list)) : null;
+    return ['changed' => $changed, 'checked' => count($list), 'next' => count($list) === 200 ? $oldest : null, 'rateLimited' => false];
+}
+
 function strava_disconnect(int $userId): array {
     $stmt = db()->prepare('SELECT refresh_token FROM strava_accounts WHERE user_id = ?');
     $stmt->execute([$userId]);
@@ -1848,6 +1899,8 @@ if ($method === 'POST' && $action === 'invite') {
     strava_connect($userId);
 } elseif ($method === 'POST' && $action === 'strava_sync') {
     send_json(strava_sync($userId));
+} elseif ($method === 'POST' && $action === 'strava_refresh') {
+    send_json(strava_refresh($userId, read_json()));
 } elseif ($method === 'POST' && $action === 'strava_disconnect') {
     send_json(strava_disconnect($userId));
 } elseif ($method === 'GET' && $action === 'areas') {
