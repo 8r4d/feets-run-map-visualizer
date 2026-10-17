@@ -2229,6 +2229,12 @@ async function renameRoute(r) {
 // edit, save or download.
 const exploreKm = document.getElementById('explore-km');
 try { exploreKm.value = localStorage.getItem('feets-explore-km') || exploreKm.value; } catch {}
+// Complexity, 1 (a simple loop through a stretch or two) to 5 (as many unrun streets as fit).
+const exploreLevel = document.getElementById('explore-level');
+try { exploreLevel.value = localStorage.getItem('feets-explore-level') || exploreLevel.value; } catch {}
+exploreLevel.onchange = () => {
+  try { localStorage.setItem('feets-explore-level', exploreLevel.value); } catch {}
+};
 
 document.getElementById('plan-explore').onsubmit = async e => {
   e.preventDefault();
@@ -2255,8 +2261,8 @@ document.getElementById('plan-explore').onsubmit = async e => {
   try {
     const chains = Planner.chains(g, areas, area => trackCoverage(area).visited);
     const found = await Planner.explore(g, start, chains, target * 1000, (i, n) => {
-      planStatus.textContent = `Looking for streets you haven't run… (try ${i} of ${n})`;
-    });
+      planStatus.textContent = `Looking for streets you haven't run… (step ${i} of ${n})`;
+    }, Number(exploreLevel.value));
     if (!found) {
       planStatus.textContent = `No unrun streets fit in a ${target} km loop from ${where}. Try a longer one.`;
       return;
