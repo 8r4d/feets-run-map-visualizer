@@ -25,6 +25,24 @@ const Art = (() => {
       return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
     });
 
+  // A shape the same on both sides, from its half-width at heights going up:
+  // [[y, halfWidth], ...]. Up the right side, back down the left.
+  const profile = rows => {
+    const right = rows.map(([y, w]) => [0.5 + w, y]);
+    const left = [...rows].reverse().map(([y, w]) => [0.5 - w, y]);
+    return [...right, ...left, right[0]];
+  };
+  // A shape the same on both sides, from its right half (x from 0.5 to 1, in
+  // order, starting and ending on the middle line).
+  const mirror = right => [...right, ...right.slice(1, -1).reverse().map(([x, y]) => [1 - x, y]), right[0]];
+  const rows = (from, to, step, f) => {
+    const out = [];
+    for (let y = from; y <= to + 1e-9; y += step) out.push([y, f(y)]);
+    return out;
+  };
+  const circleWidth = (cy, r) => y => Math.sqrt(Math.max(0, r * r - (y - cy) ** 2));
+
+  // theme: which set of the picker it's in (everyday if not given).
   const LIBRARY = [
     { id: 'heart', name: 'Heart', points: ring(48, t => [16 * Math.sin(t) ** 3, 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)]) },
     { id: 'star', name: 'Star', points: ring(10, t => { const r = Math.round(t / (Math.PI / 5)) % 2 ? 0.4 : 1; return [r * Math.sin(t), r * Math.cos(t)]; }) },
@@ -36,19 +54,70 @@ const Art = (() => {
     { id: 'cat', name: 'Cat', points: [[0.5, 0], [0.8, 0.08], [0.95, 0.3], [0.97, 0.55], [0.92, 0.75], [0.95, 1], [0.7, 0.85], [0.5, 0.88], [0.3, 0.85], [0.05, 1], [0.08, 0.75], [0.03, 0.55], [0.05, 0.3], [0.2, 0.08], [0.5, 0]] },
     { id: 'rocket', name: 'Rocket', points: [[0.5, 1], [0.65, 0.8], [0.68, 0.45], [0.85, 0.25], [0.85, 0.05], [0.65, 0.2], [0.6, 0.1], [0.4, 0.1], [0.35, 0.2], [0.15, 0.05], [0.15, 0.25], [0.32, 0.45], [0.35, 0.8], [0.5, 1]] },
     { id: 'moon', name: 'Moon', points: [...arc(0.5, 0.5, 0.5, 60, 300, 24), ...arc(0.85, 0.5, 0.444, -103, -257, 16), [0.75, 0.933]] },
+    // Eyes and smile are reached by short spokes in from the face and back
+    // out again, so no line crosses the face.
     { id: 'smiley', name: 'Smiley', points: [
-      ...arc(0.5, 0.5, 0.5, -90, 270, 32),          // face, from the chin
-      [0.5, 0.15], ...arc(0.5, 0.45, 0.28, 215, 325, 8),  // up to the smile
-      [0.66, 0.62], [0.66, 0.74], [0.66, 0.62],      // right eye
-      [0.34, 0.62], [0.34, 0.74], [0.34, 0.62],      // left eye
-      [0.27, 0.29], [0.5, 0.15], [0.5, 0],          // back down to the chin
+      ...arc(0.5, 0.5, 0.5, -90, 45, 14), [0.64, 0.66], ...arc(0.5, 0.5, 0.5, 45, 135, 10),  // up the right; right eye
+      [0.36, 0.66], ...arc(0.5, 0.5, 0.5, 135, 270, 14),                                   // left eye; down the left
+      ...arc(0.5, 0.5, 0.3, 270, 330, 5), ...arc(0.5, 0.5, 0.3, 330, 210, 10), ...arc(0.5, 0.5, 0.3, 210, 270, 5),  // the smile
+      [0.5, 0],
     ] },
     { id: 'bird', name: 'Bird', points: [[0, 0.6], [0.15, 0.8], [0.32, 0.82], [0.45, 0.65], [0.5, 0.5], [0.55, 0.65], [0.68, 0.82], [0.85, 0.8], [1, 0.6]] },
+
+    // Halloween
+    // Six lobes, with deep creases between them (one at the top, under the stem).
+    { id: 'pumpkin', name: 'Pumpkin', theme: 'halloween', points: [
+      ...ring(72, t => { const r = 0.84 + 0.16 * Math.abs(Math.sin(3 * t)); return [0.62 * r * Math.sin(t), 0.46 * r * Math.cos(t)]; }),
+      [-0.06, 0.4], [-0.05, 0.6], [0.09, 0.66], [0.06, 0.4], [0, 0.3864],  // the stem, and back
+    ] },
+    { id: 'ghost', name: 'Ghost', theme: 'halloween', points: [
+      ...arc(0.5, 0.6, 0.4, 0, 180, 16),
+      [0.1, 0], [0.23, 0.12], [0.36, 0], [0.5, 0.12], [0.64, 0], [0.77, 0.12], [0.9, 0], [0.9, 0.6],
+    ] },
+    { id: 'bat', name: 'Bat', theme: 'halloween', points: mirror([
+      [0.5, 0.6], [0.54, 0.72], [0.57, 0.6], [0.65, 0.66], [0.82, 0.74], [1, 0.52],
+      [0.9, 0.44], [0.84, 0.5], [0.76, 0.38], [0.69, 0.46], [0.62, 0.32], [0.57, 0.4], [0.53, 0.26], [0.5, 0.24],
+    ]) },
+    { id: 'hat', name: 'Witch hat', theme: 'halloween', points: [[0, 0.05], [0.35, 0.12], [0.42, 0.6], [0.55, 0.85], [0.85, 1], [0.62, 0.72], [0.6, 0.12], [1, 0.05], [0.5, -0.02], [0, 0.05]] },
+
+    // Christmas
+    { id: 'xmastree', name: 'Christmas tree', theme: 'christmas', points: [
+      [0.45, 0], [0.45, 0.12], [0.1, 0.12], [0.33, 0.37], [0.2, 0.37], [0.4, 0.6], [0.3, 0.6], [0.5, 0.8],
+      ...ring(10, t => { const r = Math.round(t / (Math.PI / 5)) % 2 ? 0.11 : 0.04; return [0.5 + r * Math.sin(t + Math.PI), 0.9 + r * Math.cos(t + Math.PI)]; }),
+      [0.5, 0.8], [0.7, 0.6], [0.6, 0.6], [0.8, 0.37], [0.67, 0.37], [0.9, 0.12], [0.55, 0.12], [0.55, 0], [0.45, 0],
+    ] },
+    { id: 'cane', name: 'Candy cane', theme: 'christmas', points: [
+      [0.3, 0], [0.3, 0.7], ...arc(0.6, 0.7, 0.3, 180, 0, 16), [0.9, 0.5], [0.72, 0.5], ...arc(0.6, 0.7, 0.12, 0, 180, 10), [0.48, 0], [0.3, 0],
+    ] },
+    { id: 'stocking', name: 'Stocking', theme: 'christmas', points: [
+      [0.3, 0.85], [0.3, 1], [0.72, 1], [0.72, 0.85], [0.3, 0.85],  // the cuff
+      [0.3, 0.15], [0.4, 0.02], [0.6, 0], [0.85, 0.02], [0.95, 0.12], [0.9, 0.28], [0.7, 0.42], [0.7, 0.85], [0.3, 0.85],
+    ] },
+    { id: 'snowman', name: 'Snowman', theme: 'christmas', points: profile(rows(0, 1, 0.02, y => Math.max(
+      circleWidth(0.25, 0.25)(y), circleWidth(0.62, 0.17)(y), circleWidth(0.88, 0.12)(y)))) },
+    { id: 'gift', name: 'Gift', theme: 'christmas', points: [
+      [0.1, 0], [0.9, 0], [0.9, 0.65], [0.5, 0.65],
+      [0.75, 0.72], [0.88, 0.86], [0.7, 0.92], [0.5, 0.65],  // the bow
+      [0.3, 0.92], [0.12, 0.86], [0.25, 0.72], [0.5, 0.65],
+      [0.5, 0], [0.5, 0.65], [0.1, 0.65], [0.1, 0],
+    ] },
+    { id: 'bell', name: 'Bell', theme: 'christmas', points: profile([
+      [0, 0.5], [0.06, 0.47], [0.14, 0.38], [0.3, 0.32], [0.5, 0.28], [0.66, 0.22], [0.76, 0.15], [0.8, 0.07], [0.86, 0.07], [0.9, 0.04],
+    ]) },
+    { id: 'gingerbread', name: 'Gingerbread', theme: 'christmas', points: mirror([
+      [0.5, 1], ...arc(0.5, 0.82, 0.18, 90, -40, 8).slice(1), [0.6, 0.64],
+      [0.92, 0.62], [0.96, 0.52], [0.9, 0.46], [0.63, 0.48], [0.65, 0.28],
+      [0.86, 0.06], [0.8, 0], [0.62, 0.02], [0.5, 0.2],
+    ]) },
+    { id: 'ornament', name: 'Ornament', theme: 'christmas', points: profile([
+      ...rows(0, 0.8, 0.04, circleWidth(0.4, 0.4)).map(([y, w]) => [y, Math.max(w, 0.08)]),
+      [0.8, 0.1], [0.9, 0.1], [0.9, 0.04], [1, 0.04],
+    ]) },
   ];
 
   // Scaled into a unit box (the longer side 1), centred, with each point's
   // distance along the line. closed: whether it ends where it starts.
-  const SHAPES = LIBRARY.map(({ id, name, points }) => {
+  const SHAPES = LIBRARY.map(({ id, name, theme = 'everyday', points }) => {
     const xs = points.map(p => p[0]), ys = points.map(p => p[1]);
     const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
     const k = 1 / Math.max(x1 - x0, y1 - y0);
@@ -56,7 +125,7 @@ const Art = (() => {
     const along = [0];
     for (let i = 1; i < pts.length; i++) along.push(along[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
     const first = pts[0], last = pts[pts.length - 1];
-    return { id, name, points: pts, along, length: along[along.length - 1], closed: Math.hypot(first[0] - last[0], first[1] - last[1]) < 0.01 };
+    return { id, name, theme, points: pts, along, length: along[along.length - 1], closed: Math.hypot(first[0] - last[0], first[1] - last[1]) < 0.01 };
   });
 
   // n points at equal steps along a shape (unit coordinates).
@@ -179,10 +248,18 @@ const Art = (() => {
   // about `km`. free: any angle, rather than within 30° of upright. Calls
   // progress(fraction) and yields to the browser as it goes. Returns
   // [{ cx, cy, s, rot, score }], or [] if the shape doesn't fit at that size.
+  // Metres across a shape for a route of about `km`, and the reverse.
+  const sizeFor = (shape, km) => km * 1000 * OVERHEAD / shape.length;
+  const kmFor = (shape, s) => s * shape.length / OVERHEAD / 1000;
+
+  // The placed shape as [lat, lon] points, for drawing.
+  const outline = (field, shape, placement) =>
+    place(resample(shape, Math.max(60, Math.ceil(shape.length * placement.s / 25))), placement).map(field.toLatLon);
+
   async function fit(field, shape, { km, free = false }, progress = () => {}) {
     const coarse = resample(shape, SAMPLES), fine = resample(shape, FINE);
     const judge = (points, placement) => score(field, points, placement) + (free ? 0 : UPRIGHT * Math.abs(placement.rot));
-    const size = km * 1000 * OVERHEAD / shape.length;  // metres across, for that length
+    const size = sizeFor(shape, km);  // metres across, for that length
     const sizes = [0.88, 0.94, 1, 1.06].map(f => size * f);
     const angles = free ? Array.from({ length: 24 }, (_, i) => i * 15) : [-30, -20, -10, 0, 10, 20, 30];
     const best = [];  // the KEEP best found, best first
@@ -305,11 +382,19 @@ const Art = (() => {
     return { mean: gaps.reduce((a, b) => a + b, 0) / gaps.length, worst: gaps[Math.floor(gaps.length * 0.95)] };
   }
 
+  // The share of a placed shape with a street within NEAR_STREET metres: low
+  // when much of it lies off the area's streets (outside it, or in a park).
+  const NEAR_STREET = 60;
+  function onStreets(field, shape, placement) {
+    const points = place(resample(shape, SAMPLES), placement);
+    return points.filter(p => streetGap(field, p) <= NEAR_STREET).length / points.length;
+  }
+
   // A small SVG of a shape, for the picker.
   function icon(shape) {
     const pts = shape.points.map(([x, y]) => `${(x + 0.5) * 20 + 2},${(0.5 - y) * 20 + 2}`).join(' ');
     return `<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
   }
 
-  return { SHAPES, prepare, fit, routeInput, fidelity, icon };
+  return { SHAPES, prepare, fit, routeInput, fidelity, onStreets, icon, outline, sizeFor, kmFor };
 })();
