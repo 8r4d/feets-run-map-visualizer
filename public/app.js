@@ -223,7 +223,9 @@ function setMode(mode) {
   if (!publicView()) {
     try { localStorage.setItem('feets-mode', mode); } catch {}
   }
-  fadeInput.value = savedFade(mode);
+  // Plan mode keeps the map unfaded: a faded tile pane kept blanking while panning.
+  document.getElementById('fade-control').hidden = planMode;
+  fadeInput.value = planMode ? 0 : savedFade(mode);
   applyFade();
   syncLayers();
   drawPlan();
@@ -235,7 +237,7 @@ function setMode(mode) {
 // tracks, black for the heatmap), so the lines stand out more. Each mode
 // remembers its own setting.
 const fadeInput = document.getElementById('fade');
-const FADE_DEFAULTS = { tracks: 0, heatmap: 30, streets: 50, plan: 50 };
+const FADE_DEFAULTS = { tracks: 0, heatmap: 30, streets: 50 };
 
 function savedFade(mode) {
   try {
