@@ -100,9 +100,14 @@ body {
   margin-top: 0;
 }
 
+/* In the sidebar, its two lists sit in the panel like the rest. */
+#streets-lists {
+  display: contents;
+}
+
 #mode-bar #streets-panel {
   display: grid;
-  grid-template-columns: minmax(200px, 1fr) minmax(260px, 1.3fr) minmax(170px, 1fr) minmax(220px, 1.2fr);
+  grid-template-columns: minmax(220px, 1fr) minmax(300px, 1.4fr) minmax(240px, 1.2fr);
   /* The last row soaks up the tall columns' height, so the first column's
      rows stay tight under the area picker. */
   grid-template-rows: auto auto auto auto 1fr;
@@ -115,8 +120,12 @@ body {
 #mode-bar #area-status { grid-area: 3 / 1; }
 #mode-bar #area-tools { grid-area: 4 / 1; flex-wrap: wrap; gap: 2px 14px; }
 #mode-bar #coverage { grid-area: 1 / 2 / span 5; }
-#mode-bar #hood-coverage { grid-area: 1 / 3 / span 5; }
-#mode-bar #todo { grid-area: 1 / 4 / span 5; }
+#mode-bar #streets-lists {
+  grid-area: 1 / 3 / span 5;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 #mode-bar #unrunnable { grid-area: 5 / 1; }
 
 #mode-bar #area-tools button {
@@ -360,8 +369,15 @@ body {
 
 #strava-connected {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 6px 10px;
+}
+
+/* Disconnect on a line of its own, away from the buttons you use often */
+#strava-disconnect {
+  flex-basis: 100%;
+  text-align: left;
 }
 
 .strava-button {

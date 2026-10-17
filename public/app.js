@@ -1114,11 +1114,51 @@ function clearAreas() {
   setActiveArea('');
 }
 
+// Areas in the menu: each one under the smallest other area it sits inside,
+// with a dash per level, e.g. a neighbourhood under its city. Areas don't
+// record their parent, so it's worked out from where their streets are.
+const NEST_SAMPLES = 24;   // street points of an area tested against the others
+const NEST_INSIDE = 0.8;   // the share of them that must be inside a parent
+
+function areaParents() {
+  const box = a => {
+    const b = { s: Infinity, w: Infinity, n: -Infinity, e: -Infinity };
+    for (const line of a.data.boundary) for (const [lat, lon] of line) {
+      b.s = Math.min(b.s, lat); b.n = Math.max(b.n, lat); b.w = Math.min(b.w, lon); b.e = Math.max(b.e, lon);
+    }
+    b.size = (b.n - b.s) * (b.e - b.w);
+    return b;
+  };
+  const boxes = new Map(areas.map(a => [a, box(a)]));
+  const samples = a => {
+    const points = a.data.streets.flatMap(s => s.runs.map(r => r[Math.floor(r.length / 2)]));
+    const step = Math.max(1, Math.floor(points.length / NEST_SAMPLES));
+    return points.filter((_, i) => i % step === 0).slice(0, NEST_SAMPLES);
+  };
+  const parent = new Map();
+  for (const child of areas) {
+    const points = samples(child);
+    if (!points.length) continue;
+    let best = null;
+    for (const a of areas) {
+      if (a === child || boxes.get(a).size <= boxes.get(child).size) continue;
+      const inside = points.filter(([lat, lon]) => OSM.inArea(a, lat, lon)).length;
+      if (inside >= points.length * NEST_INSIDE && (!best || boxes.get(a).size < boxes.get(best).size)) best = a;
+    }
+    if (best) parent.set(child, best);
+  }
+  return parent;
+}
+
 function fillAreaSelect() {
-  areaSelect.replaceChildren(
-    new Option(areas.length ? 'Choose an area…' : 'No areas yet: add one', ''),
-    ...areas.map(a => new Option(a.name, String(a.id)))
-  );
+  const parent = areaParents();
+  const options = [];
+  const add = (a, depth) => {
+    options.push(new Option(`${'\u2013 '.repeat(depth)}${a.name}`, String(a.id)));
+    for (const child of areas) if (parent.get(child) === a) add(child, depth + 1);
+  };
+  for (const a of areas) if (!parent.has(a)) add(a, 0);  // areas is sorted by name
+  areaSelect.replaceChildren(new Option(areas.length ? 'Choose an area…' : 'No areas yet: add one', ''), ...options);
 }
 
 function setActiveArea(id) {
