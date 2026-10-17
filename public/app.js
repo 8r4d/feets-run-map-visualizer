@@ -2397,8 +2397,9 @@ async function renameRoute(r) {
   }
 }
 
-// "Fill with unrun streets": a loop of about the chosen length over streets
-// the tracks on the map haven't covered (see Planner.explore). It starts at
+// "Make a loop": a loop of about the chosen length (see Planner.explore),
+// through streets the tracks on the map haven't covered, or with "Through
+// streets I haven't run" unticked, over any streets. It starts at
 // the route's first point if there is one, else where you are if the ⌖ dot is
 // in view, else the middle of the map. The result is an ordinary route to
 // edit, save or download.
@@ -2410,7 +2411,13 @@ try { exploreLevel.value = localStorage.getItem('feets-explore-level') || explor
 exploreLevel.onchange = () => {
   try { localStorage.setItem('feets-explore-level', exploreLevel.value); } catch {}
 };
-// Heading: favour unrun streets that lie this way from the start (degrees, '' for any).
+// Whether to go for unrun streets, or make a loop over any.
+const exploreUnrun = document.getElementById('explore-unrun');
+try { exploreUnrun.checked = localStorage.getItem('feets-explore-unrun') !== 'off'; } catch {}
+exploreUnrun.onchange = () => {
+  try { localStorage.setItem('feets-explore-unrun', exploreUnrun.checked ? 'on' : 'off'); } catch {}
+};
+// Heading: favour streets that lie this way from the start (degrees, '' for any).
 const exploreHeading = document.getElementById('explore-heading');
 try { exploreHeading.value = localStorage.getItem('feets-explore-heading') || ''; } catch {}
 if (exploreHeading.selectedIndex < 0) exploreHeading.value = '';
@@ -2439,22 +2446,33 @@ document.getElementById('plan-explore').onsubmit = async e => {
   if (!mayDiscard()) return;
   const button = document.getElementById('explore');
   button.disabled = true;
-  planStatus.textContent = "Looking for streets you haven't run…";
+  // Any streets: the same search, aiming for every street rather than just the unrun ones.
+  const unrun = exploreUnrun.checked;
+  const looking = unrun ? "Looking for streets you haven't run…" : 'Looking for a loop…';
+  planStatus.textContent = looking;
   try {
-    const chains = Planner.chains(g, areas, area => trackCoverage(area).visited);
+    const chains = Planner.chains(g, areas, area => {
+      const visited = trackCoverage(area).visited;
+      return unrun ? visited : new Uint8Array(visited.length);
+    });
     const found = await Planner.explore(g, start, chains, target * 1000, (i, n) => {
-      planStatus.textContent = `Looking for streets you haven't run… (step ${i} of ${n})`;
+      planStatus.textContent = `${looking} (step ${i} of ${n})`;
     }, Number(exploreLevel.value), exploreHeading.value === '' ? null : Number(exploreHeading.value));
     if (!found) {
-      planStatus.textContent = `No unrun streets fit in a ${target} km loop from ${where}. Try a longer one.`;
+      planStatus.textContent = unrun
+        ? `No unrun streets fit in a ${target} km loop from ${where}. Try a longer one.`
+        : `No loop of ${target} km fits from ${where}. Try a longer one.`;
       return;
     }
     resetPlan();
-    Object.assign(plan, { waypoints: found.waypoints, legs: found.legs, straight: found.legs.map(() => false), name: `Unrun streets, ${target} km` });
+    Object.assign(plan, {
+      waypoints: found.waypoints, legs: found.legs, straight: found.legs.map(() => false),
+      name: `${unrun ? 'Unrun streets' : 'Loop'}, ${target} km`,
+    });
     planChanged();
     const way = exploreHeading.value === '' ? '' : ` heading ${exploreHeading.selectedOptions[0].text}`;
     planStatus.textContent = (found.widened && way
-      ? `There wasn't much unrun street${way} from ${where}, so this loop goes wider. `
+      ? `There wasn't much ${unrun ? 'unrun street' : 'room'}${way} from ${where}, so this loop goes wider. `
       : `A loop${way} from ${where}. `) + 'Change it like any route: drag points, or click them to remove them.';
     map.fitBounds(L.latLngBounds(routePoints(plan)), { padding: [40, 40], maxZoom: 17 });
   } finally {
