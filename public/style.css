@@ -1565,6 +1565,28 @@ body {
   color: #666;
 }
 
+/* The options fold away under the length and the button. */
+#explore-options {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: #666;
+}
+
+#explore-options summary {
+  cursor: pointer;
+}
+
+#explore-summary {
+  color: #999;
+}
+
+.explore-options-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
 #plan-explore #explore-unrun-row,
 #plan-explore #explore-finish-row,
 #plan-explore .explore-select-row {

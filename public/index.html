@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>feets</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=63">
+  <link rel="stylesheet" href="style.css?v=64">
 </head>
 <body>
   <aside id="sidebar">
@@ -107,51 +107,56 @@
       <form id="plan-explore" class="filter-row" title="A loop from the route's first point, or from you (⌖), or from the middle of the map">
         <label>Loop <input id="explore-km" type="number" min="1" max="60" step="0.5" value="5" inputmode="decimal" aria-label="Loop length in km"> km</label>
         <button id="explore" type="submit">Make a loop</button>
-        <label id="explore-unrun-row" title="Go for streets you haven't run. Untick for a loop over any streets.">
-          <input id="explore-unrun" type="checkbox" checked> Through streets I haven't run
-        </label>
-        <label id="explore-finish-row" title="Favour streets you've run part of, so more of them get finished">
-          <input id="explore-finish" type="checkbox"> Finish streets I've started
-        </label>
-        <label id="explore-level-row" title="Simple: a plain loop through a few long stretches. Thorough: as many different streets as fit, however it winds.">
-          Simple <input id="explore-level" type="range" min="1" max="5" step="1" value="3" aria-label="Complexity"> Thorough
-        </label>
-        <label id="explore-heading-row" class="explore-select-row" title="Favour unrun streets that lie this way from the start">
-          Heading <select id="explore-heading">
-            <option value="">any way</option>
-            <option value="0">north</option>
-            <option value="45">northeast</option>
-            <option value="90">east</option>
-            <option value="135">southeast</option>
-            <option value="180">south</option>
-            <option value="225">southwest</option>
-            <option value="270">west</option>
-            <option value="315">northwest</option>
-          </select>
-        </label>
-        <label class="explore-select-row" title="What kind of streets to favour">
-          Streets <select id="explore-streets">
-            <option value="any">any kind</option>
-            <option value="paths">prefer paths and trails</option>
-            <option value="roads">roads only</option>
-          </select>
-        </label>
-        <label class="explore-select-row" title="Flatter keeps off steep streets; hillier goes looking for them">
-          Hills <select id="explore-hills">
-            <option value="any">don't mind</option>
-            <option value="flat">flatter</option>
-            <option value="hilly">hillier</option>
-          </select>
-        </label>
-        <label class="explore-select-row" title="Finish at the last point you put on the map: click a start, then a finish, then Make a loop">
-          Finish <select id="explore-end">
-            <option value="start">back at the start</option>
-            <option value="last">at my last point</option>
-          </select>
-        </label>
-        <label class="explore-select-row" title="Keep the whole loop inside one of your areas or neighbourhoods">
-          Stay in <select id="explore-within"><option value="">anywhere</option></select>
-        </label>
+        <details id="explore-options">
+          <summary>Options <span id="explore-summary"></span></summary>
+          <div class="explore-options-body">
+            <label id="explore-unrun-row" title="Go for streets you haven't run. Untick for a loop over any streets.">
+              <input id="explore-unrun" type="checkbox" checked> Through streets I haven't run
+            </label>
+            <label id="explore-finish-row" title="Favour streets you've run part of, so more of them get finished">
+              <input id="explore-finish" type="checkbox"> Finish streets I've started
+            </label>
+            <label id="explore-level-row" title="Simple: a plain loop through a few long stretches. Thorough: as many different streets as fit, however it winds.">
+              Simple <input id="explore-level" type="range" min="1" max="5" step="1" value="3" aria-label="Complexity"> Thorough
+            </label>
+            <label id="explore-heading-row" class="explore-select-row" title="Favour unrun streets that lie this way from the start">
+              Heading <select id="explore-heading">
+                <option value="">any way</option>
+                <option value="0">north</option>
+                <option value="45">northeast</option>
+                <option value="90">east</option>
+                <option value="135">southeast</option>
+                <option value="180">south</option>
+                <option value="225">southwest</option>
+                <option value="270">west</option>
+                <option value="315">northwest</option>
+              </select>
+            </label>
+            <label class="explore-select-row" title="What kind of streets to favour">
+              Streets <select id="explore-streets">
+                <option value="any">any kind</option>
+                <option value="paths">prefer paths and trails</option>
+                <option value="roads">roads only</option>
+              </select>
+            </label>
+            <label class="explore-select-row" title="Flatter keeps off steep streets; hillier goes looking for them">
+              Hills <select id="explore-hills">
+                <option value="any">don't mind</option>
+                <option value="flat">flatter</option>
+                <option value="hilly">hillier</option>
+              </select>
+            </label>
+            <label class="explore-select-row" title="Finish at the last point you put on the map: click a start, then a finish, then Make a loop">
+              Finish <select id="explore-end">
+                <option value="start">back at the start</option>
+                <option value="last">at my last point</option>
+              </select>
+            </label>
+            <label class="explore-select-row" title="Keep the whole loop inside one of your areas or neighbourhoods">
+              Stay in <select id="explore-within"><option value="">anywhere</option></select>
+            </label>
+          </div>
+        </details>
       </form>
       <div id="plan-files" class="filter-row">
         <button id="plan-save" type="button">Save</button>
@@ -315,6 +320,6 @@
   <script src="stats.js?v=29"></script>
   <script src="elevation.js?v=3"></script>
   <script src="achievements.js?v=22"></script>
-  <script src="app.js?v=66"></script>
+  <script src="app.js?v=67"></script>
 </body>
 </html>

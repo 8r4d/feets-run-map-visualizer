@@ -1180,14 +1180,17 @@ function fillAreaSelect() {
   const label = (a, depth) => `${'\u2013 '.repeat(depth)}${a.name}`;
   areaSelect.replaceChildren(new Option(areas.length ? 'Choose an area…' : 'No areas yet: add one', ''),
     ...nested.map(([a, depth]) => new Option(label(a, depth), String(a.id))));
-  // Plan's "Stay within": each area, and the neighbourhoods inside it.
-  const within = exploreWithin.value;
+  // Plan's "Stay within": each area, and the neighbourhoods inside it. The
+  // saved choice wins: the menu was empty when the page first set it.
+  let within = exploreWithin.value;
+  try { within = localStorage.getItem('feets-explore-within') ?? within; } catch {}
   exploreWithin.replaceChildren(new Option('anywhere', ''), ...nested.flatMap(([a, depth]) => [
     new Option(label(a, depth), `a:${a.id}`),
     ...a.data.hoods.map((h, i) => new Option(`\u00a0\u00a0\u00a0· ${h.name}`, `h:${a.id}:${i}`)),
   ]));
   exploreWithin.value = within;
   if (exploreWithin.selectedIndex < 0) exploreWithin.value = '';
+  summarizeExplore();
 }
 
 function setActiveArea(id) {
@@ -2472,11 +2475,36 @@ async function routeHeights(g, points, budget) {
 }
 
 // Stay within: '' for anywhere, 'a:ID' for an area, 'h:ID:N' for neighbourhood
-// N of an area. Filled in with the areas (see fillAreaSelect).
-try { exploreWithin.value = localStorage.getItem('feets-explore-within') || ''; } catch {}
+// N of an area. Filled in, and the saved choice set, with the areas (see fillAreaSelect).
 exploreWithin.onchange = () => {
   try { localStorage.setItem('feets-explore-within', exploreWithin.value); } catch {}
 };
+
+// The Options box: remembers whether it was left open, and while closed its
+// heading lists the options that aren't at their usual settings.
+const exploreOptions = document.getElementById('explore-options');
+try { exploreOptions.open = localStorage.getItem('feets-explore-options') === 'open'; } catch {}
+exploreOptions.addEventListener('toggle', () => {
+  try { localStorage.setItem('feets-explore-options', exploreOptions.open ? 'open' : 'closed'); } catch {}
+});
+
+function summarizeExplore() {
+  const text = select => select.selectedOptions[0] ? select.selectedOptions[0].text.replace(/^[\s\u00a0\u2013·]+/, '') : '';
+  const level = Number(exploreLevel.value);
+  const parts = [
+    !exploreUnrun.checked && 'any streets',
+    exploreUnrun.checked && exploreFinish.checked && 'finish started',
+    level !== 3 && (level < 3 ? 'simpler' : 'more thorough'),
+    exploreHeading.value !== '' && `heading ${text(exploreHeading)}`,
+    exploreStreets.value !== 'any' && text(exploreStreets),
+    exploreHills.value !== 'any' && text(exploreHills),
+    exploreEnd.value !== 'start' && 'finish at last point',
+    exploreWithin.value && `in ${text(exploreWithin)}`,
+  ].filter(Boolean);
+  document.getElementById('explore-summary').textContent = parts.length ? `· ${parts.join(', ')}` : '';
+}
+document.getElementById('plan-explore').addEventListener('change', summarizeExplore);
+document.getElementById('plan-explore').addEventListener('input', summarizeExplore);
 
 // The street points a loop may use with "Stay within" set: a Uint8Array over
 // the graph's points, with its name; null for anywhere. Kept until the graph
@@ -2539,6 +2567,7 @@ if (exploreHeading.selectedIndex < 0) exploreHeading.value = '';
 exploreHeading.onchange = () => {
   try { localStorage.setItem('feets-explore-heading', exploreHeading.value); } catch {}
 };
+summarizeExplore();
 
 document.getElementById('plan-explore').onsubmit = async e => {
   e.preventDefault();
