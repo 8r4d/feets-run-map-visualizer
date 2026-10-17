@@ -1970,6 +1970,7 @@ const mayDiscard = () => !plan.dirty || plan.waypoints.length < 2 || confirm('Di
 // The route line, plus draggable markers for its points: green start, red
 // finish, small white ones in between.
 function drawPlan() {
+  stopTrace();
   if (planLayer) planLayer.remove();
   planLayer = null;
   if (arrowLayer) arrowLayer.remove();
@@ -2000,6 +2001,7 @@ function drawPlan() {
   });
   planLayer.addTo(map);
   drawArrows();
+  traceControl.show(plan.waypoints.length > 1);
 }
 
 // Arrows along the route showing which way it goes: every ARROW_EVERY metres,
@@ -2040,6 +2042,114 @@ function drawArrows() {
 }
 
 map.on('zoomend', () => { if (planLayer) drawArrows(); });
+
+// --- Tracing a route ---
+// ▶ on the map sends a marker along the route from start to finish, leaving
+// a bright trail behind it, so where a route crosses or doubles back on
+// itself you can see which way it goes each time. At 1× a route takes about
+// TRACE_SECONDS, however long it is; the map follows the marker.
+const TRACE_SECONDS = 20;
+const TRACE_SPEEDS = [0.5, 1, 2, 4];
+let trace = null;  // { points, along, total, at, layer, marker, trail, frame, last, playing }
+let traceSpeed = 1;
+try { traceSpeed = TRACE_SPEEDS.includes(Number(localStorage.getItem('feets-trace-speed'))) ? Number(localStorage.getItem('feets-trace-speed')) : 1; } catch {}
+
+const TraceControl = L.Control.extend({
+  options: { position: 'topright' },
+  onAdd() {
+    const bar = L.DomUtil.create('div', 'trace-control leaflet-bar');
+    bar.innerHTML = '<button type="button" class="trace-play" title="Trace the route from start to finish">▶</button>'
+      + '<button type="button" class="trace-speed" title="Speed"></button>'
+      + '<span class="trace-km"></span>';
+    L.DomEvent.disableClickPropagation(bar);
+    L.DomEvent.disableScrollPropagation(bar);
+    [this.play, this.speed] = bar.querySelectorAll('button');
+    this.km = bar.querySelector('.trace-km');
+    this.play.onclick = () => toggleTrace();
+    this.speed.onclick = () => {
+      traceSpeed = TRACE_SPEEDS[(TRACE_SPEEDS.indexOf(traceSpeed) + 1) % TRACE_SPEEDS.length];
+      try { localStorage.setItem('feets-trace-speed', String(traceSpeed)); } catch {}
+      this.update();
+    };
+    this.bar = bar;
+    this.show(false);
+    this.update();
+    return bar;
+  },
+  show(on) {
+    this.bar.hidden = !on;
+  },
+  // The buttons and the distance, from the trace's state.
+  update() {
+    const playing = trace && trace.playing;
+    const done = trace && !playing && trace.at >= trace.total;
+    this.play.textContent = playing ? '❚❚' : done ? '↺' : '▶';
+    this.play.title = playing ? 'Pause' : done ? 'Trace it again' : trace ? 'Carry on' : 'Trace the route from start to finish';
+    this.speed.textContent = `${traceSpeed === 0.5 ? '½' : traceSpeed}×`;
+    this.km.textContent = trace ? `${(trace.at / 1000).toFixed(1)} / ${(trace.total / 1000).toFixed(1)} km` : '';
+    this.km.hidden = !trace;
+  },
+});
+const traceControl = new TraceControl().addTo(map);
+
+function toggleTrace() {
+  if (trace && trace.playing) {
+    trace.playing = false;
+    cancelAnimationFrame(trace.frame);
+    traceControl.update();
+    return;
+  }
+  if (!trace || trace.at >= trace.total) startTrace();
+  trace.playing = true;
+  trace.last = performance.now();
+  trace.frame = requestAnimationFrame(stepTrace);
+  traceControl.update();
+}
+
+function startTrace() {
+  stopTrace();
+  const points = routePoints(plan);
+  const along = [0];
+  for (let i = 1; i < points.length; i++) along.push(along[i - 1] + Planner.distance(...points[i - 1], ...points[i]));
+  const total = along[along.length - 1];
+  const layer = L.layerGroup().addTo(map);
+  const trail = L.polyline([points[0]], { color: '#ff6d00', weight: 7, opacity: 0.9, interactive: false }).addTo(layer);
+  const marker = L.marker(points[0], {
+    interactive: false, keyboard: false, zIndexOffset: 1000,
+    icon: L.divIcon({ className: 'trace-marker', iconSize: [22, 22], html: '<span></span>' }),
+  }).addTo(layer);
+  trace = { points, along, total, at: 0, index: 1, layer, trail, trailPoints: [points[0]], marker, playing: false };
+}
+
+function stopTrace() {
+  if (!trace) return;
+  cancelAnimationFrame(trace.frame);
+  trace.layer.remove();
+  trace = null;
+  traceControl.update();
+}
+
+function stepTrace(now) {
+  const t = trace;
+  if (!t || !t.playing) return;
+  const speed = Math.max(t.total / TRACE_SECONDS, 20) * traceSpeed;  // metres per second
+  t.at = Math.min(t.total, t.at + speed * Math.min(now - t.last, 100) / 1000);
+  t.last = now;
+  // Points passed join the trail; the marker sits between two of them.
+  while (t.index < t.points.length - 1 && t.along[t.index] <= t.at) t.trailPoints.push(t.points[t.index++]);
+  const a = t.points[t.index - 1], b = t.points[t.index];
+  const span = t.along[t.index] - t.along[t.index - 1];
+  const f = span ? (t.at - t.along[t.index - 1]) / span : 1;
+  const here = [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+  t.trail.setLatLngs([...t.trailPoints, here]);
+  t.marker.setLatLng(here);
+  const bearing = Math.atan2((b[1] - a[1]) * Math.cos(a[0] * Math.PI / 180), b[0] - a[0]) * 180 / Math.PI;
+  t.marker.getElement().firstChild.style.transform = `rotate(${bearing.toFixed(0)}deg)`;
+  if (!map.getBounds().pad(-0.15).contains(here)) map.panTo(here);
+  if (t.at >= t.total) t.playing = false;
+  else t.frame = requestAnimationFrame(stepTrace);
+  traceControl.update();
+}
 
 // Coverage of an area by the tracks on the map. It only changes when they
 // do, so it's kept between clicks.

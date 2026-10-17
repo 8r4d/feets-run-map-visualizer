@@ -716,6 +716,69 @@ body {
   filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff);
 }
 
+/* Tracing a route: the ▶ control, and the marker that runs along the route */
+.trace-control {
+  display: flex;
+  align-items: center;
+  background: #fff;
+}
+
+.trace-control button {
+  min-width: 30px;
+  height: 30px;
+  padding: 0 6px;
+  font: inherit;
+  font-size: 14px;
+  background: #fff;
+  border: none;
+  border-right: 1px solid #ccc;
+  cursor: pointer;
+}
+
+.trace-control button:hover {
+  background: #f4f4f4;
+}
+
+.trace-control .trace-play {
+  color: #ff6d00;
+  font-size: 16px;
+}
+
+.trace-control .trace-speed {
+  font-size: 12px;
+}
+
+.trace-control .trace-km {
+  padding: 0 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.trace-marker span {
+  position: relative;
+  display: block;
+  width: 22px;
+  height: 22px;
+  background: #ff6d00;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-sizing: border-box;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+/* An arrow pointing the way it's going (the span is rotated in app.js) */
+.trace-marker span::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 6px;
+  width: 6px;
+  height: 9px;
+  background: #fff;
+  clip-path: polygon(50% 0, 100% 100%, 50% 75%, 0 100%);
+}
+
 /* Streets mode */
 #streets-panel {
   display: flex;
