@@ -748,8 +748,9 @@ async function removeTrack(id) {
 
 // --- Removing stray points ---
 // Shows every point in a track's GPX. Clicking one marks it to go (red) and
-// the line redraws without it; clicking it again keeps it. Saving takes the
-// marked points out of the stored GPX, and the server works out the track again.
+// the line redraws without it; clicking it again keeps it. Shift-dragging a
+// box marks every point in it. Saving takes the marked points out of the
+// stored GPX, and the server works out the track again.
 const pointRenderer = L.canvas({ padding: 0.5, tolerance: 6 });
 
 async function editPoints(id) {
@@ -783,29 +784,71 @@ async function editPoints(id) {
   };
   const KEEP = { radius: 3, color, weight: 1, fillColor: '#fff', fillOpacity: 1 };
   const REMOVE = { radius: 6, color: '#c00', weight: 2, fillColor: '#c00', fillOpacity: 0.6 };
+  // A GPS that gets stuck records the same spot again and again: one marker
+  // for all of them, or the ones underneath would be left behind.
+  const spots = new Map();  // "lat,lon" -> { indexes, marker }
   points.forEach(([lat, lon], i) => {
-    const marker = L.circleMarker([lat, lon], { renderer: pointRenderer, ...KEEP }).addTo(layer);
-    marker.on('click', () => {
-      if (removed.delete(i)) marker.setStyle(KEEP);
-      else {
-        removed.add(i);
-        marker.setStyle(REMOVE);
-      }
+    const key = `${lat},${lon}`;
+    if (!spots.has(key)) spots.set(key, { latlng: L.latLng(lat, lon), indexes: [] });
+    spots.get(key).indexes.push(i);
+  });
+  const mark = (spot, remove) => {
+    for (const i of spot.indexes) remove ? removed.add(i) : removed.delete(i);
+    spot.marker.setStyle(remove ? REMOVE : KEEP);
+  };
+  let boxed = false;  // the click that ends a box isn't a point click
+  for (const spot of spots.values()) {
+    spot.marker = L.circleMarker(spot.latlng, { renderer: pointRenderer, ...KEEP }).addTo(layer);
+    spot.marker.on('click', () => {
+      if (boxed) return;
+      mark(spot, !removed.has(spot.indexes[0]));
       redraw();
     });
-  });
+  }
+
+  // Shift-drag: a box in place of the map's own shift-drag zoom. Caught on
+  // the way down, before Leaflet's dragging sees it.
+  const container = map.getContainer();
+  let start = null, box = null;
+  const onDown = e => {
+    if (!e.shiftKey || e.button !== 0 || e.target.closest('.leaflet-control')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    start = map.mouseEventToLatLng(e);
+    box = L.rectangle([start, start], { color: '#c00', weight: 1, dashArray: '4 4', fillOpacity: 0.1, interactive: false }).addTo(layer);
+  };
+  const onMove = e => { if (start) box.setBounds([start, map.mouseEventToLatLng(e)]); };
+  const onUp = () => {
+    if (!start) return;
+    const bounds = box.getBounds();
+    box.remove();
+    start = box = null;
+    for (const spot of spots.values()) if (bounds.contains(spot.latlng)) mark(spot, true);
+    redraw();
+    boxed = true;
+    setTimeout(() => { boxed = false; });
+  };
+  container.addEventListener('mousedown', onDown, true);
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+  const unlisten = () => {
+    container.removeEventListener('mousedown', onDown, true);
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  };
 
   const control = L.control({ position: 'topright' });
-  const box = L.DomUtil.create('div', 'point-edit');
-  box.innerHTML = '<strong></strong><span>Click stray points to remove them, or again to keep them.</span>'
+  const panel = L.DomUtil.create('div', 'point-edit');
+  panel.innerHTML = '<strong></strong><span>Click stray points to remove them, or again to keep them. '
+    + 'Shift-drag a box to remove every point in it.</span>'
     + '<span class="count"></span><div><button type="button">Save</button>'
     + '<button class="link-button" type="button">Cancel</button></div>';
-  box.querySelector('strong').textContent = entry.track.name;
-  const count = box.querySelector('.count');
-  const [save, cancel] = box.querySelectorAll('button');
-  L.DomEvent.disableClickPropagation(box);
-  L.DomEvent.disableScrollPropagation(box);
-  control.onAdd = () => box;
+  panel.querySelector('strong').textContent = entry.track.name;
+  const count = panel.querySelector('.count');
+  const [save, cancel] = panel.querySelectorAll('button');
+  L.DomEvent.disableClickPropagation(panel);
+  L.DomEvent.disableScrollPropagation(panel);
+  control.onAdd = () => panel;
   control.addTo(map);
   cancel.onclick = () => endPointEdit();
   save.onclick = async () => {
@@ -823,7 +866,7 @@ async function editPoints(id) {
     }
   };
 
-  pointEdit = { id, layer, control };
+  pointEdit = { id, layer, control, unlisten };
   redraw();
   syncLayers();  // takes the track's own line off while it's edited
   map.fitBounds(line.getBounds(), { padding: [30, 30] });
@@ -832,6 +875,7 @@ async function editPoints(id) {
 function endPointEdit() {
   pointEdit.layer.remove();
   pointEdit.control.remove();
+  pointEdit.unlisten();
   pointEdit = null;
   render();
 }
