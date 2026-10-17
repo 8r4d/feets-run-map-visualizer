@@ -395,6 +395,11 @@ body {
   color: #555;
 }
 
+#view-expiry {
+  flex-basis: 100%;
+  font-size: 12px;
+}
+
 /* Login / sign-up form, shown over the map */
 #auth {
   position: fixed;

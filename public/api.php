@@ -14,13 +14,14 @@
 //   GET  api.php?action=reset_info&code=CODE  {username} for a reset link
 //   POST api.php?action=reset_password {code, password}
 //   POST api.php?action=recover        {setupPassword, username, password}  locked-out admin
-//   GET  api.php?action=view_links     the user's view links: [{code, label, createdAt}]
-//   POST api.php?action=view_link_create  {label}, returns {code}
+//   GET  api.php?action=view_links     the user's view links: [{code, label, createdAt, expiresAt}]
+//                                      expiresAt: Unix ms, or null for a link that never expires
+//   POST api.php?action=view_link_create  {label, days}, returns {code}. days: 1-365, or 0 for no expiry
 //   POST api.php?action=view_link_delete  {code}
 //
 // View links: any request with ?view=CODE is answered as a view-only account
 // of the link's owner that can only list saved routes, with no login, until
-// the owner turns the link off.
+// the owner turns the link off or it expires.
 //
 // Tracks (must be logged in; each user only sees their own)
 //   GET  api.php                       list tracks
@@ -118,6 +119,7 @@ const SCHEMA = [
       owner       INT          NOT NULL,
       label       VARCHAR(100) NOT NULL,
       created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      expires_at  TIMESTAMP    NULL,  -- NULL: works until turned off
       INDEX (owner)
     ) CHARACTER SET utf8mb4
     SQL,
@@ -304,6 +306,10 @@ function db(): PDO {
         if (!$pdo->query("SHOW COLUMNS FROM users LIKE 'goals'")->fetch()) {
             $pdo->exec('ALTER TABLE users ADD COLUMN goals TEXT NULL AFTER data_owner');
         }
+        // ...and view links that expire.
+        if (!$pdo->query("SHOW COLUMNS FROM view_links LIKE 'expires_at'")->fetch()) {
+            $pdo->exec('ALTER TABLE view_links ADD COLUMN expires_at TIMESTAMP NULL AFTER created_at');
+        }
     }
     return $pdo;
 }
@@ -347,16 +353,20 @@ function start_session(int $userId): void {
 
 // A view link stands in for a view-only account of its owner. It takes
 // precedence over a session, so a member opening a club's link sees what the
-// club sees. An unknown or turned-off code means nobody is logged in.
+// club sees. An unknown, turned-off or expired code means nobody is logged in.
 function view_link_user(string $code): ?array {
     if (!preg_match('/^[0-9a-f]{24}$/', $code)) {
         return null;
     }
-    $stmt = db()->prepare('SELECT v.label, v.owner FROM view_links v JOIN users u ON u.id = v.owner WHERE v.code = ?');
+    $stmt = db()->prepare(
+        'SELECT v.label, v.owner, UNIX_TIMESTAMP(v.expires_at) AS expires FROM view_links v JOIN users u ON u.id = v.owner
+         WHERE v.code = ? AND (v.expires_at IS NULL OR v.expires_at > NOW())'
+    );
     $stmt->execute([$code]);
     $row = $stmt->fetch();
     return $row ? ['id' => 0, 'username' => $row['label'], 'is_admin' => false, 'read_only' => true,
-                   'data_owner' => (int) $row['owner'], 'view_link' => true] : null;
+                   'data_owner' => (int) $row['owner'], 'view_link' => true,
+                   'expires_at' => $row['expires'] === null ? null : (int) $row['expires'] * 1000] : null;
 }
 
 function current_user(): ?array {
@@ -390,6 +400,9 @@ function user_json(array $user): array {
         $owner = db()->prepare('SELECT username FROM users WHERE id = ?');
         $owner->execute([$user['data_owner']]);
         $json['owner'] = $owner->fetchColumn() ?: '';
+    }
+    if ($json['viewLink']) {
+        $json['expiresAt'] = $user['expires_at'];  // Unix ms, or null
     }
     return $json;
 }
@@ -510,9 +523,13 @@ function create_invite(array $user): array {
 // Made by any member for their own map; the code in the link is the only key.
 
 function list_view_links(int $userId): array {
-    $stmt = db()->prepare('SELECT code, label, created_at AS createdAt FROM view_links WHERE owner = ? ORDER BY created_at DESC');
+    $stmt = db()->prepare('SELECT code, label, created_at AS createdAt, UNIX_TIMESTAMP(expires_at) AS expiresAt
+                           FROM view_links WHERE owner = ? ORDER BY created_at DESC');
     $stmt->execute([$userId]);
-    return $stmt->fetchAll();
+    return array_map(function ($link) {
+        $link['expiresAt'] = $link['expiresAt'] === null ? null : (int) $link['expiresAt'] * 1000;
+        return $link;
+    }, $stmt->fetchAll());
 }
 
 function create_view_link(int $userId, array $b): array {
@@ -520,8 +537,14 @@ function create_view_link(int $userId, array $b): array {
     if ($label === '') {
         fail('Give the link a name, like who it is for', 400);
     }
+    $days = (int) ($b['days'] ?? 0);
+    if ($days < 0 || $days > 365) {
+        fail('A link can last up to 365 days', 400);
+    }
     $code = bin2hex(random_bytes(12));
-    db()->prepare('INSERT INTO view_links (code, owner, label) VALUES (?, ?, ?)')->execute([$code, $userId, $label]);
+    db()->prepare('INSERT INTO view_links (code, owner, label, expires_at)
+                   VALUES (?, ?, ?, IF(? > 0, NOW() + INTERVAL ? DAY, NULL))')
+        ->execute([$code, $userId, $label, $days, $days]);
     return ['code' => $code];
 }
 

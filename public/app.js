@@ -2174,6 +2174,9 @@ async function showPublicView(user) {
   setMode('plan');
   fadeInput.value = 0;
   applyFade();
+  const expiry = document.getElementById('view-expiry');
+  expiry.hidden = !user.expiresAt;
+  if (user.expiresAt) expiry.textContent = `This link expires ${whenText(user.expiresAt)}.`;
   await loadRoutes();
   const route = routes.find(r => r.id === routeParam) || routes[0];
   if (route) openRoute(route);
@@ -2228,6 +2231,7 @@ async function signedIn(user) {
 function signedOut() {
   currentUser = null;
   document.body.classList.remove('public-view');
+  document.getElementById('view-expiry').hidden = true;
   Store.setViewCode('');  // a turned-off view link: logging in works normally
   document.body.classList.remove('read-only');
   clearTimeout(stravaResumeTimer);
@@ -2496,7 +2500,8 @@ async function loadViewLinks() {
     const li = document.createElement('li');
     li.innerHTML = '<span></span><button class="link-button" type="button">Copy link</button>'
       + '<button class="link-button" type="button">Turn off</button>';
-    li.querySelector('span').textContent = link.label;
+    li.querySelector('span').textContent = link.label + (!link.expiresAt ? ''
+      : link.expiresAt < Date.now() ? ' (expired)' : ` (until ${whenText(link.expiresAt)})`);
     const [copy, off] = li.querySelectorAll('button');
     copy.onclick = () => prompt('Anyone with this link can see your map, tracks and routes:', viewUrl(link.code));
     off.onclick = async () => {
@@ -2511,35 +2516,62 @@ async function loadViewLinks() {
 
 const viewUrl = (code, routeId) => `${location.origin}${location.pathname}?view=${code}` + (routeId ? `&route=${routeId}` : '');
 
-// Asks for a name and makes a view link; resolves to its code, or null.
-async function createViewLink() {
-  const label = prompt("Name this link, e.g. who it's for. Anyone with it can see your map, tracks and routes "
-    + 'without logging in, until you turn it off.', 'Run club');
+// A link's expiry time, e.g. "Oct 24, 2026, 3:15 PM".
+const whenText = ms => new Date(ms).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+
+// Asks how long a link should work: a number of days, 0 for until it's
+// turned off, or null if cancelled.
+function askExpiry() {
+  const answer = prompt('Stop the link working after how many days? Leave blank to keep it until you turn it off.', '');
+  if (answer === null) return null;
+  if (!answer.trim()) return 0;
+  const days = Number(answer);
+  if (Number.isInteger(days) && days >= 1 && days <= 365) return days;
+  alert('Enter a whole number of days, from 1 to 365.');
+  return null;
+}
+
+// Makes a view link, asking for a name unless given one; resolves to
+// { code, days }, or null.
+async function createViewLink(label = null, days = null) {
+  label ??= prompt("Name this link, e.g. who it's for. Anyone with it can see your map, tracks and routes "
+    + 'without logging in, until you turn it off or it expires.', 'Run club');
   if (!label || !label.trim()) return null;
+  days ??= askExpiry();
+  if (days === null) return null;
   try {
-    const code = await Store.createViewLink(label.trim());
+    const code = await Store.createViewLink(label.trim(), days);
     loadViewLinks();
-    return code;
+    return { code, days };
   } catch (err) {
     alert(err.message);
     return null;
   }
 }
 
+const worksUntil = days => days
+  ? `It stops working in ${days} day${days === 1 ? '' : 's'} (${whenText(Date.now() + days * 86400000)})`
+  : 'It works until you turn it off under Account';
+
 document.getElementById('view-link-create').onclick = async () => {
-  const code = await createViewLink();
-  if (code) prompt('Send this link. It works until you turn it off under Account:', viewUrl(code));
+  const link = await createViewLink();
+  if (link) prompt(`Send this link. ${worksUntil(link.days)}:`, viewUrl(link.code));
 };
 
-// A link that opens one saved route, made from your newest view link.
+// A link that opens one saved route. With no expiry it uses your newest view
+// link that never expires; with one, it gets a view link of its own.
 async function shareRoute(r) {
+  const days = askExpiry();
+  if (days === null) return;
   let links = [];
   try {
     links = await Store.viewLinks();
   } catch {}
-  const code = links.length ? links[0].code
-    : confirm('Sharing a route needs a view link, which also shows your whole map. Make one?') && await createViewLink();
-  if (code) prompt(`Send this link to open "${r.name}". It works until you turn off its view link under Account:`, viewUrl(code, r.id));
+  const lasting = links.find(l => !l.expiresAt);
+  const link = days ? await createViewLink(`Route: ${r.name}`, days)
+    : lasting ? { code: lasting.code, days: 0 }
+    : confirm('Sharing a route needs a view link, which also shows your whole map. Make one?') && await createViewLink(null, 0);
+  if (link) prompt(`Send this link to open "${r.name}". ${worksUntil(link.days)}:`, viewUrl(link.code, r.id));
 }
 
 document.getElementById('invite').onclick = () => invite(false);
@@ -2592,7 +2624,7 @@ document.getElementById('reset-link').onclick = async () => {
     } else {
       if (viewLinkOff) Store.setViewCode('');
       showAuth(needsSetup ? 'setup' : inviteCode ? 'signup' : 'login');
-      if (viewLinkOff) authError.textContent = 'That view link has been turned off. Log in, or ask for a new link.';
+      if (viewLinkOff) authError.textContent = 'That view link has been turned off or has expired. Log in, or ask for a new link.';
     }
   } catch (err) {
     document.getElementById('summary').textContent = 'Could not reach the server: ' + err.message;
