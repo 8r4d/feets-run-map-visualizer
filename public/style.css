@@ -239,7 +239,8 @@ body {
 #track-list button.delete,
 #track-list button.download,
 #track-list button.to-route,
-#track-list button.edit-points {
+#track-list button.edit-points,
+#track-list button.solo {
   border: none;
   background: none;
   color: #999;
@@ -252,10 +253,11 @@ body {
   color: #c00;
 }
 
-/* Delete and plan-a-route buttons only show in edit mode. */
+/* Delete, plan-a-route, fix-points and download buttons only show in edit mode. */
 #track-list:not(.editing) button.delete,
 #track-list:not(.editing) button.to-route,
-#track-list:not(.editing) button.edit-points {
+#track-list:not(.editing) button.edit-points,
+#track-list:not(.editing) button.download {
   display: none;
 }
 
@@ -291,7 +293,9 @@ body {
 
 #track-list button.download:hover,
 #track-list button.to-route:hover,
-#track-list button.edit-points:hover {
+#track-list button.edit-points:hover,
+#track-list button.solo:hover,
+#track-list button.solo[aria-pressed="true"] {
   color: #2a7ae2;
 }
 

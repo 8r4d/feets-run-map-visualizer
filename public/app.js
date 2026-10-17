@@ -161,7 +161,11 @@ function matches(track) {
     && (!filters.sport || (track.sport || NO_SPORT) === filters.sport);
 }
 
-const onMap = track => track.visible && matches(track);
+// One track on its own (the ◎ button): just this browser, for now, and the
+// tracks' own show/hide settings are left as they were.
+let soloId = null;
+
+const onMap = track => (soloId !== null ? track.id === soloId : track.visible && matches(track));
 
 // --- Heatmap ---
 // Every visible track is drawn as a faint line on one canvas, so routes you
@@ -637,7 +641,7 @@ function renderList() {
   const matching = all
     .filter(e => matches(e.track))
     .sort((a, b) => (b.track.time || '').localeCompare(a.track.time || '') || b.track.id - a.track.id);
-  const shown = matching.filter(e => e.track.visible);
+  const shown = all.filter(e => onMap(e.track));
   const km = shown.reduce((sum, e) => sum + e.track.distance, 0);
 
   document.getElementById('track-list').replaceChildren(...matching.slice(0, listLimit).map(listItem));
@@ -737,6 +741,18 @@ function listItem({ track, layer }) {
     setTimeout(open, 700);
   };
 
+  const solo = document.createElement('button');
+  solo.className = 'solo';
+  solo.textContent = '◎';
+  solo.title = soloId === track.id ? 'Show the other tracks again' : 'Show only this track on the map';
+  solo.setAttribute('aria-pressed', String(soloId === track.id));
+  solo.onclick = () => {
+    soloId = soloId === track.id ? null : track.id;
+    if (soloId !== null && mapMode !== 'tracks' && mapMode !== 'heatmap') setMode('tracks');
+    render();
+    if (soloId !== null) map.fitBounds(layer.getBounds(), { padding: [30, 30] });
+  };
+
   const download = document.createElement('button');
   download.className = 'download';
   download.textContent = '↓';
@@ -761,7 +777,7 @@ function listItem({ track, layer }) {
   del.title = 'Delete';
   del.onclick = () => removeTrack(track.id);
 
-  li.append(checkbox, swatch, name, toRoute, fixPoints, download, del);
+  li.append(checkbox, swatch, name, solo, toRoute, fixPoints, download, del);
   return li;
 }
 
@@ -779,6 +795,7 @@ function publicView() {
 }
 
 async function setVisible(id, visible) {
+  soloId = null;  // ticking a box means the usual tracks again
   const entry = loaded.get(id);
   entry.track.visible = visible;
   render();
@@ -790,6 +807,7 @@ async function removeTrack(id) {
   if (!confirm(`Delete "${entry.track.name}"?\n\nThis can't be undone. A track imported from Strava won't be imported again.`)) return;
   entry.layer.remove();
   loaded.delete(id);
+  if (soloId === id) soloId = null;
   await Store.remove(id);
   render();
 }
@@ -938,6 +956,8 @@ function fitAll() {
 
 // "Show all" / "Hide all" apply to the tracks matching the filters.
 async function setVisibleMatching(visible) {
+  const hadSolo = soloId !== null;
+  soloId = null;
   const ids = [];
   for (const { track } of loaded.values()) {
     if (matches(track) && track.visible !== visible) {
@@ -945,7 +965,10 @@ async function setVisibleMatching(visible) {
       ids.push(track.id);
     }
   }
-  if (!ids.length) return;
+  if (!ids.length) {
+    if (hadSolo) render();
+    return;
+  }
   render();
   if (!readOnly()) await Store.setVisible(ids, visible).catch(err => alert(err.message));
 }
@@ -1022,7 +1045,7 @@ editToggle.onclick = () => {
   const editing = editToggle.getAttribute('aria-pressed') !== 'true';
   editToggle.setAttribute('aria-pressed', String(editing));
   editToggle.textContent = editing ? 'Done' : 'Edit';
-  editToggle.title = editing ? 'Hide delete buttons' : 'Show delete buttons';
+  editToggle.title = editing ? 'Hide the editing buttons' : 'Show the delete, plan-a-route, fix-points and download buttons';
   document.getElementById('track-list').classList.toggle('editing', editing);
 };
 document.getElementById('show-all').onclick = () => setVisibleMatching(true);
