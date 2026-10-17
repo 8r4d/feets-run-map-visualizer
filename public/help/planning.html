@@ -1,0 +1,221 @@
+<!--
+  A feets help page: Plan mode in detail, including every "Make a loop"
+  option and how they affect each other. See overview.html for how help
+  pages work.
+-->
+<h1>Planning routes</h1>
+
+<p>Plan mode draws routes along the streets of your areas. You can draw one
+point by point, or let <em>Make a loop</em> build one for you, and then change
+it, save it, put it on your watch or share it.</p>
+
+<p class="tip">Routes only follow streets in your areas. If Plan mode says
+there's no street nearby, add an area for that part of the map in Streets mode
+first. feets also adds areas by itself for places you've run a few times (see
+<em>Add street maps where I run</em> under <em>Account</em>).</p>
+
+<h3>Drawing a route yourself</h3>
+<ul>
+  <li><strong>Click the map</strong> to add a point. The route finds the
+    shortest way along the streets from the last point. The green dot is the
+    start and the red one the finish.</li>
+  <li><strong>Drag a point</strong> to move it. <strong>Click a point</strong>
+    to remove it.</li>
+  <li><strong>Click the line</strong> between two points for <em>Straight line
+    here</em>. Use it for a path, field or crossing the map doesn't have; it's
+    drawn dashed. <em>Follow the streets</em> puts it back.</li>
+  <li>If two points have no streets joining them, the route draws a dashed
+    straight line between them.</li>
+  <li><em>Undo</em> removes the last point. <em>Back to start</em> adds a last
+    leg home to the first point. <em>Reverse</em> runs the route the other way.
+    <em>New</em> starts again, and asks first if the route isn't saved.</li>
+</ul>
+
+<h3>What the panel tells you</h3>
+<ul>
+  <li><strong>Distance, climb, and new street:</strong> for example "6.0 km ·
+    ↑ 59 m · 2.3 km on streets you haven't run".</li>
+  <li><strong>The elevation chart</strong> appears a moment after you stop
+    changing the route. Heights come from Open-Meteo's free service. If it
+    can't be reached, or its daily limit is used up, some heights are
+    estimated, and the chart says so.</li>
+  <li><strong>Show street coverage</strong> colours the streets as in Streets
+    mode, so you can aim for the red ones you haven't run. Untick it for a
+    plainer map.</li>
+  <li><strong>Arrows</strong> along the line show the way round.
+    <strong>▶</strong> at the top right of the map traces the route from start
+    to finish (see below).</li>
+</ul>
+
+<h3>Make a loop</h3>
+<p>Set a length and click <em>Make a loop</em>. feets builds a route of about
+that length and draws it, ready to change like one you drew yourself.</p>
+<ul>
+  <li><strong>Where it starts:</strong> at the route's first point, if you've
+    placed one. Otherwise from where you are, if the ⌖ location dot is in view.
+    Otherwise from the middle of the map. The message after it's made says
+    which.</li>
+  <li><strong>How long it comes out:</strong> the length is a most, not an
+    exact target. Loops usually come out at 85–100% of it. In a small area, or
+    with options that leave little to choose from, a loop can come out
+    shorter, because a bigger one won't fit.</li>
+  <li><strong>It isn't saved</strong> until you click <em>Save</em>. Making
+    another loop asks before throwing away one you haven't saved.</li>
+</ul>
+<p>The <em>Options</em> box under the button holds the settings below. When
+it's folded away, its heading lists any you've changed, for example "Options ·
+heading south, flatter". Your settings are remembered in this browser.</p>
+
+<h3>Through streets I haven't run</h3>
+<p>Ticked (the usual setting), the loop goes for streets you haven't run.
+Unticked, it makes a loop over any streets, which is handy for a run
+somewhere new or a route for someone else.</p>
+<p class="tip">What counts as "run" is the tracks <em>on the map</em> right
+now. Hidden tracks, the year and type filters, and ◎ all change it. For
+example, pick this year in the filters to find streets you haven't run this
+year, or untick your rides so cycling doesn't count.</p>
+<p>Streets you've marked unrunnable are never aimed for. A route crosses or
+follows one only when there's no reasonable way round, because they count as
+three times longer.</p>
+
+<h3>Finish streets I've started</h3>
+<p>This one works with <em>Through streets I haven't run</em>. It's greyed
+out when that's unticked. It favours streets you've already run part of
+(the orange ones), counting them three times as much as untouched streets.
+Your count of completed streets then goes up faster, though the loop may pick
+up a little less new street in all.</p>
+
+<h3>No dead ends or doubling back (for groups)</h3>
+<p>The loop stays out of cul-de-sacs and paths that go nowhere, and avoids
+going back along streets it has already used. That makes it much easier to
+lead a group round, with no "now turn round and come back" moments.</p>
+<ul>
+  <li>A dead end means any street you can only leave the way you came in.
+    Unrun streets like that are skipped altogether.</li>
+  <li>If your start is itself on a dead-end street, the route still uses it,
+    since there's no other way out.</li>
+  <li>Expect a little less new street per loop, and a second or so longer to
+    make it.</li>
+  <li>It works best with the <em>Simple</em> end of the slider. The thorough
+    levels can still have the odd short U-turn.</li>
+</ul>
+
+<h3>Simple ↔ Thorough</h3>
+<p>The slider sets how winding the loop can be, in five steps:</p>
+<ul>
+  <li><strong>1:</strong> a plain loop through one or two long stretches you
+    haven't run. The easiest to follow.</li>
+  <li><strong>2:</strong> up to three stretches.</li>
+  <li><strong>3 (the middle):</strong> up to four stretches.</li>
+  <li><strong>4:</strong> goes after many shorter stretches, a few side trips
+    per km, and runs more unrun streets on the way between them.</li>
+  <li><strong>5:</strong> as many unrun streets as fit, however much it
+    winds. The most new street, and the hardest to follow without a watch.</li>
+</ul>
+<p>Levels 1 to 3 try every combination of the longest stretches in reach and
+keep the best loop, so they rarely retrace their steps. Levels 4 and 5 build
+the loop a stretch at a time, picking up whatever is close.</p>
+
+<h3>Heading</h3>
+<p>Makes the loop favour one direction from the start, such as south. It only
+aims for unrun streets roughly that way (within about 50° of it). Streets
+right by the start are always allowed, since a loop has to leave and come
+back. If there isn't enough that way, it looks wider (about 80°), and failing
+that ignores the heading. The message then says it went wider.</p>
+
+<h3>Streets</h3>
+<ul>
+  <li><strong>Any kind:</strong> roads, paths and trails as they come.</li>
+  <li><strong>Prefer paths and trails:</strong> aims for paths and trails, and
+    counts roads as longer to get about on. Roads still link things up where
+    there's no path.</li>
+  <li><strong>Roads only:</strong> doesn't aim for paths or trails, and only
+    uses one when going round would be about four times longer. Good for a
+    rainy day, or when a buggy or wheelchair is coming along.</li>
+</ul>
+<p>Whether a way counts as a road, path or trail comes from OpenStreetMap.
+Footways and cycleways are paths. Tracks, mountain-bike paths, and paths with
+a dirt, grass, sand or woodchip surface are trails. Sidewalks aren't separate
+paths; they count as part of their street.</p>
+
+<h3>Hills</h3>
+<ul>
+  <li><strong>Flatter</strong> keeps off steep streets: a street rising 1 m in
+    25 counts as twice as long.</li>
+  <li><strong>Hillier</strong> goes looking for them: the same street counts as
+    half as long.</li>
+</ul>
+<p>To do this, feets looks up the heights of the ground around the start
+(and the finish) before it plans, on a grid about every 300 m. That's a few
+requests to Open-Meteo, the same free service the elevation chart uses, and
+the heights are kept in this browser. If the heights can't be had (offline,
+the service busy, or its daily limit used up), the loop is made anyway and
+the message says hills weren't taken into account.</p>
+<p>The grid is coarse, so it knows about real hills but not a short steep
+ramp. Check the elevation chart once the loop is made.</p>
+
+<h3>Finish</h3>
+<ul>
+  <li><strong>Back at the start:</strong> a loop.</li>
+  <li><strong>At my last point:</strong> a route from one place to another.
+    Click the map for a start, then a finish, then <em>Make a loop</em>. You get
+    a route of about the chosen length from the first point to the last. It
+    works for running to work, or ending at a café or a friend's place.</li>
+</ul>
+<p>The length has to be more than the shortest way between the two points by
+the streets, or no route fits. Your two points are replaced by the route,
+without asking, since they were only there to say where to go.</p>
+
+<h3>Stay in</h3>
+<p>Keeps the whole route inside one of your areas, or one of the
+neighbourhoods inside an area, listed under it with a dot. It's good for
+finishing off a neighbourhood.</p>
+<ul>
+  <li>If your start (or finish) is outside, the route starts from the nearest
+    street inside instead, and the message says so.</li>
+  <li>Streets along the edge belong to whichever side they're on. A loop
+    may not use a road that runs right along the boundary.</li>
+  <li>The smaller the area, the less room there is. A long loop inside a small
+    neighbourhood will come out shorter, or doubling back.</li>
+</ul>
+
+<h3>Putting options together</h3>
+<p>Every option you add narrows what the loop can use. They all work
+together, but a lot of them at once, in a small space, can leave nothing that
+fits. Then you'll see "No unrun streets fit… Try a longer one, or fewer
+options".</p>
+<ul>
+  <li>The combinations that most often leave nothing are <em>Stay in</em> a
+    small neighbourhood, a <em>Heading</em>, and <em>Roads only</em> or
+    <em>No dead ends</em>, together with a short length.</li>
+  <li>Loosen one at a time: a longer length, <em>any way</em> for heading,
+    then a bigger area.</li>
+  <li>If you've run almost everything nearby, untick <em>Through streets I
+    haven't run</em>, or hide some tracks so their streets count as unrun
+    again.</li>
+</ul>
+
+<h3>After it's made</h3>
+<ul>
+  <li><strong>Change it like any route.</strong> Drag a point to take it down
+    a different street. Click a point in the middle to remove it, and the
+    route reroutes between its neighbours. Clicking the start or finish
+    drops that end of the route.</li>
+  <li><strong>▶ Trace</strong> (top right of the map) sends a marker round it
+    from start to finish, leaving an orange trail, so you can see which way to
+    go where the route crosses itself. <strong>1×</strong> changes the speed.</li>
+  <li><strong>Save</strong> keeps it under <em>Saved routes</em>, and
+    <strong>Download GPX</strong> gets it onto your watch or into Strava.</li>
+</ul>
+
+<h3>Saved routes</h3>
+<ul>
+  <li>Click a saved route to open it. Opening another asks first if the one
+    you're on has unsaved changes.</li>
+  <li>Sort them by newest, name, or length.</li>
+  <li><strong>GPX</strong> downloads it. <strong>Rename</strong> and
+    <strong>Delete</strong> do what they say.</li>
+  <li><strong>Link</strong> makes a link anyone can open without logging in,
+    and you can set it to expire. Anyone with it can also see your other
+    saved routes. See <a href="guests.html">Guests and sharing</a>.</li>
+</ul>
