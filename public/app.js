@@ -260,16 +260,32 @@ fadeInput.oninput = () => {
   try { localStorage.setItem('feets-fade-' + mapMode, fadeInput.value); } catch {}
 };
 
+// --- Track colours ---
+// Each track keeps its own colour, but they can all be drawn in one instead.
+// Saved per browser.
+const ONE_COLORS = { Red: '#e6194b', Blue: '#4363d8', Green: '#3cb44b', Orange: '#f58231', Purple: '#911eb4', Black: '#000' };
+const trackColorSelect = document.getElementById('track-color');
+trackColorSelect.append(...Object.entries(ONE_COLORS).map(([name, color]) => new Option(`All ${name.toLowerCase()}`, color)));
+try { trackColorSelect.value = localStorage.getItem('feets-track-color') || ''; } catch {}
+if (trackColorSelect.selectedIndex < 0) trackColorSelect.value = '';
+const trackColor = track => trackColorSelect.value || track.color;
+
+trackColorSelect.onchange = () => {
+  try { localStorage.setItem('feets-track-color', trackColorSelect.value); } catch {}
+  for (const { track, layer } of loaded.values()) layer.setStyle({ color: trackColor(track) });
+  renderList();  // the swatches
+};
+
 function buildLayer(track) {
   const group = L.featureGroup();
   for (const seg of track.segments) {
-    L.polyline(seg, { renderer: trackRenderer, color: track.color, weight: 4, opacity: 0.85 })
+    L.polyline(seg, { renderer: trackRenderer, color: trackColor(track), weight: 4, opacity: 0.85 })
       .bindTooltip(track.name, { sticky: true })
       .on('click', e => trackPopup(track, e.latlng))
       .addTo(group);
   }
   for (const wpt of track.waypoints) {
-    L.circleMarker(wpt.latlng, { renderer: trackRenderer, radius: 5, color: track.color, fillOpacity: 0.9 })
+    L.circleMarker(wpt.latlng, { renderer: trackRenderer, radius: 5, color: trackColor(track), fillOpacity: 0.9 })
       .bindPopup(wpt.name || 'Waypoint')
       .addTo(group);
   }
@@ -617,7 +633,7 @@ function listItem({ track, layer }) {
 
   const swatch = document.createElement('span');
   swatch.className = 'swatch';
-  swatch.style.background = track.color;
+  swatch.style.background = trackColor(track);
 
   const name = document.createElement('div');
   name.className = 'name';
