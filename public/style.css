@@ -110,7 +110,7 @@ body {
   align-items: start;
 }
 
-#mode-bar #streets-panel > .filter-row { grid-area: 1 / 1; }
+#mode-bar #streets-panel > .filter-row:first-child { grid-area: 1 / 1; }
 #mode-bar #area-picker { grid-area: 2 / 1; }
 #mode-bar #area-status { grid-area: 3 / 1; }
 #mode-bar #area-tools { grid-area: 4 / 1; flex-wrap: wrap; gap: 2px 14px; }
@@ -1275,6 +1275,11 @@ body {
 
 .track-popup > small {
   color: #666;
+}
+
+.track-popup > .link-button {
+  align-self: flex-start;
+  padding: 0;
 }
 
 .track-popup dl {

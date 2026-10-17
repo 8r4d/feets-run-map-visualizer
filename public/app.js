@@ -361,6 +361,15 @@ function trackPopup(track, latlng) {
       if (popup.isOpen()) popup.update();  // it's taller now: re-pan so it all shows
     });
   }
+  const toRoute = document.createElement('button');
+  toRoute.className = 'link-button';
+  toRoute.type = 'button';
+  toRoute.textContent = 'Create route from this run';
+  toRoute.onclick = () => {
+    map.closePopup(popup);
+    routeFromTrack(track);
+  };
+  box.append(toRoute);
   const popup = L.popup({ maxWidth: 300, minWidth: 240 }).setLatLng(latlng).setContent(box).openOn(map);
 }
 
