@@ -204,7 +204,8 @@ body {
 
 #track-list li {
   display: grid;
-  grid-template-columns: auto auto 1fr auto auto auto;
+  grid-template-columns: auto auto 1fr;
+  grid-auto-flow: column;  /* one column per button showing */
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
@@ -237,7 +238,8 @@ body {
 
 #track-list button.delete,
 #track-list button.download,
-#track-list button.to-route {
+#track-list button.to-route,
+#track-list button.edit-points {
   border: none;
   background: none;
   color: #999;
@@ -252,7 +254,8 @@ body {
 
 /* Delete and plan-a-route buttons only show in edit mode. */
 #track-list:not(.editing) button.delete,
-#track-list:not(.editing) button.to-route {
+#track-list:not(.editing) button.to-route,
+#track-list:not(.editing) button.edit-points {
   display: none;
 }
 
@@ -287,7 +290,8 @@ body {
 }
 
 #track-list button.download:hover,
-#track-list button.to-route:hover {
+#track-list button.to-route:hover,
+#track-list button.edit-points:hover {
   color: #2a7ae2;
 }
 
@@ -886,6 +890,7 @@ body {
 .read-only #edit-toggle,
 .read-only #track-list button.download,
 .read-only #track-list button.delete,
+.read-only #track-list button.edit-points,
 .read-only #area-add,
 .read-only #area-picker,
 /* A view link shows saved routes only */
@@ -1296,6 +1301,33 @@ body {
 .track-popup dd {
   margin: 0;
   font-variant-numeric: tabular-nums;
+}
+
+/* Removing a track's stray points: the panel on the map */
+.point-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 220px;
+  padding: 8px 10px;
+  font-size: 13px;
+  background: #fff;
+  border-radius: 4px;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.4);
+}
+
+.point-edit .count {
+  color: #c00;
+}
+
+.point-edit .count:empty {
+  display: none;
+}
+
+.point-edit div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 /* Elevation chart (elevation.js) */

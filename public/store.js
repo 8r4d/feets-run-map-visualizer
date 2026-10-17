@@ -101,6 +101,10 @@ const Store = (() => {
     // Works out pace, time and elevation for some older tracks: { metrics: { id: metrics }, remaining }.
     trackMetrics: () => json('POST', '?action=track_metrics'),
     profile: async id => (await json('GET', `?action=track_profile&id=${id}`)).profile,  // [[km, metres]] or null
+    // Every point in the track's GPX: [[lat, lon, segment]].
+    trackPoints: async id => (await json('GET', `?action=track_points&id=${id}`)).points,
+    // Takes points (indexes into trackPoints) out of the GPX; resolves to the track worked out again.
+    removePoints: (id, remove) => json('POST', `?action=track_edit&id=${id}`, { remove }),
     update: track => json('POST', `?action=update&id=${track.id}`, { visible: track.visible, color: track.color }),
     setVisible: (ids, visible) => json('POST', '?action=set_visible', { ids, visible }),
     remove: id => json('POST', `?action=delete&id=${id}`),

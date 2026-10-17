@@ -33,6 +33,9 @@
 //   POST api.php?action=track_metrics  works out pace, time and elevation for older tracks, a batch at a time:
 //                                      {metrics: {id: metrics}, remaining}
 //   GET  api.php?action=track_profile&id=ID  {profile: [[km, metres]] or null}
+//   GET  api.php?action=track_points&id=ID   every point in the GPX, for removing stray ones: {points: [[lat, lon, segment]]}
+//   POST api.php?action=track_edit&id=ID     {remove: [point indexes, as in track_points]}: takes those points out of
+//                                      the GPX and works the track out again; returns the track, as in the list
 //
 // Routes are stored simplified (to ~3 m) for drawing; the original GPX is kept for download.
 //
@@ -733,7 +736,8 @@ function haversine(float $lat1, float $lon1, float $lat2, float $lon2): float {
 }
 
 // The track points of a GPX, one at a time: [segment, lat, lon, ele|null,
-// time|null], segment counting up from 0 at each <trkseg>. Matched one small
+// time|null, offset, length], segment counting up from 0 at each <trkseg>, and
+// offset and length the <trkpt> element's place in the text. Matched one small
 // piece at a time, so a long file needs little memory and doesn't hit PCRE's limits.
 function gpx_points(string $gpx): Generator {
     $segment = 0;
@@ -751,7 +755,7 @@ function gpx_points(string $gpx): Generator {
         $body = $m[3][0] ?? '';
         $ele = preg_match('#<ele>\s*([-+\d.eE]+)\s*</ele>#', $body, $e) ? (float) $e[1] : null;
         $time = preg_match('#<time>\s*([^<]+?)\s*</time>#', $body, $t) ? strtotime($t[1]) : false;
-        yield [$segment, (float) $lat[1], (float) $lon[1], $ele, $time === false ? null : $time];
+        yield [$segment, (float) $lat[1], (float) $lon[1], $ele, $time === false ? null : $time, $m[0][1], strlen($m[0][0])];
     }
 }
 
@@ -1008,6 +1012,72 @@ function update_track(int $userId, int $id, array $t): array {
     db()->prepare('UPDATE tracks SET visible = ?, color = ? WHERE id = ? AND user_id = ?')
         ->execute([$t['visible'] ? 1 : 0, $t['color'], $id, $userId]);
     return ['ok' => true];
+}
+
+// --- Removing stray points ---
+// A GPS glitch can put a point kilometres off, drawing a wild line. The
+// stored geometry is simplified, so the points come from the GPX itself.
+
+function track_gpx(int $userId, int $id): array {
+    $stmt = db()->prepare('SELECT * FROM tracks WHERE id = ? AND user_id = ?');
+    $stmt->execute([$id, $userId]);
+    $row = $stmt->fetch();
+    if (!$row) {
+        fail('Track not found', 404);
+    }
+    return $row;
+}
+
+// Segments renumbered 0, 1, 2... (gpx_points counts both ends of each <trkseg>).
+function track_points(int $userId, int $id): array {
+    $points = [];
+    $segment = -1;
+    $last = null;
+    foreach (gpx_points(track_gpx($userId, $id)['gpx']) as [$seg, $lat, $lon]) {
+        if ($seg !== $last) {
+            $segment++;
+            $last = $seg;
+        }
+        $points[] = [$lat, $lon, $segment];
+    }
+    if (count($points) < 2) {
+        fail("This track's file has no track points to edit", 400);
+    }
+    return ['points' => $points];
+}
+
+function edit_track(int $userId, int $id, array $b): array {
+    $row = track_gpx($userId, $id);
+    $remove = array_flip(array_map('intval', $b['remove'] ?? []));
+    $cuts = $segments = [];
+    $distance = 0.0;
+    $last = null;  // [segment, lat, lon] of the last point kept
+    foreach (gpx_points($row['gpx']) as $i => [$seg, $lat, $lon, , , $offset, $length]) {
+        if (isset($remove[$i])) {
+            $cuts[] = [$offset, $length];
+            continue;
+        }
+        if ($last && $last[0] === $seg) {
+            $distance += haversine($last[1], $last[2], $lat, $lon);
+            $segments[count($segments) - 1][] = [$lat, $lon];
+        } else {
+            $segments[] = [[$lat, $lon]];
+        }
+        $last = [$seg, $lat, $lon];
+    }
+    $segments = array_values(array_filter($segments, fn($s) => count($s) > 1));
+    if (!$segments) {
+        fail('That would leave nothing of the track', 400);
+    }
+    $gpx = $row['gpx'];
+    foreach (array_reverse($cuts) as [$offset, $length]) {
+        $gpx = substr_replace($gpx, '', $offset, $length);
+    }
+    [$metrics, $profile] = gpx_metrics($gpx);
+    $geometry = simplify_geometry($segments, json_decode($row['geometry'], true)['waypoints'] ?? []);
+    db()->prepare('UPDATE tracks SET gpx = ?, geometry = ?, distance_m = ?, metrics = ?, profile = ?, simplified = 1 WHERE id = ?')
+        ->execute([$gpx, $geometry, $distance, json_encode($metrics), $profile === null ? null : json_encode($profile), $id]);
+    return track_json(track_gpx($userId, $id));
 }
 
 function delete_track(int $userId, int $id): array {
@@ -1950,6 +2020,10 @@ if ($method === 'POST' && $action === 'invite') {
     send_json(backfill_metrics($userId));
 } elseif ($method === 'GET' && $action === 'track_profile' && $id) {
     send_json(track_profile($userId, $id));
+} elseif ($method === 'GET' && $action === 'track_points' && $id) {
+    send_json(track_points($userId, $id));
+} elseif ($method === 'POST' && $action === 'track_edit' && $id) {
+    send_json(edit_track($userId, $id, read_json()));
 } elseif ($method === 'GET' && $action === 'achievements') {
     send_json(list_achievements($userId));
 } elseif ($method === 'POST' && $action === 'achievement_add') {

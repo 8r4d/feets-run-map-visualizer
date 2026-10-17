@@ -128,6 +128,7 @@ let mapMode = 'tracks';  // tracks, heatmap, streets or plan
 let trackVersion = 0;    // bumped whenever the tracks on the map may have changed
 // Plan mode can hide the coloured streets (Streets mode always shows them).
 let planStreets = true;
+let pointEdit = null;    // the track whose stray points are being removed (see editPoints)
 try { planStreets = localStorage.getItem('feets-plan-streets') !== 'off'; } catch {}
 const showStreets = () => streetsMode || (planMode && planStreets);
 let baseBeforeHeatmap = null;
@@ -159,7 +160,7 @@ function syncLayers() {
   trackVersion++;
   const showTracks = !heatmap && !streetsMode && !planMode;
   for (const { track, layer } of loaded.values()) {
-    if (onMap(track) && showTracks) layer.addTo(map);
+    if (onMap(track) && showTracks && !(pointEdit && pointEdit.id === track.id)) layer.addTo(map);
     else layer.remove();
   }
   if (heatmap) drawHeatmap();
@@ -200,6 +201,7 @@ new ResizeObserver(() => {
 }).observe(modeBar);
 
 function setMode(mode) {
+  if (pointEdit && mode !== 'tracks') endPointEdit();
   const heat = mode === 'heatmap';
   if (heat !== heatmap) {
     if (heat) {
@@ -388,6 +390,17 @@ function trackPopup(track, latlng) {
     routeFromTrack(track);
   };
   box.append(toRoute);
+  if (!readOnly()) {
+    const fix = document.createElement('button');
+    fix.className = 'link-button';
+    fix.type = 'button';
+    fix.textContent = 'Remove stray points';
+    fix.onclick = () => {
+      map.closePopup(popup);
+      editPoints(track.id);
+    };
+    box.append(fix);
+  }
   const popup = L.popup({ maxWidth: 300, minWidth: 240 }).setLatLng(latlng).setContent(box).openOn(map);
 }
 
@@ -688,13 +701,19 @@ function listItem({ track, layer }) {
   toRoute.title = 'Plan a route from this run';
   toRoute.onclick = () => routeFromTrack(track);
 
+  const fixPoints = document.createElement('button');
+  fixPoints.className = 'edit-points';
+  fixPoints.textContent = '✎';
+  fixPoints.title = 'Remove stray GPS points';
+  fixPoints.onclick = () => editPoints(track.id);
+
   const del = document.createElement('button');
   del.className = 'delete';
   del.textContent = '×';
   del.title = 'Delete';
   del.onclick = () => removeTrack(track.id);
 
-  li.append(checkbox, swatch, name, toRoute, download, del);
+  li.append(checkbox, swatch, name, toRoute, fixPoints, download, del);
   return li;
 }
 
@@ -724,6 +743,96 @@ async function removeTrack(id) {
   entry.layer.remove();
   loaded.delete(id);
   await Store.remove(id);
+  render();
+}
+
+// --- Removing stray points ---
+// Shows every point in a track's GPX. Clicking one marks it to go (red) and
+// the line redraws without it; clicking it again keeps it. Saving takes the
+// marked points out of the stored GPX, and the server works out the track again.
+const pointRenderer = L.canvas({ padding: 0.5, tolerance: 6 });
+
+async function editPoints(id) {
+  if (pointEdit) endPointEdit();
+  if (mapMode !== 'tracks') setMode('tracks');
+  map.closePopup();
+  let points;
+  try {
+    points = await Store.trackPoints(id);
+  } catch (err) {
+    alert(err.message);
+    return;
+  }
+  const entry = loaded.get(id);
+  if (!entry) return;
+  if (!entry.track.visible) setVisible(id, true);
+  const removed = new Set();
+  const color = trackColor(entry.track);
+  const layer = L.layerGroup().addTo(map);
+  const line = L.polyline([], { renderer: pointRenderer, color, weight: 3, opacity: 0.8, interactive: false }).addTo(layer);
+  const redraw = () => {
+    const segments = [];
+    points.forEach(([lat, lon, seg], i) => {
+      if (removed.has(i)) return;
+      if (!segments.length || segments[segments.length - 1].seg !== seg) segments.push(Object.assign([], { seg }));
+      segments[segments.length - 1].push([lat, lon]);
+    });
+    line.setLatLngs(segments);
+    count.textContent = removed.size ? `${removed.size} point${removed.size === 1 ? '' : 's'} to remove` : '';
+    save.disabled = !removed.size;
+  };
+  const KEEP = { radius: 3, color, weight: 1, fillColor: '#fff', fillOpacity: 1 };
+  const REMOVE = { radius: 6, color: '#c00', weight: 2, fillColor: '#c00', fillOpacity: 0.6 };
+  points.forEach(([lat, lon], i) => {
+    const marker = L.circleMarker([lat, lon], { renderer: pointRenderer, ...KEEP }).addTo(layer);
+    marker.on('click', () => {
+      if (removed.delete(i)) marker.setStyle(KEEP);
+      else {
+        removed.add(i);
+        marker.setStyle(REMOVE);
+      }
+      redraw();
+    });
+  });
+
+  const control = L.control({ position: 'topright' });
+  const box = L.DomUtil.create('div', 'point-edit');
+  box.innerHTML = '<strong></strong><span>Click stray points to remove them, or again to keep them.</span>'
+    + '<span class="count"></span><div><button type="button">Save</button>'
+    + '<button class="link-button" type="button">Cancel</button></div>';
+  box.querySelector('strong').textContent = entry.track.name;
+  const count = box.querySelector('.count');
+  const [save, cancel] = box.querySelectorAll('button');
+  L.DomEvent.disableClickPropagation(box);
+  L.DomEvent.disableScrollPropagation(box);
+  control.onAdd = () => box;
+  control.addTo(map);
+  cancel.onclick = () => endPointEdit();
+  save.onclick = async () => {
+    save.disabled = true;
+    try {
+      const track = await Store.removePoints(id, [...removed]);
+      Object.assign(entry.track, track);
+      entry.layer.remove();
+      entry.layer = buildLayer(entry.track);
+      profiles.delete(id);
+      endPointEdit();
+    } catch (err) {
+      alert(err.message);
+      save.disabled = false;
+    }
+  };
+
+  pointEdit = { id, layer, control };
+  redraw();
+  syncLayers();  // takes the track's own line off while it's edited
+  map.fitBounds(line.getBounds(), { padding: [30, 30] });
+}
+
+function endPointEdit() {
+  pointEdit.layer.remove();
+  pointEdit.control.remove();
+  pointEdit = null;
   render();
 }
 
