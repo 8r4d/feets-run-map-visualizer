@@ -179,6 +179,13 @@ const OSM = (() => {
     return contains(polygons.get(area), lat, lon);
   }
 
+  // Whether a point is inside neighbourhood h of a stored area (its data.hoods).
+  const hoodPolygons = new WeakMap();
+  function inHood(area, h, lat, lon) {
+    if (!hoodPolygons.has(area)) hoodPolygons.set(area, area.data.hoods.map(hood => makePolygon(hood.lines)));
+    return contains(hoodPolygons.get(area)[h], lat, lon);
+  }
+
   // A boundary's outline, name and admin level. Nominatim (OSM's search
   // service) usually answers in about a second; Overpass is the fallback,
   // since it can take far longer for a single boundary.
@@ -274,5 +281,5 @@ const OSM = (() => {
     return { name: found.name || `OSM area ${osmId}`, data: { boundary, hoods, streets } };
   }
 
-  return { candidates, containing, inArea, buildArea };
+  return { candidates, containing, inArea, inHood, buildArea };
 })();

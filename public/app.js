@@ -1171,13 +1171,23 @@ function areaParents() {
 
 function fillAreaSelect() {
   const parent = areaParents();
-  const options = [];
+  const nested = [];  // [area, depth], in menu order
   const add = (a, depth) => {
-    options.push(new Option(`${'\u2013 '.repeat(depth)}${a.name}`, String(a.id)));
+    nested.push([a, depth]);
     for (const child of areas) if (parent.get(child) === a) add(child, depth + 1);
   };
   for (const a of areas) if (!parent.has(a)) add(a, 0);  // areas is sorted by name
-  areaSelect.replaceChildren(new Option(areas.length ? 'Choose an area…' : 'No areas yet: add one', ''), ...options);
+  const label = (a, depth) => `${'\u2013 '.repeat(depth)}${a.name}`;
+  areaSelect.replaceChildren(new Option(areas.length ? 'Choose an area…' : 'No areas yet: add one', ''),
+    ...nested.map(([a, depth]) => new Option(label(a, depth), String(a.id))));
+  // Plan's "Stay within": each area, and the neighbourhoods inside it.
+  const within = exploreWithin.value;
+  exploreWithin.replaceChildren(new Option('anywhere', ''), ...nested.flatMap(([a, depth]) => [
+    new Option(label(a, depth), `a:${a.id}`),
+    ...a.data.hoods.map((h, i) => new Option(`\u00a0\u00a0\u00a0· ${h.name}`, `h:${a.id}:${i}`)),
+  ]));
+  exploreWithin.value = within;
+  if (exploreWithin.selectedIndex < 0) exploreWithin.value = '';
 }
 
 function setActiveArea(id) {
@@ -2404,6 +2414,7 @@ async function renameRoute(r) {
 // in view, else the middle of the map. The result is an ordinary route to
 // edit, save or download.
 const exploreKm = document.getElementById('explore-km');
+const exploreWithin = document.getElementById('explore-within');
 try { exploreKm.value = localStorage.getItem('feets-explore-km') || exploreKm.value; } catch {}
 // Complexity, 1 (a simple loop through a stretch or two) to 5 (as many unrun streets as fit).
 const exploreLevel = document.getElementById('explore-level');
@@ -2411,12 +2422,89 @@ try { exploreLevel.value = localStorage.getItem('feets-explore-level') || explor
 exploreLevel.onchange = () => {
   try { localStorage.setItem('feets-explore-level', exploreLevel.value); } catch {}
 };
-// Whether to go for unrun streets, or make a loop over any.
+// Whether to go for unrun streets, or make a loop over any; and, going for
+// unrun ones, whether to favour finishing streets already started.
 const exploreUnrun = document.getElementById('explore-unrun');
+const exploreFinish = document.getElementById('explore-finish');
 try { exploreUnrun.checked = localStorage.getItem('feets-explore-unrun') !== 'off'; } catch {}
+try { exploreFinish.checked = localStorage.getItem('feets-explore-finish') === 'on'; } catch {}
+const syncFinish = () => { exploreFinish.disabled = !exploreUnrun.checked; };
+syncFinish();
 exploreUnrun.onchange = () => {
   try { localStorage.setItem('feets-explore-unrun', exploreUnrun.checked ? 'on' : 'off'); } catch {}
+  syncFinish();
 };
+exploreFinish.onchange = () => {
+  try { localStorage.setItem('feets-explore-finish', exploreFinish.checked ? 'on' : 'off'); } catch {}
+};
+// Kinds of street: any, prefer paths and trails, or roads only (see Planner.explore).
+const exploreStreets = document.getElementById('explore-streets');
+try { exploreStreets.value = localStorage.getItem('feets-explore-streets') || 'any'; } catch {}
+if (exploreStreets.selectedIndex < 0) exploreStreets.value = 'any';
+exploreStreets.onchange = () => {
+  try { localStorage.setItem('feets-explore-streets', exploreStreets.value); } catch {}
+};
+// Stay within: '' for anywhere, 'a:ID' for an area, 'h:ID:N' for neighbourhood
+// N of an area. Filled in with the areas (see fillAreaSelect).
+try { exploreWithin.value = localStorage.getItem('feets-explore-within') || ''; } catch {}
+exploreWithin.onchange = () => {
+  try { localStorage.setItem('feets-explore-within', exploreWithin.value); } catch {}
+};
+
+// The street points a loop may use with "Stay within" set: a Uint8Array over
+// the graph's points, with its name; null for anywhere. Kept until the graph
+// or the choice changes.
+let withinCache = null;
+function withinMask(g) {
+  const value = exploreWithin.value;
+  if (!value) return null;
+  if (withinCache && withinCache.g === g && withinCache.value === value) return withinCache.mask;
+  const [kind, id, h] = value.split(':');
+  const area = areas.find(a => String(a.id) === id);
+  if (!area) return null;
+  const inside = kind === 'h' ? (la, lo) => OSM.inHood(area, Number(h), la, lo) : (la, lo) => OSM.inArea(area, la, lo);
+  const allowed = new Uint8Array(g.lat.length);
+  for (let i = 0; i < allowed.length; i++) allowed[i] = inside(g.lat[i], g.lon[i]) ? 1 : 0;
+  // Only the biggest connected piece: streets along the edge can leave scraps
+  // inside that join nothing else, and a loop can't start from one of those.
+  const piece = new Int32Array(allowed.length).fill(-1);
+  const sizes = [];
+  for (let i = 0; i < allowed.length; i++) {
+    if (!allowed[i] || piece[i] >= 0) continue;
+    const id = sizes.length, stack = [i];
+    piece[i] = id;
+    let size = 0;
+    while (stack.length) {
+      const a = stack.pop();
+      size++;
+      const edges = g.adj[a];
+      for (let k = 0; k < edges.length; k += 3) {
+        const b = edges[k];
+        if (allowed[b] && piece[b] < 0) {
+          piece[b] = id;
+          stack.push(b);
+        }
+      }
+    }
+    sizes.push(size);
+  }
+  const biggest = sizes.indexOf(Math.max(...sizes));
+  for (let i = 0; i < allowed.length; i++) allowed[i] = allowed[i] && piece[i] === biggest ? 1 : 0;
+  const name = kind === 'h' ? area.data.hoods[Number(h)].name : area.name;
+  withinCache = { g, value, mask: { allowed, name } };
+  return withinCache.mask;
+}
+
+// The allowed point nearest to [lat, lon], or -1 if none is.
+function nearestAllowed(g, allowed, [la, lo]) {
+  let best = -1, bestD = Infinity;
+  for (let i = 0; i < allowed.length; i++) {
+    if (!allowed[i]) continue;
+    const d = Planner.distance(la, lo, g.lat[i], g.lon[i]);
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  return best;
+}
 // Heading: favour streets that lie this way from the start (degrees, '' for any).
 const exploreHeading = document.getElementById('explore-heading');
 try { exploreHeading.value = localStorage.getItem('feets-explore-heading') || ''; } catch {}
@@ -2438,9 +2526,16 @@ document.getElementById('plan-explore').onsubmit = async e => {
   const [from, where] = plan.waypoints.length ? [plan.waypoints[0], 'the first point']
     : here ? [[lastFix.lat, lastFix.lng], 'you'] : [[map.getCenter().lat, map.getCenter().lng], 'the middle of the map'];
   const g = planGraph();
-  const start = Planner.snap(g, from);
+  const within = withinMask(g);
+  let start = Planner.snap(g, from);
+  let startNote = '';
+  // Starting outside "Stay within": from its nearest point instead.
+  if (within && (start < 0 || !within.allowed[start])) {
+    start = nearestAllowed(g, within.allowed, from);
+    startNote = ` It starts from the nearest point in ${within.name}.`;
+  }
   if (start < 0) {
-    planStatus.textContent = `There's no street of your areas near ${where}.`;
+    planStatus.textContent = within ? `${within.name} has no streets to make a loop on.` : `There's no street of your areas near ${where}.`;
     return;
   }
   if (!mayDiscard()) return;
@@ -2452,16 +2547,21 @@ document.getElementById('plan-explore').onsubmit = async e => {
   planStatus.textContent = looking;
   try {
     const chains = Planner.chains(g, areas, area => {
-      const visited = trackCoverage(area).visited;
-      return unrun ? visited : new Uint8Array(visited.length);
+      const { visited, fraction } = trackCoverage(area);
+      return unrun ? { visited, fraction } : { visited: new Uint8Array(visited.length), fraction: new Float64Array(fraction.length) };
     });
     const found = await Planner.explore(g, start, chains, target * 1000, (i, n) => {
       planStatus.textContent = `${looking} (step ${i} of ${n})`;
-    }, Number(exploreLevel.value), exploreHeading.value === '' ? null : Number(exploreHeading.value));
+    }, Number(exploreLevel.value), exploreHeading.value === '' ? null : Number(exploreHeading.value), {
+      allowed: within && within.allowed,
+      streets: exploreStreets.value,
+      finish: unrun && exploreFinish.checked,
+    });
     if (!found) {
+      const inside = within ? ` inside ${within.name}` : '';
       planStatus.textContent = unrun
-        ? `No unrun streets fit in a ${target} km loop from ${where}. Try a longer one.`
-        : `No loop of ${target} km fits from ${where}. Try a longer one.`;
+        ? `No unrun streets${inside} fit in a ${target} km loop from ${where}. Try a longer one, or fewer options.`
+        : `No loop of ${target} km fits${inside} from ${where}. Try a longer one, or fewer options.`;
       return;
     }
     resetPlan();
@@ -2472,8 +2572,8 @@ document.getElementById('plan-explore').onsubmit = async e => {
     planChanged();
     const way = exploreHeading.value === '' ? '' : ` heading ${exploreHeading.selectedOptions[0].text}`;
     planStatus.textContent = (found.widened && way
-      ? `There wasn't much ${unrun ? 'unrun street' : 'room'}${way} from ${where}, so this loop goes wider. `
-      : `A loop${way} from ${where}. `) + 'Change it like any route: drag points, or click them to remove them.';
+      ? `There wasn't much ${unrun ? 'unrun street' : 'room'}${way} from ${where}, so this loop goes wider.`
+      : `A loop${way} from ${where}.`) + startNote + ' Change it like any route: drag points, or click them to remove them.';
     map.fitBounds(L.latLngBounds(routePoints(plan)), { padding: [40, 40], maxZoom: 17 });
   } finally {
     button.disabled = false;

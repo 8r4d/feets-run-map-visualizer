@@ -1565,24 +1565,37 @@ body {
   color: #666;
 }
 
-#plan-explore #explore-unrun-row {
+#plan-explore #explore-unrun-row,
+#plan-explore #explore-finish-row,
+#plan-explore .explore-select-row {
   flex-basis: 100%;
   font-size: 12px;
   color: #666;
 }
 
-#plan-explore #explore-unrun {
+/* Finishing started streets goes with "unrun", so it sits under it */
+#plan-explore #explore-finish-row {
+  padding-left: 18px;
+}
+
+#plan-explore #explore-finish-row:has(:disabled) {
+  opacity: 0.5;
+}
+
+#plan-explore #explore-unrun,
+#plan-explore #explore-finish {
   width: auto;
 }
 
-#plan-explore #explore-heading-row {
-  flex-basis: 100%;
-  font-size: 12px;
-  color: #666;
+/* Labels the same width, so the menus line up */
+#plan-explore .explore-select-row {
+  display: grid;
+  grid-template-columns: 4.2em 1fr;
 }
 
-#plan-explore #explore-heading {
-  flex: 1;
+#plan-explore .explore-select-row select {
+  width: 100%;
+  min-width: 0;
   font: inherit;
   font-size: 13px;
 }
