@@ -42,6 +42,177 @@ const Art = (() => {
   };
   const circleWidth = (cy, r) => y => Math.sqrt(Math.max(0, r * r - (y - cy) ** 2));
 
+  // --- Bubble letters ---
+  // Each letter is drawn as the strokes you'd write it with (lines in a box
+  // about 0.6 wide and 1 high, y up), and its bubble outline worked out from
+  // them: the strokes are painted BUBBLE thick on a grid, and the edge traced
+  // (marching squares), which rounds every end and corner. A hole (in A, B,
+  // O, ...) is joined to the outside by a short spoke, there and back, so the
+  // letter can be run in one go.
+  const BUBBLE = 0.11;    // half the thickness of a letter's strokes
+  const GRID = 0.01;      // tracing grid step
+  const ellipse = (cx, cy, rx, ry, from, to, n = 16) =>
+    Array.from({ length: n + 1 }, (_, i) => {
+      const a = (from + (to - from) * i / n) * Math.PI / 180;
+      return [cx + rx * Math.cos(a), cy + ry * Math.sin(a)];
+    });
+  const STROKES = {
+    A: [[[0, 0], [0.3, 1], [0.6, 0]], [[0.12, 0.35], [0.48, 0.35]]],
+    B: [[[0, 0], [0, 1], [0.36, 1], ...ellipse(0.36, 0.76, 0.22, 0.24, 90, -90), [0, 0.52]], [[0, 0.52], [0.38, 0.52], ...ellipse(0.38, 0.26, 0.24, 0.26, 90, -90), [0, 0]]],
+    C: [ellipse(0.32, 0.5, 0.32, 0.5, 45, 315, 24)],
+    D: [[[0, 0], [0, 1], [0.24, 1], ...ellipse(0.24, 0.5, 0.36, 0.5, 90, -90, 20), [0, 0]]],
+    E: [[[0.56, 1], [0, 1], [0, 0], [0.56, 0]], [[0, 0.5], [0.44, 0.5]]],
+    F: [[[0.56, 1], [0, 1], [0, 0]], [[0, 0.5], [0.44, 0.5]]],
+    G: [[...ellipse(0.32, 0.5, 0.32, 0.5, 45, 320, 24), [0.6, 0.45], [0.36, 0.45]]],
+    H: [[[0, 0], [0, 1]], [[0.6, 0], [0.6, 1]], [[0, 0.5], [0.6, 0.5]]],
+    I: [[[0.3, 0], [0.3, 1]], [[0.08, 1], [0.52, 1]], [[0.08, 0], [0.52, 0]]],
+    J: [[[0.6, 1], [0.6, 0.3], ...ellipse(0.3, 0.3, 0.3, 0.3, 0, -180), [0, 0.38]]],
+    K: [[[0, 0], [0, 1]], [[0.58, 1], [0, 0.42]], [[0.2, 0.62], [0.6, 0]]],
+    L: [[[0, 1], [0, 0], [0.55, 0]]],
+    M: [[[0, 0], [0, 1], [0.3, 0.45], [0.6, 1], [0.6, 0]]],
+    N: [[[0, 0], [0, 1], [0.6, 0], [0.6, 1]]],
+    O: [ellipse(0.3, 0.5, 0.3, 0.5, 0, 360, 32)],
+    P: [[[0, 0], [0, 1], [0.34, 1], ...ellipse(0.34, 0.74, 0.26, 0.26, 90, -90), [0, 0.48]]],
+    Q: [ellipse(0.3, 0.5, 0.3, 0.5, 0, 360, 32), [[0.36, 0.26], [0.66, -0.06]]],
+    R: [[[0, 0], [0, 1], [0.34, 1], ...ellipse(0.34, 0.74, 0.26, 0.26, 90, -90), [0, 0.48]], [[0.26, 0.48], [0.6, 0]]],
+    S: [[...ellipse(0.3, 0.75, 0.3, 0.25, 20, 270), ...ellipse(0.3, 0.25, 0.3, 0.25, 90, -160)]],
+    T: [[[0, 1], [0.6, 1]], [[0.3, 1], [0.3, 0]]],
+    U: [[[0, 1], [0, 0.3], ...ellipse(0.3, 0.3, 0.3, 0.3, 180, 360), [0.6, 1]]],
+    V: [[[0, 1], [0.3, 0], [0.6, 1]]],
+    W: [[[0, 1], [0.15, 0], [0.3, 0.6], [0.45, 0], [0.6, 1]]],
+    X: [[[0, 1], [0.6, 0]], [[0, 0], [0.6, 1]]],
+    Y: [[[0, 1], [0.3, 0.5], [0.6, 1]], [[0.3, 0.5], [0.3, 0]]],
+    Z: [[[0, 1], [0.6, 1], [0, 0], [0.6, 0]]],
+    0: [ellipse(0.3, 0.5, 0.27, 0.5, 0, 360, 32)],
+    1: [[[0.08, 0.78], [0.34, 1], [0.34, 0]], [[0.08, 0], [0.6, 0]]],
+    2: [[...ellipse(0.3, 0.7, 0.3, 0.3, 160, -30), [0, 0], [0.6, 0]]],
+    3: [[...ellipse(0.3, 0.75, 0.27, 0.25, 160, -90), ...ellipse(0.3, 0.25, 0.3, 0.25, 90, -160)]],
+    4: [[[0.45, 0], [0.45, 1], [0, 0.32], [0.62, 0.32]]],
+    5: [[[0.56, 1], [0.06, 1], [0.02, 0.56], ...ellipse(0.3, 0.32, 0.3, 0.3, 130, -150)]],
+    6: [ellipse(0.32, 0.5, 0.3, 0.5, 60, 200), ellipse(0.3, 0.28, 0.28, 0.28, 0, 360, 24)],
+    7: [[[0, 1], [0.6, 1], [0.2, 0]]],
+    8: [ellipse(0.3, 0.76, 0.22, 0.24, 0, 360, 24), ellipse(0.3, 0.27, 0.28, 0.27, 0, 360, 24)],
+    9: [ellipse(0.3, 0.72, 0.28, 0.28, 0, 360, 24), [[0.58, 0.72], [0.48, 0]]],
+  };
+
+  // Distance from a point to a line segment.
+  function segmentGap([px, py], [ax, ay], [bx, by]) {
+    const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
+    const t = len2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2)) : 0;
+    return Math.hypot(px - ax - t * dx, py - ay - t * dy);
+  }
+
+  // The closed outlines where f(x, y) = 0 on a grid (marching squares), each
+  // as a list of points, with f negative inside.
+  function contours(f, x0, y0, cols, rows, step) {
+    const v = new Float64Array((cols + 1) * (rows + 1));
+    for (let r = 0; r <= rows; r++) for (let c = 0; c <= cols; c++) v[r * (cols + 1) + c] = f(x0 + c * step, y0 + r * step);
+    const at = (c, r) => v[r * (cols + 1) + c];
+    // Where the edge between two corners crosses zero, keyed so that cells
+    // sharing an edge find each other.
+    const cross = (c1, r1, c2, r2) => {
+      const a = at(c1, r1), b = at(c2, r2), t = a / (a - b);
+      return { key: `${c1},${r1},${c2},${r2}`, p: [x0 + (c1 + (c2 - c1) * t) * step, y0 + (r1 + (r2 - r1) * t) * step] };
+    };
+    const next = new Map(), points = new Map();
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const bl = at(c, r) < 0, br = at(c + 1, r) < 0, tr = at(c + 1, r + 1) < 0, tl = at(c, r + 1) < 0;
+        const edges = [];
+        // Edges in order round the cell, with whether the outline crosses each.
+        const B = bl !== br && cross(c, r, c + 1, r), R = br !== tr && cross(c + 1, r, c + 1, r + 1);
+        const T = tr !== tl && cross(c, r + 1, c + 1, r + 1), L = tl !== bl && cross(c, r, c, r + 1);
+        const found = [B, R, T, L].filter(Boolean);
+        if (found.length === 2) edges.push(found);
+        else if (found.length === 4) {
+          // A saddle: pair the crossings by the middle of the cell.
+          const middle = (at(c, r) + at(c + 1, r) + at(c + 1, r + 1) + at(c, r + 1)) / 4 < 0;
+          edges.push(...(middle === bl ? [[B, R], [T, L]] : [[B, L], [R, T]]));
+        }
+        for (const [a, b] of edges) {
+          points.set(a.key, a.p);
+          points.set(b.key, b.p);
+          if (!next.has(a.key)) next.set(a.key, []);
+          if (!next.has(b.key)) next.set(b.key, []);
+          next.get(a.key).push(b.key);
+          next.get(b.key).push(a.key);
+        }
+      }
+    }
+    // Link the pieces into loops.
+    const loops = [], used = new Set();
+    for (const start of next.keys()) {
+      if (used.has(start)) continue;
+      const loop = [];
+      let prev = null, cur = start;
+      while (cur && !used.has(cur)) {
+        used.add(cur);
+        loop.push(points.get(cur));
+        const [a, b] = next.get(cur);
+        const go = a !== prev && !used.has(a) ? a : b !== prev && !used.has(b) ? b : null;
+        prev = cur;
+        cur = go;
+      }
+      if (loop.length > 3) loops.push([...loop, loop[0]]);
+    }
+    return loops;
+  }
+
+  const loopArea = loop => loop.reduce((sum, [x, y], i) => (i ? sum + (loop[i - 1][0] * y - x * loop[i - 1][1]) : sum), 0) / 2;
+
+  // Douglas-Peucker: drops points within `tolerance` of the line through
+  // their neighbours.
+  function simplify(points, tolerance) {
+    if (points.length < 3) return points;
+    const keep = new Uint8Array(points.length);
+    keep[0] = keep[points.length - 1] = 1;
+    const stack = [[0, points.length - 1]];
+    while (stack.length) {
+      const [a, b] = stack.pop();
+      let far = -1, farGap = tolerance;
+      for (let i = a + 1; i < b; i++) {
+        const gap = segmentGap(points[i], points[a], points[b]);
+        if (gap > farGap) { farGap = gap; far = i; }
+      }
+      if (far >= 0) {
+        keep[far] = 1;
+        stack.push([a, far], [far, b]);
+      }
+    }
+    return points.filter((_, i) => keep[i]);
+  }
+
+  // A letter's bubble outline, as one line: the outside, with each hole
+  // reached by a spoke from the nearest point and back.
+  function bubble(strokes) {
+    const segments = strokes.flatMap(line => line.slice(1).map((p, i) => [line[i], p]));
+    const xs = strokes.flat().map(p => p[0]), ys = strokes.flat().map(p => p[1]);
+    const pad = BUBBLE + 2 * GRID;
+    const x0 = Math.min(...xs) - pad, y0 = Math.min(...ys) - pad;
+    const cols = Math.ceil((Math.max(...xs) + pad - x0) / GRID), rows = Math.ceil((Math.max(...ys) + pad - y0) / GRID);
+    const f = (x, y) => {
+      let gap = Infinity;
+      for (const [a, b] of segments) gap = Math.min(gap, segmentGap([x, y], a, b));
+      return gap - BUBBLE;
+    };
+    const loops = contours(f, x0, y0, cols, rows, GRID)
+      .map(loop => simplify(loop, GRID * 0.3))
+      .sort((a, b) => Math.abs(loopArea(b)) - Math.abs(loopArea(a)));
+    let path = loops[0];
+    for (const hole of loops.slice(1)) {
+      if (Math.abs(loopArea(hole)) < GRID * GRID * 20) continue;  // a speck where strokes cross
+      let best = [0, 0, Infinity];
+      path.forEach((p, i) => hole.forEach((q, j) => {
+        const d = Math.hypot(p[0] - q[0], p[1] - q[1]);
+        if (d < best[2]) best = [i, j, d];
+      }));
+      const [i, j] = best;
+      const ring = [...hole.slice(j, -1), ...hole.slice(0, j), hole[j]];
+      path = [...path.slice(0, i + 1), ...ring, ...path.slice(i)];
+    }
+    return path;
+  }
+
   // theme: which set of the picker it's in (everyday if not given).
   const LIBRARY = [
     { id: 'heart', name: 'Heart', points: ring(48, t => [16 * Math.sin(t) ** 3, 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)]) },
@@ -113,11 +284,25 @@ const Art = (() => {
       ...rows(0, 0.8, 0.04, circleWidth(0.4, 0.4)).map(([y, w]) => [y, Math.max(w, 0.08)]),
       [0.8, 0.1], [0.9, 0.1], [0.9, 0.04], [1, 0.04],
     ]) },
+
+    // Letters and numbers
+    ...[...'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'].map(ch => ({ id: `letter-${ch}`, name: ch, theme: 'letters', points: () => bubble(STROKES[ch]) })),
   ];
 
   // Scaled into a unit box (the longer side 1), centred, with each point's
   // distance along the line. closed: whether it ends where it starts.
+  // Worked out the first time a shape is used: letters take a moment each.
   const SHAPES = LIBRARY.map(({ id, name, theme = 'everyday', points }) => {
+    const shape = { id, name, theme };
+    let done = null;
+    const get = () => done || (done = finish(typeof points === 'function' ? points() : points));
+    for (const key of ['points', 'along', 'length', 'closed']) {
+      Object.defineProperty(shape, key, { get: () => get()[key], enumerable: true });
+    }
+    return shape;
+  });
+
+  function finish(points) {
     const xs = points.map(p => p[0]), ys = points.map(p => p[1]);
     const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
     const k = 1 / Math.max(x1 - x0, y1 - y0);
@@ -125,8 +310,8 @@ const Art = (() => {
     const along = [0];
     for (let i = 1; i < pts.length; i++) along.push(along[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
     const first = pts[0], last = pts[pts.length - 1];
-    return { id, name, theme, points: pts, along, length: along[along.length - 1], closed: Math.hypot(first[0] - last[0], first[1] - last[1]) < 0.01 };
-  });
+    return { points: pts, along, length: along[along.length - 1], closed: Math.hypot(first[0] - last[0], first[1] - last[1]) < 0.01 };
+  }
 
   // n points at equal steps along a shape (unit coordinates).
   function resample(shape, n) {
