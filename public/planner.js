@@ -242,8 +242,11 @@ const Planner = (() => {
   // Preferences, as search() and the loops use them:
   //   allowed: points the route may use (Uint8Array, 1 = yes), or null for any;
   //   kindCost: how much longer each kind of street counts, by KIND;
-  //   weight(chain): how much a chain's new metres are worth (0 leaves it out).
-  const ANY = { allowed: null, kindCost: [1, 1, 1, 1], weight: () => 1 };
+  //   weight(chain): how much a chain's new metres are worth (0 leaves it out);
+  //   heights: each point's height in metres (Float32Array), with hill: how
+  //     much steepness counts, HILL to keep flatter or -HILL to seek hills;
+  //     null and 0 to ignore hills.
+  const ANY = { allowed: null, kindCost: [1, 1, 1, 1], weight: () => 1, heights: null, hill: 0 };
 
   // explore()'s options turned into those. streets: 'any', 'paths' (prefer
   // paths and trails: roads cost more to travel and are worth less to aim
@@ -255,13 +258,37 @@ const Planner = (() => {
     roads: { cost: [1, 1, 4, 4], worth: { road: 1, path: 0, trail: 0 } },
   };
   const FINISH = 3;
+  // hills: 'flat' or 'hilly' (with heights), see steep(). A street rising 1 m
+  // in 25 counts twice as long for 'flat', and half as long for 'hilly'.
+  const HILL = 25;
 
-  function preferences({ allowed = null, streets = 'any', finish = false } = {}) {
+  // How much longer a stretch counts for its grade (rise over run, either
+  // way): more for steep ones with hill > 0, less with hill < 0.
+  const steep = (grade, hill) => (hill > 0 ? 1 + hill * grade : 1 / (1 - hill * grade));
+
+  function preferences(graph, { allowed = null, streets = 'any', finish = false, heights = null, hills = 'any' } = {}) {
     const { cost, worth } = STREETS[streets] || STREETS.any;
+    const hill = !heights ? 0 : hills === 'flat' ? HILL : hills === 'hilly' ? -HILL : 0;
+    const { lat, lon } = graph;
+    // A chain's overall grade, worked out once.
+    const grades = new WeakMap();
+    const grade = c => {
+      if (!grades.has(c)) {
+        let up = 0, len = 0;
+        for (let i = 1; i < c.length; i++) {
+          up += Math.abs(heights[c[i]] - heights[c[i - 1]]);
+          len += distance(lat[c[i - 1]], lon[c[i - 1]], lat[c[i]], lon[c[i]]);
+        }
+        grades.set(c, len ? up / len : 0);
+      }
+      return grades.get(c);
+    };
     return {
       allowed,
       kindCost: cost,
-      weight: c => (worth[c.kind] ?? 1) * (finish && c.started ? FINISH : 1),
+      heights: hill ? heights : null,
+      hill,
+      weight: c => (worth[c.kind] ?? 1) * (finish && c.started ? FINISH : 1) * (hill ? 1 / steep(grade(c), hill) : 1),
     };
   }
 
@@ -270,7 +297,7 @@ const Planner = (() => {
   // USED on edges in `used`, and FRESH between two points flagged in `fresh`.
   // Points `allowed` doesn't allow are never reached. Returns cost, real
   // metres and the previous point on each best path.
-  function search(graph, from, limit, used, fresh, { allowed, kindCost } = ANY) {
+  function search(graph, from, limit, used, fresh, { allowed, kindCost, heights, hill } = ANY) {
     const { adj } = graph;
     const n = graph.lat.length;
     const cost = new Float64Array(n).fill(Infinity);
@@ -290,6 +317,7 @@ const Planner = (() => {
         if (allowed && !allowed[b]) continue;
         let c = edges[k + 1] * kindCost[edges[k + 2] >> 1];
         if (edges[k + 2] & 1) c *= AVOID;
+        if (heights) c *= steep(Math.abs(heights[b] - heights[a]) / Math.max(edges[k + 1], 1), hill);
         if (used && used.has(edgeKey(a, b, n))) c *= USED;
         else if (fresh && fresh[a] && fresh[b]) c *= FRESH;
         if (base + c < cost[b]) {
@@ -341,26 +369,30 @@ const Planner = (() => {
   // heading: favour going this way from the start, in degrees clockwise from
   // north (180 is south), or null for any way. The result then has `widened`
   // set if there was too little unrun street that way and it looked wider.
-  // options: { allowed, streets, finish }, see preferences(); `start` must
-  // be a point `allowed` allows.
+  // options: { allowed, streets, finish, heights, hills }, see preferences(),
+  // and end: the point to finish at, if not back at `start`. `start` and
+  // `end` must be points `allowed` allows.
   async function explore(graph, start, chains, budget, progress = () => {}, level = 5, heading = null, options = {}) {
-    const prefs = preferences(options);
+    const prefs = preferences(graph, options);
+    const end = options.end ?? start;
     const { allowed, weight } = prefs;
     chains = chains.filter(c => weight(c) > 0 && (!allowed || c.every(i => allowed[i])));
     const facing = heading === null ? { chains, widened: false } : towards(graph, start, chains, budget, heading);
     const how = LEVELS[level] || LEVELS[5];
     const loop = how.stops
-      ? await fewStops(graph, start, facing.chains, budget, how, progress, prefs)
-      : await greedyBest(graph, start, facing.chains, budget, how, progress, prefs);
+      ? await fewStops(graph, start, end, facing.chains, budget, how, progress, prefs)
+      : await greedyBest(graph, start, end, facing.chains, budget, how, progress, prefs);
     return loop && { ...loop, widened: facing.widened };
   }
 
-  async function greedyBest(graph, start, chains, budget, options, progress, prefs) {
-    const home = search(graph, start, budget / 2, null, null, prefs).metres;  // nothing further than halfway is any use
+  async function greedyBest(graph, start, end, chains, budget, options, progress, prefs) {
+    // How far each point is from the finish. On a loop, nothing further than
+    // halfway is any use.
+    const home = search(graph, end, end === start ? budget / 2 : budget, null, null, prefs).metres;
     let best = null;
     for (const [i, reach] of REACHES.entries()) {
       progress(i + 1, REACHES.length);
-      const loop = await greedy(graph, start, chains, budget, budget * reach, home,
+      const loop = await greedy(graph, start, end, chains, budget, budget * reach, home,
         { ...options, detours: Math.max(3, Math.round(options.detours * budget / 1000)) }, prefs);
       if (loop && (!best || loop.value > best.value + 1)) best = loop;
     }
@@ -396,9 +428,9 @@ const Planner = (() => {
 
   // One greedy loop: from where it is, it goes for the chain with the most
   // new street per metre of getting there and along it, as long as it can
-  // still get home; then the next, until none fits in `limit`. Then home
-  // within `budget`.
-  async function greedy(graph, start, chains, budget, limit, home, { detours, overhead, wander }, prefs) {
+  // still get to the finish (`end`, which is `start` on a loop); then the
+  // next, until none fits in `limit`. Then to the finish within `budget`.
+  async function greedy(graph, start, end, chains, budget, limit, home, { detours, overhead, wander }, prefs) {
     const { lat, lon } = graph;
     const n = lat.length;
     const ran = new Uint8Array(n);  // points the route passes
@@ -476,15 +508,15 @@ const Planner = (() => {
     // Home: by new streets if that still fits the budget, else avoiding
     // repeats, else the shortest way (which always fits: every chain was
     // only taken if home[] was in reach).
-    if (at !== start) {
+    if (at !== end) {
       let back;
       for (const [u, f] of wander ? [[used, unrun], [used, null], [null, null]] : [[used, null], [null, null]]) {
         const s = search(graph, at, Infinity, u, f, prefs);
-        back = pathTo(s.prev, start);
-        if (spent + s.metres[start] <= budget) break;
+        back = pathTo(s.prev, end);
+        if (spent + s.metres[end] <= budget) break;
       }
       legs.push(back.map(point));
-      waypoints.push(point(start));
+      waypoints.push(point(end));
       follow(back);
     }
     return { waypoints, legs, metres, fresh: freshMetres, value };
@@ -501,7 +533,7 @@ const Planner = (() => {
   const ROUTED = 12;       // combinations routed for real
   const FULL = 0.8;        // a loop this much of the budget or more counts as filling it
 
-  async function fewStops(graph, start, chains, budget, { stops: maxStops, candidates }, progress, prefs) {
+  async function fewStops(graph, start, end, chains, budget, { stops: maxStops, candidates }, progress, prefs) {
     const { lat, lon } = graph;
     const n = lat.length;
     const point = i => [lat[i], lon[i]];
@@ -523,9 +555,16 @@ const Planner = (() => {
         stretches.push({ path: [...c], len, value });
       }
     }
-    const home = search(graph, start, budget / 2, null, null, prefs).metres;
+    // From the start, and to the finish (the same on a loop, where nothing
+    // further than halfway is any use).
+    const loop = end === start;
+    const home = search(graph, start, loop ? budget / 2 : budget, null, null, prefs).metres;
+    const toEnd = loop ? home : search(graph, end, budget, null, null, prefs).metres;
     const cands = stretches
-      .filter(c => c.len >= MIN_STRETCH && home[c.path[0]] + c.len + home[c.path[c.path.length - 1]] <= budget)
+      .filter(c => {
+        const [a, b] = [c.path[0], c.path[c.path.length - 1]];
+        return c.len >= MIN_STRETCH && c.len + Math.min(home[a] + toEnd[b], home[b] + toEnd[a]) <= budget;
+      })
       .sort((a, b) => b.value - a.value)
       .slice(0, candidates);
     if (!cands.length) return null;
@@ -547,8 +586,8 @@ const Planner = (() => {
     progress(steps, steps);
 
     // Every order of up to maxStops stretches, each either way round, measured.
-    // A loop and the same one backwards are the same length, so only orders
-    // whose first stretch comes before their last in the list are kept.
+    // A loop and the same one backwards are the same length, so on a loop
+    // only orders whose first stretch comes before their last are kept.
     // Stops are [stretch, way round] pairs.
     const found = [];
     const stops = [], taken = new Uint8Array(cands.length);
@@ -558,11 +597,12 @@ const Planner = (() => {
         for (const d of [0, 1]) {
           const into = 2 * k + d, out = 2 * k + 1 - d;
           const there = metres + (at < 0 ? home[ends[into]] : dist[at * E + into]) + cands[k].len;
-          if (!(there + home[ends[out]] <= budget)) continue;  // no way home in time, nor with more stops
+          if (!(there + toEnd[ends[out]] <= budget)) continue;  // no way to the finish in time, nor with more stops
           stops.push([k, d]);
           taken[k] = 1;
-          if (stops.length < 2 || stops[0][0] < k) {
-            found.push({ stops: stops.slice(), metres: there + home[ends[out]], value: value + cands[k].value });
+          // On a loop, the same stops backwards are the same loop.
+          if (!loop || stops.length < 2 || stops[0][0] < k) {
+            found.push({ stops: stops.slice(), metres: there + toEnd[ends[out]], value: value + cands[k].value });
           }
           if (stops.length < maxStops) extend(out, there, value + cands[k].value);
           stops.pop();
@@ -611,7 +651,7 @@ const Planner = (() => {
         waypoints.push(point(along[along.length - 1]));
         at = along[along.length - 1];
       }
-      travel(start);
+      travel(end);
       const score = value - repeat;
       if (metres <= budget * 1.05 && (!best || score > best.score)) best = { score, waypoints, legs, metres, fresh, value };
       await new Promise(r => setTimeout(r));

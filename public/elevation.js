@@ -65,7 +65,13 @@ const Elevation = (() => {
       const url = `${API}?latitude=${chunk.map(c => c[0]).join(',')}&longitude=${chunk.map(c => c[1]).join(',')}`;
       try {
         const res = await fetch(url);
-        if (res.status === 429) throw new Error("the elevation service's free daily limit is used up");
+        // 429 is either limit: per minute (try again shortly) or per day.
+        if (res.status === 429) {
+          const { reason = '' } = await res.json().catch(() => ({}));
+          throw new Error(/minute/i.test(reason)
+            ? 'the elevation service is busy, so try again in a minute'
+            : "the elevation service's free daily limit is used up");
+        }
         if (!res.ok) throw new Error(`the elevation service answered ${res.status}`);
         const { elevation } = await res.json();
         chunk.forEach((c, j) => { if (Number.isFinite(elevation[j])) cache.set(c.join(','), elevation[j]); });
@@ -124,6 +130,38 @@ const Elevation = (() => {
       climb: Math.round(climb(metres)),
       estimated: filled / metres.length,
       ...(filled && error ? { why: error.message } : {}),
+    };
+  }
+
+  // Heights over a box, for planning routes that favour or avoid hills: a
+  // coarse grid (COARSE degrees apart, or wider so a big box stays under
+  // GRID_MAX points), looked up and kept like any other points. Resolves to
+  // heightAt(lat, lon), straight between the grid points around it.
+  // Rejects if too few heights could be had.
+  const COARSE = 0.003;    // ~330 m north-south; hills are wider than that
+  const GRID_MAX = 400;    // points: about 4 requests at most
+
+  async function grid(south, west, north, east) {
+    let step = COARSE;
+    const count = s => (Math.ceil((north - south) / s) + 2) * (Math.ceil((east - west) / s) + 2);
+    while (count(step) > GRID_MAX) step += COARSE;
+    const lat0 = Math.floor(south / step) * step, lon0 = Math.floor(west / step) * step;
+    const rows = Math.ceil((north - lat0) / step) + 1, cols = Math.ceil((east - lon0) / step) + 1;
+    const points = [];
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) points.push([lat0 + r * step, lon0 + c * step]);
+    const { metres, error } = await lookUp(points);
+    const known = metres.filter(m => m !== undefined);
+    if (known.length < metres.length * 0.8) throw error || new Error('no heights found');
+    // Gaps: the average of what's known, so a missing point is neither hill nor hollow.
+    const mean = known.reduce((a, b) => a + b, 0) / known.length;
+    const h = metres.map(m => (m === undefined ? mean : m));
+    return (lat, lon) => {
+      const y = Math.min(rows - 1.001, Math.max(0, (lat - lat0) / step));
+      const x = Math.min(cols - 1.001, Math.max(0, (lon - lon0) / step));
+      const r = Math.floor(y), c = Math.floor(x), fy = y - r, fx = x - c;
+      const at = (rr, cc) => h[rr * cols + cc];
+      return at(r, c) * (1 - fx) * (1 - fy) + at(r, c + 1) * fx * (1 - fy)
+        + at(r + 1, c) * (1 - fx) * fy + at(r + 1, c + 1) * fx * fy;
     };
   }
 
@@ -191,5 +229,5 @@ const Elevation = (() => {
     return svg;
   }
 
-  return { forRoute, chart, climb };
+  return { forRoute, grid, chart, climb };
 })();

@@ -2444,6 +2444,33 @@ if (exploreStreets.selectedIndex < 0) exploreStreets.value = 'any';
 exploreStreets.onchange = () => {
   try { localStorage.setItem('feets-explore-streets', exploreStreets.value); } catch {}
 };
+// Hills: 'any', 'flat' or 'hilly' (heights come from Elevation.grid).
+// Finish: 'start' for a loop, or 'last' to end at the route's last point.
+for (const [id, key, fallback] of [['explore-hills', 'feets-explore-hills', 'any'], ['explore-end', 'feets-explore-end', 'start']]) {
+  const select = document.getElementById(id);
+  try { select.value = localStorage.getItem(key) || fallback; } catch {}
+  if (select.selectedIndex < 0) select.value = fallback;
+  select.onchange = () => {
+    try { localStorage.setItem(key, select.value); } catch {}
+  };
+}
+const exploreHills = document.getElementById('explore-hills');
+const exploreEnd = document.getElementById('explore-end');
+
+// Heights of the graph's points for "Hills": a coarse grid looked up around
+// the start (and finish), out as far as the route can go. Resolves to a
+// Float32Array over the graph's points, or rejects if no heights could be had.
+async function routeHeights(g, points, budget) {
+  const reach = budget / 2 / 111320;  // degrees of latitude
+  const lats = points.map(p => p[0]), lons = points.map(p => p[1]);
+  const kx = Math.cos(lats[0] * Math.PI / 180);
+  const heightAt = await Elevation.grid(
+    Math.min(...lats) - reach, Math.min(...lons) - reach / kx, Math.max(...lats) + reach, Math.max(...lons) + reach / kx);
+  const heights = new Float32Array(g.lat.length);
+  for (let i = 0; i < heights.length; i++) heights[i] = heightAt(g.lat[i], g.lon[i]);
+  return heights;
+}
+
 // Stay within: '' for anywhere, 'a:ID' for an area, 'h:ID:N' for neighbourhood
 // N of an area. Filled in with the areas (see fillAreaSelect).
 try { exploreWithin.value = localStorage.getItem('feets-explore-within') || ''; } catch {}
@@ -2522,23 +2549,37 @@ document.getElementById('plan-explore').onsubmit = async e => {
     planStatus.textContent = 'Add an area in Streets mode first: routes follow its streets.';
     return;
   }
+  // Finishing elsewhere: from the route's first point to its last.
+  const oneWay = exploreEnd.value === 'last';
+  if (oneWay && plan.waypoints.length < 2) {
+    planStatus.textContent = 'To finish somewhere else, click the map for a start and then a finish, then Make a loop.';
+    return;
+  }
   const here = lastFix && map.getBounds().contains(lastFix);
   const [from, where] = plan.waypoints.length ? [plan.waypoints[0], 'the first point']
     : here ? [[lastFix.lat, lastFix.lng], 'you'] : [[map.getCenter().lat, map.getCenter().lng], 'the middle of the map'];
+  const to = oneWay ? plan.waypoints[plan.waypoints.length - 1] : null;
   const g = planGraph();
   const within = withinMask(g);
   let start = Planner.snap(g, from);
+  let end = oneWay ? Planner.snap(g, to) : start;
   let startNote = '';
-  // Starting outside "Stay within": from its nearest point instead.
+  // Outside "Stay within": from (and to) its nearest point instead.
   if (within && (start < 0 || !within.allowed[start])) {
     start = nearestAllowed(g, within.allowed, from);
     startNote = ` It starts from the nearest point in ${within.name}.`;
   }
-  if (start < 0) {
+  if (within && oneWay && (end < 0 || !within.allowed[end])) {
+    end = nearestAllowed(g, within.allowed, to);
+    startNote += ` It finishes at the nearest point in ${within.name}.`;
+  }
+  if (!oneWay) end = start;
+  if (start < 0 || end < 0) {
     planStatus.textContent = within ? `${within.name} has no streets to make a loop on.` : `There's no street of your areas near ${where}.`;
     return;
   }
-  if (!mayDiscard()) return;
+  // Just a start and a finish to go between isn't a route to lose.
+  if (!(oneWay && plan.waypoints.length === 2) && !mayDiscard()) return;
   const button = document.getElementById('explore');
   button.disabled = true;
   // Any streets: the same search, aiming for every street rather than just the unrun ones.
@@ -2546,6 +2587,17 @@ document.getElementById('plan-explore').onsubmit = async e => {
   const looking = unrun ? "Looking for streets you haven't run…" : 'Looking for a loop…';
   planStatus.textContent = looking;
   try {
+    // Hills need heights, looked up first; without them it plans anyway.
+    let heights = null, hillNote = '';
+    if (exploreHills.value !== 'any') {
+      planStatus.textContent = 'Looking up hills…';
+      try {
+        heights = await routeHeights(g, [[g.lat[start], g.lon[start]], [g.lat[end], g.lon[end]]], target * 1000);
+      } catch (err) {
+        hillNote = ` Hills weren't taken into account: ${err.message}.`;
+      }
+      planStatus.textContent = looking;
+    }
     const chains = Planner.chains(g, areas, area => {
       const { visited, fraction } = trackCoverage(area);
       return unrun ? { visited, fraction } : { visited: new Uint8Array(visited.length), fraction: new Float64Array(fraction.length) };
@@ -2556,24 +2608,29 @@ document.getElementById('plan-explore').onsubmit = async e => {
       allowed: within && within.allowed,
       streets: exploreStreets.value,
       finish: unrun && exploreFinish.checked,
+      heights,
+      hills: exploreHills.value,
+      end,
     });
     if (!found) {
       const inside = within ? ` inside ${within.name}` : '';
+      const shape = oneWay ? `route from ${where} to your last point` : `loop from ${where}`;
       planStatus.textContent = unrun
-        ? `No unrun streets${inside} fit in a ${target} km loop from ${where}. Try a longer one, or fewer options.`
-        : `No loop of ${target} km fits${inside} from ${where}. Try a longer one, or fewer options.`;
+        ? `No unrun streets${inside} fit in a ${target} km ${shape}. Try a longer one, or fewer options.`
+        : `No ${target} km ${shape} fits${inside}. Try a longer one, or fewer options.`;
       return;
     }
     resetPlan();
     Object.assign(plan, {
       waypoints: found.waypoints, legs: found.legs, straight: found.legs.map(() => false),
-      name: `${unrun ? 'Unrun streets' : 'Loop'}, ${target} km`,
+      name: `${unrun ? 'Unrun streets' : oneWay ? 'Route' : 'Loop'}, ${target} km`,
     });
     planChanged();
     const way = exploreHeading.value === '' ? '' : ` heading ${exploreHeading.selectedOptions[0].text}`;
+    const what = oneWay ? `A route${way} from ${where} to your last point.` : `A loop${way} from ${where}.`;
     planStatus.textContent = (found.widened && way
-      ? `There wasn't much ${unrun ? 'unrun street' : 'room'}${way} from ${where}, so this loop goes wider.`
-      : `A loop${way} from ${where}.`) + startNote + ' Change it like any route: drag points, or click them to remove them.';
+      ? `There wasn't much ${unrun ? 'unrun street' : 'room'}${way} from ${where}, so this goes wider.`
+      : what) + startNote + hillNote + ' Change it like any route: drag points, or click them to remove them.';
     map.fitBounds(L.latLngBounds(routePoints(plan)), { padding: [40, 40], maxZoom: 17 });
   } finally {
     button.disabled = false;
