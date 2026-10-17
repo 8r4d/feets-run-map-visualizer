@@ -2856,6 +2856,58 @@ document.getElementById('reset-link').onclick = async () => {
   }
 };
 
+// --- Help ---
+// The Help box lists pages in help/; each opens in one window. A page is
+// plain HTML: its first heading becomes the window's title, its links to
+// other help pages open in the window, and other links in a new tab.
+const helpDialog = document.getElementById('help-dialog');
+const helpContent = document.getElementById('help-content');
+const helpTitle = document.getElementById('help-dialog-title');
+const helpBase = new URL('help/', location.href);
+
+async function openHelp(href) {
+  const url = new URL(href, location.href);
+  helpTitle.textContent = 'Help';
+  helpContent.textContent = 'Loading…';
+  if (!helpDialog.open) helpDialog.showModal();
+  try {
+    // The time in the address dodges the host's caching, so an edited page shows up.
+    const res = await fetch(`${url.pathname}?t=${Date.now()}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+    const heading = doc.body.querySelector('h1, h2');
+    if (heading) {
+      helpTitle.textContent = heading.textContent;
+      heading.remove();
+    }
+    // Links and images are written relative to the page, not to index.html.
+    for (const el of doc.body.querySelectorAll('[href], [src]')) {
+      const attr = el.hasAttribute('href') ? 'href' : 'src';
+      if (!el.getAttribute(attr).startsWith('#')) el.setAttribute(attr, new URL(el.getAttribute(attr), url).href);
+    }
+    for (const a of doc.body.querySelectorAll('a[href]')) {
+      if (!a.href.startsWith(helpBase.href)) {
+        a.target = '_blank';
+        a.rel = 'noopener';
+      }
+    }
+    helpContent.replaceChildren(...doc.body.childNodes);
+    helpContent.scrollTop = 0;
+  } catch (err) {
+    helpContent.textContent = `Couldn't load this help page (${err.message}).`;
+  }
+}
+
+document.addEventListener('click', e => {
+  const a = e.target.closest('a[href]');
+  if (!a || !(a.hasAttribute('data-help') || (helpContent.contains(a) && a.href.startsWith(helpBase.href)))) return;
+  e.preventDefault();
+  openHelp(a.href);
+});
+document.getElementById('help-close').onclick = () => helpDialog.close();
+// A click on the dimmed backdrop lands on the dialog itself.
+helpDialog.addEventListener('click', e => { if (e.target === helpDialog) helpDialog.close(); });
+
 // --- Startup ---
 (async () => {
   // A password reset link comes first, even if this browser is logged in as someone else.

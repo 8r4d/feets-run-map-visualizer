@@ -1471,6 +1471,102 @@ body {
   flex: 1;
 }
 
+/* Help: the index in the sidebar, and the window its pages open in. The
+   window has no padding of its own, so a click on it is a backdrop click. */
+#help ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+#help a {
+  color: #1a73e8;
+}
+
+#help-dialog {
+  display: none;
+  width: min(640px, calc(100vw - 32px));
+  max-height: min(80vh, 720px);
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+#help-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+#help-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.help-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid #eee;
+}
+
+.help-head h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+#help-content {
+  overflow-y: auto;
+  padding: 4px 20px 20px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #333;
+}
+
+#help-content h3 {
+  margin: 18px 0 6px;
+  font-size: 15px;
+}
+
+#help-content p,
+#help-content ul,
+#help-content ol {
+  margin: 0 0 10px;
+}
+
+#help-content ul,
+#help-content ol {
+  padding-left: 20px;
+}
+
+#help-content li + li {
+  margin-top: 4px;
+}
+
+#help-content a {
+  color: #1a73e8;
+}
+
+#help-content kbd {
+  padding: 0 4px;
+  font: inherit;
+  font-size: 12px;
+  background: #f3f3f3;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+}
+
+#help-content img {
+  max-width: 100%;
+}
+
+#help-content .tip {
+  padding: 8px 12px;
+  background: #f1f6fe;
+  border-left: 3px solid #2a7ae2;
+  border-radius: 4px;
+}
+
 /* About box (bottom of the sidebar) and the credits line on the login form */
 #about p,
 #about ul {

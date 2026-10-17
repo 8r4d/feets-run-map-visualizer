@@ -1,0 +1,111 @@
+<!--
+  A feets help page. It opens in the help window (see "Help" in app.js):
+  the first heading becomes the window's title, links to other pages in
+  help/ open in the window, and other links open in a new tab. Plain HTML
+  only; styles come from #help-content in style.css.
+-->
+<h1>Getting started with feets</h1>
+
+<p>feets puts every run you've done on one map. You can see where you've been,
+how much of your neighbourhood you've covered, and plan routes through the
+streets you haven't run yet.</p>
+
+<h3>Getting your runs in</h3>
+<ul>
+  <li><strong>Upload GPX files:</strong> open <em>Add tracks</em> and drop GPX
+    files on the box, or click it to choose them. Most watches and running apps
+    can export GPX.</li>
+  <li><strong>Import from Strava:</strong> in <em>Add tracks</em>, connect your
+    Strava account, then use <em>Import from Strava</em> to bring in your
+    activities. <em>Refresh names</em> picks up names and activity types you've
+    changed on Strava since.</li>
+</ul>
+<p>Pace, moving time, best efforts and climb are worked out for each track
+after it arrives. For a big import, this can take a little while.</p>
+
+<h3>The four map modes</h3>
+<p>The buttons above the track list switch what the map shows:</p>
+<ul>
+  <li><strong>Tracks:</strong> every run as its own coloured line. Click a line
+    for its distance, pace, best efforts and elevation chart.</li>
+  <li><strong>Heatmap:</strong> all your runs as one glowing layer on a dark
+    map. The places you run most shine brightest.</li>
+  <li><strong>Streets:</strong> pick an area, such as your neighbourhood or
+    city, and see which of its streets you've run, coloured by how much of each
+    one. It also shows your coverage overall and by neighbourhood, and a
+    <em>Still to run</em> list. Click a street you can't run on, like a
+    highway, and choose <em>Mark unrunnable</em> so it stops counting.</li>
+  <li><strong>Plan:</strong> draw a new route along the streets of your areas.
+    See <em>Planning a route</em> below.</li>
+</ul>
+<p><em>Fade map</em> softens the background map so your lines stand out (not in
+Plan mode). The layers button at the top right of the map switches between the
+street map, a topographic map and a dark map.</p>
+
+<h3>Your track list</h3>
+<ul>
+  <li><strong>Search and filter</strong> by name, year or activity type. Stats
+    and the map follow the filters.</li>
+  <li><strong>Tick a track</strong> to show or hide it on the map, or use
+    <em>Show all</em> and <em>Hide all</em>.</li>
+  <li><strong>◎</strong> shows just that one track on the map. Click it again
+    to bring the others back.</li>
+  <li><strong>Track colours:</strong> every track gets its own colour, or pick a
+    single colour for all of them.</li>
+  <li><strong>Edit</strong> shows more buttons on each track:
+    <ul>
+      <li><strong>⤳</strong> plans a new route from that run.</li>
+      <li><strong>✎</strong> removes stray GPS points: click the bad points, or
+        <kbd>Shift</kbd>-drag a box around them, then <em>Save</em>.</li>
+      <li><strong>↓</strong> downloads the original GPX.</li>
+      <li><strong>×</strong> deletes the track.</li>
+    </ul>
+  </li>
+</ul>
+
+<h3>Stats, goals and trophies</h3>
+<ul>
+  <li><strong>Stats:</strong> totals and a calendar of your activity. Pick a
+    year in the filters for a time frame.</li>
+  <li><strong>Goals:</strong> set kilometres per week and per month, and watch
+    your progress.</li>
+  <li><strong>Trophies:</strong> milestones you earn along the way. Past
+    activities count too.</li>
+</ul>
+
+<h3>Planning a route</h3>
+<p>Plan mode needs at least one area from Streets mode, because routes follow
+its streets.</p>
+<ul>
+  <li><strong>Click the map</strong> to add points. The route finds its way
+    along the streets between them.</li>
+  <li><strong>Drag a point</strong> to move it, or click it to remove it. Click
+    a stretch of the line to make it a straight line instead (for a path the
+    map doesn't know about).</li>
+  <li><em>Undo</em>, <em>Back to start</em>, <em>Reverse</em> and <em>New</em>
+    do what they say.</li>
+  <li><strong>Fill with unrun streets</strong> builds a loop of the length you
+    choose, over as many streets you haven't run as fit.</li>
+  <li><em>Save</em> keeps the route in <em>Saved routes</em>. <em>Download
+    GPX</em> sends it to your watch or Strava.</li>
+</ul>
+
+<h3>Sharing</h3>
+<ul>
+  <li><strong>Link</strong> on a saved route makes a link anyone can open
+    without logging in. You can set it to expire after a number of days.</li>
+  <li><strong>Share view link</strong> under <em>Account</em> shares all your
+    saved routes, for example with a running club. Turn a link off any time
+    from the same place.</li>
+</ul>
+
+<h3>Finding your way around the map</h3>
+<ul>
+  <li><strong>⌖</strong> (under the zoom buttons) shows where you are now.</li>
+  <li><strong>Home:</strong> under <em>Account</em>, <em>Set home to this
+    view</em> makes the map open at your current spot and zoom. The
+    <strong>⌂</strong> button takes you back there any time.</li>
+</ul>
+
+<p class="tip">On a phone, the panel sits under the map. Tap <em>Hide
+panel</em> for a full-screen map.</p>
