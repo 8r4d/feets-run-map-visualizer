@@ -1156,6 +1156,14 @@ body {
   gap: 6px;
 }
 
+#auto-areas-row {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
 #view-link-list {
   flex-basis: 100%;
   list-style: none;

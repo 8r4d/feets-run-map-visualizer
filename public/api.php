@@ -56,6 +56,9 @@
 //   POST api.php?action=area_save            {osmId, name, data} prepared by osm.js; replaces an existing one
 //   POST api.php?action=area_delete&id=ID
 //   POST api.php?action=area_exclude&id=ID   {ways, excluded}: mark OSM ways unrunnable (or count them again)
+//   POST api.php?action=area_scan_claim      a turn at looking for places you run without an area (see
+//                                            area_scan_claim): {go, skip: [cell keys not to try again]}
+//   POST api.php?action=area_scan_save       {on?, skip?: [cell keys]}: switch it on or off, add places not to try
 //
 // Planned routes (drawn in the browser by planner.js)
 //   GET  api.php?action=routes               all of the user's routes, newest first
@@ -99,6 +102,7 @@ const SCHEMA = [
       data_owner    INT          NULL,                    -- whose data a view-only account sees
       goals         TEXT         NULL,                    -- JSON: { week, month } in km, see save_goals()
       home          TEXT         NULL,                    -- JSON: { lat, lon, zoom }, where the map opens
+      area_scan     TEXT         NULL,                    -- JSON: { off, last, skip }, see area_scan_claim()
       created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) CHARACTER SET utf8mb4
     SQL,
@@ -316,6 +320,10 @@ function db(): PDO {
         if (!$pdo->query("SHOW COLUMNS FROM users LIKE 'home'")->fetch()) {
             $pdo->exec('ALTER TABLE users ADD COLUMN home TEXT NULL AFTER goals');
         }
+        // ...and finding areas for places you run.
+        if (!$pdo->query("SHOW COLUMNS FROM users LIKE 'area_scan'")->fetch()) {
+            $pdo->exec('ALTER TABLE users ADD COLUMN area_scan TEXT NULL AFTER home');
+        }
         // ...and view links that expire.
         if (!$pdo->query("SHOW COLUMNS FROM view_links LIKE 'expires_at'")->fetch()) {
             $pdo->exec('ALTER TABLE view_links ADD COLUMN expires_at TIMESTAMP NULL AFTER created_at');
@@ -418,6 +426,9 @@ function user_json(array $user): array {
         $home = db()->prepare('SELECT home FROM users WHERE id = ?');
         $home->execute([$json['readOnly'] ? $user['data_owner'] : $user['id']]);
         $json['home'] = json_decode((string) $home->fetchColumn(), true) ?: null;
+        if (!$json['readOnly']) {
+            $json['autoAreas'] = empty(area_scan_state((int) $user['id'])['off']);
+        }
     }
     return $json;
 }
@@ -1934,6 +1945,46 @@ function save_home(int $userId, array $b): array {
     return ['home' => $home];
 }
 
+// --- Finding areas for places you run ---
+// The browser looks through your runs for places with no area and adds one
+// (OSM data is fetched from the browser, see osm.js). To go easy on
+// OpenStreetMap, each account gets a turn at most every AREA_SCAN_HOURS,
+// however many devices or tabs have feets open: the claim is made here.
+
+const AREA_SCAN_HOURS = 12;
+const AREA_SCAN_SKIPS = 500;  // places kept on the don't-try-again list
+
+function area_scan_state(int $userId): array {
+    $stmt = db()->prepare('SELECT area_scan FROM users WHERE id = ?');
+    $stmt->execute([$userId]);
+    return json_decode((string) $stmt->fetchColumn(), true) ?: [];
+}
+
+function area_scan_claim(int $userId): array {
+    db()->beginTransaction();
+    $stmt = db()->prepare('SELECT area_scan FROM users WHERE id = ? FOR UPDATE');
+    $stmt->execute([$userId]);
+    $state = json_decode((string) $stmt->fetchColumn(), true) ?: [];
+    $go = empty($state['off']) && time() - (int) ($state['last'] ?? 0) >= AREA_SCAN_HOURS * 3600;
+    if ($go) {
+        $state['last'] = time();
+        db()->prepare('UPDATE users SET area_scan = ? WHERE id = ?')->execute([json_encode($state), $userId]);
+    }
+    db()->commit();
+    return ['go' => $go, 'skip' => $go ? ($state['skip'] ?? []) : []];
+}
+
+function area_scan_save(int $userId, array $b): array {
+    $state = area_scan_state($userId);
+    if (array_key_exists('on', $b)) {
+        $state['off'] = !$b['on'];
+    }
+    $skip = array_filter(array_map('strval', $b['skip'] ?? []), fn($k) => preg_match('/^-?\d+,-?\d+$/', $k));
+    $state['skip'] = array_slice(array_values(array_unique(array_merge($state['skip'] ?? [], $skip))), -AREA_SCAN_SKIPS);
+    db()->prepare('UPDATE users SET area_scan = ? WHERE id = ?')->execute([json_encode($state), $userId]);
+    return ['on' => empty($state['off'])];
+}
+
 // --- Achievements ---
 
 function list_achievements(int $userId): array {
@@ -2048,6 +2099,10 @@ if ($method === 'POST' && $action === 'invite') {
     send_json(save_goals($userId, read_json()));
 } elseif ($method === 'POST' && $action === 'home_save') {
     send_json(save_home($userId, read_json()));
+} elseif ($method === 'POST' && $action === 'area_scan_claim') {
+    send_json(area_scan_claim($userId));
+} elseif ($method === 'POST' && $action === 'area_scan_save') {
+    send_json(area_scan_save($userId, read_json()));
 } elseif ($method === 'POST' && $action === 'track_metrics') {
     send_json(backfill_metrics($userId));
 } elseif ($method === 'GET' && $action === 'track_profile' && $id) {

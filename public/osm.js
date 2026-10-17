@@ -160,6 +160,25 @@ const OSM = (() => {
     return [...found.values()].sort((a, b) => a.distance - b.distance);
   }
 
+  // The boundaries a point is inside: [{osmId, name, level}]. Lighter than
+  // candidates(), for the background search for places you run (app.js).
+  async function containing(lat, lon) {
+    const result = await overpass(`[out:json][timeout:25];
+      is_in(${lat.toFixed(5)},${lon.toFixed(5)})->.here;
+      rel(pivot.here)${LEVELS};
+      out tags;`, 60);
+    return (result.elements || [])
+      .filter(el => el.type === 'relation' && el.tags && el.tags.name && el.tags.admin_level)
+      .map(el => ({ osmId: el.id, name: el.tags.name, level: Number(el.tags.admin_level) }));
+  }
+
+  // Whether a point is inside a stored area's boundary.
+  const polygons = new WeakMap();
+  function inArea(area, lat, lon) {
+    if (!polygons.has(area)) polygons.set(area, makePolygon(area.data.boundary));
+    return contains(polygons.get(area), lat, lon);
+  }
+
   // A boundary's outline, name and admin level. Nominatim (OSM's search
   // service) usually answers in about a second; Overpass is the fallback,
   // since it can take far longer for a single boundary.
@@ -184,8 +203,10 @@ const OSM = (() => {
   }
 
   // Fetches an area: { name, data } (see the top of this file).
-  // onProgress gets short status messages.
-  async function buildArea(osmId, onProgress = () => {}) {
+  // onProgress gets short status messages. maxKm2: refuse a boundary whose
+  // bounding box is bigger than this before fetching any streets (an error
+  // whose message says "too big").
+  async function buildArea(osmId, onProgress = () => {}, maxKm2 = Infinity) {
     // The boundary, then everything in its bounding box, trimmed to the
     // boundary here: much quicker than asking Overpass for everything inside
     // the boundary, which can take minutes.
@@ -195,6 +216,9 @@ const OSM = (() => {
     if (!boundary.length) throw new Error('OpenStreetMap has no usable boundary with that id');
     const level = found.level;
     const area = makePolygon(boundary);
+    const km2 = distance(area.minLat, area.minLon, area.maxLat, area.minLon) / 1000
+      * distance(area.minLat, area.minLon, area.minLat, area.maxLon) / 1000;
+    if (km2 > maxKm2) throw new Error(`${found.name || 'That area'} is too big (${Math.round(km2)} km²).`);
 
     onProgress('Fetching streets, paths and trails…');
     const bbox = [area.minLat, area.minLon, area.maxLat, area.maxLon].map(x => x.toFixed(5)).join(',');
@@ -250,5 +274,5 @@ const OSM = (() => {
     return { name: found.name || `OSM area ${osmId}`, data: { boundary, hoods, streets } };
   }
 
-  return { candidates, buildArea };
+  return { candidates, containing, inArea, buildArea };
 })();
