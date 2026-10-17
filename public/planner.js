@@ -246,7 +246,11 @@ const Planner = (() => {
   //   heights: each point's height in metres (Float32Array), with hill: how
   //     much steepness counts, HILL to keep flatter or -HILL to seek hills;
   //     null and 0 to ignore hills.
-  const ANY = { allowed: null, kindCost: [1, 1, 1, 1], weight: () => 1, heights: null, hill: 0 };
+  //   deadEnds: Set of edgeKeys of dead-end links (see deadEnds()), cost
+  //     DEAD_END times more, with reuse: what a link already on the route
+  //     costs (USED, or GROUP_USED for groups), and retrace: how much each
+  //     metre gone over twice counts against a loop when choosing one.
+  const ANY = { allowed: null, kindCost: [1, 1, 1, 1], weight: () => 1, heights: null, hill: 0, deadEnds: null, reuse: 1.5, retrace: 1 };
 
   // explore()'s options turned into those. streets: 'any', 'paths' (prefer
   // paths and trails: roads cost more to travel and are worth less to aim
@@ -266,7 +270,13 @@ const Planner = (() => {
   // way): more for steep ones with hill > 0, less with hill < 0.
   const steep = (grade, hill) => (hill > 0 ? 1 + hill * grade : 1 / (1 - hill * grade));
 
-  function preferences(graph, { allowed = null, streets = 'any', finish = false, heights = null, hills = 'any' } = {}) {
+  // group: a route to lead a group round, with no dead ends and no going
+  // back the way it came where there's any other way.
+  const DEAD_END = 20;
+  const GROUP_USED = 8;
+  const GROUP_RETRACE = 6;
+
+  function preferences(graph, { allowed = null, streets = 'any', finish = false, heights = null, hills = 'any', group = false } = {}) {
     const { cost, worth } = STREETS[streets] || STREETS.any;
     const hill = !heights ? 0 : hills === 'flat' ? HILL : hills === 'hilly' ? -HILL : 0;
     const { lat, lon } = graph;
@@ -283,13 +293,65 @@ const Planner = (() => {
       }
       return grades.get(c);
     };
+    const dead = group ? deadEnds(graph) : null;
+    const n = lat.length;
+    // A chain that runs into a dead end can only be left the way it came.
+    const intoDeadEnd = c => c.some((x, i) => i && dead.has(edgeKey(c[i - 1], x, n)));
     return {
       allowed,
       kindCost: cost,
       heights: hill ? heights : null,
       hill,
-      weight: c => (worth[c.kind] ?? 1) * (finish && c.started ? FINISH : 1) * (hill ? 1 / steep(grade(c), hill) : 1),
+      deadEnds: dead,
+      reuse: group ? GROUP_USED : USED,
+      retrace: group ? GROUP_RETRACE : 1,
+      weight: c => (dead && intoDeadEnd(c) ? 0 : 1)
+        * (worth[c.kind] ?? 1) * (finish && c.started ? FINISH : 1) * (hill ? 1 / steep(grade(c), hill) : 1),
     };
+  }
+
+  // The dead-end links of the graph: those with no other way round, so going
+  // along one means coming back along it (a cul-de-sac, or a path that goes
+  // nowhere). In graph terms, its bridges (Tarjan's method, without
+  // recursion). A Set of edgeKeys, worked out once per graph.
+  const deadEndCache = new WeakMap();
+  function deadEnds(graph) {
+    if (deadEndCache.has(graph)) return deadEndCache.get(graph);
+    const { adj } = graph;
+    const n = adj.length;
+    const order = new Int32Array(n).fill(-1), low = new Int32Array(n);
+    const found = new Set();
+    let time = 0;
+    for (let root = 0; root < n; root++) {
+      if (order[root] >= 0) continue;
+      // Each frame: [point, the point it was reached from, next link to look at]
+      const stack = [[root, -1, 0]];
+      order[root] = low[root] = time++;
+      while (stack.length) {
+        const frame = stack[stack.length - 1];
+        const [a, parent] = frame;
+        const edges = adj[a];
+        if (frame[2] < edges.length) {
+          const b = edges[frame[2]];
+          frame[2] += 3;
+          if (b === parent) continue;
+          if (order[b] < 0) {
+            order[b] = low[b] = time++;
+            stack.push([b, a, 0]);
+          } else {
+            low[a] = Math.min(low[a], order[b]);
+          }
+        } else {
+          stack.pop();
+          if (parent >= 0) {
+            low[parent] = Math.min(low[parent], low[a]);
+            if (low[a] > order[parent]) found.add(edgeKey(parent, a, n));
+          }
+        }
+      }
+    }
+    deadEndCache.set(graph, found);
+    return found;
   }
 
   // Dijkstra from `from`, over points reachable within `limit` cost. Cost is
@@ -297,7 +359,7 @@ const Planner = (() => {
   // USED on edges in `used`, and FRESH between two points flagged in `fresh`.
   // Points `allowed` doesn't allow are never reached. Returns cost, real
   // metres and the previous point on each best path.
-  function search(graph, from, limit, used, fresh, { allowed, kindCost, heights, hill } = ANY) {
+  function search(graph, from, limit, used, fresh, { allowed, kindCost, heights, hill, deadEnds: dead, reuse } = ANY) {
     const { adj } = graph;
     const n = graph.lat.length;
     const cost = new Float64Array(n).fill(Infinity);
@@ -318,7 +380,8 @@ const Planner = (() => {
         let c = edges[k + 1] * kindCost[edges[k + 2] >> 1];
         if (edges[k + 2] & 1) c *= AVOID;
         if (heights) c *= steep(Math.abs(heights[b] - heights[a]) / Math.max(edges[k + 1], 1), hill);
-        if (used && used.has(edgeKey(a, b, n))) c *= USED;
+        if (dead && dead.has(edgeKey(a, b, n))) c *= DEAD_END;
+        if (used && used.has(edgeKey(a, b, n))) c *= reuse;
         else if (fresh && fresh[a] && fresh[b]) c *= FRESH;
         if (base + c < cost[b]) {
           cost[b] = base + c;
@@ -369,7 +432,7 @@ const Planner = (() => {
   // heading: favour going this way from the start, in degrees clockwise from
   // north (180 is south), or null for any way. The result then has `widened`
   // set if there was too little unrun street that way and it looked wider.
-  // options: { allowed, streets, finish, heights, hills }, see preferences(),
+  // options: { allowed, streets, finish, heights, hills, group }, see preferences(),
   // and end: the point to finish at, if not back at `start`. `start` and
   // `end` must be points `allowed` allows.
   async function explore(graph, start, chains, budget, progress = () => {}, level = 5, heading = null, options = {}) {
@@ -394,7 +457,7 @@ const Planner = (() => {
       progress(i + 1, REACHES.length);
       const loop = await greedy(graph, start, end, chains, budget, budget * reach, home,
         { ...options, detours: Math.max(3, Math.round(options.detours * budget / 1000)) }, prefs);
-      if (loop && (!best || loop.value > best.value + 1)) best = loop;
+      if (loop && (!best || loop.value - loop.repeat * prefs.retrace > best.value - best.repeat * prefs.retrace + 1)) best = loop;
     }
     return best;
   }
@@ -452,12 +515,13 @@ const Planner = (() => {
       return m;
     };
     const point = i => [lat[i], lon[i]];
-    let metres = 0, freshMetres = 0, value = 0;
+    let metres = 0, freshMetres = 0, value = 0, repeat = 0;
     const follow = path => {
       for (let i = 0; i < path.length; i++) {
         if (i) {
           const a = path[i - 1], b = path[i], key = edgeKey(a, b, n), d = distance(lat[a], lon[a], lat[b], lon[b]);
           metres += d;
+          if (used.has(key)) repeat += d;
           if (onChain[a] && onChain[b] && !used.has(key)) {
             freshMetres += d;
             value += d * Math.min(worth[a], worth[b]);
@@ -519,7 +583,7 @@ const Planner = (() => {
       waypoints.push(point(end));
       follow(back);
     }
-    return { waypoints, legs, metres, fresh: freshMetres, value };
+    return { waypoints, legs, metres, fresh: freshMetres, value, repeat };
   }
 
   // A simple loop: start, through a few unrun stretches, home. Long unrun
@@ -619,7 +683,7 @@ const Planner = (() => {
     const pool = found.filter(f => f.metres >= Math.min(budget * FULL, longest * 0.9)).sort((a, b) => b.value - a.value || a.stops.length - b.stops.length);
 
     let best = null;
-    for (const { stops } of pool.slice(0, ROUTED)) {
+    for (const { stops } of pool.slice(0, prefs.retrace > 1 ? ROUTED * 2 : ROUTED)) {
       const used = new Set();
       const waypoints = [point(start)], legs = [];
       let metres = 0, fresh = 0, value = 0, repeat = 0, at = start;
@@ -652,7 +716,7 @@ const Planner = (() => {
         at = along[along.length - 1];
       }
       travel(end);
-      const score = value - repeat;
+      const score = value - repeat * prefs.retrace;
       if (metres <= budget * 1.05 && (!best || score > best.score)) best = { score, waypoints, legs, metres, fresh, value };
       await new Promise(r => setTimeout(r));
     }

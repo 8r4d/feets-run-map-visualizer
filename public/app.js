@@ -2440,6 +2440,12 @@ exploreUnrun.onchange = () => {
 exploreFinish.onchange = () => {
   try { localStorage.setItem('feets-explore-finish', exploreFinish.checked ? 'on' : 'off'); } catch {}
 };
+// For groups: no dead ends or doubling back (see Planner.explore).
+const exploreGroup = document.getElementById('explore-group');
+try { exploreGroup.checked = localStorage.getItem('feets-explore-group') === 'on'; } catch {}
+exploreGroup.onchange = () => {
+  try { localStorage.setItem('feets-explore-group', exploreGroup.checked ? 'on' : 'off'); } catch {}
+};
 // Kinds of street: any, prefer paths and trails, or roads only (see Planner.explore).
 const exploreStreets = document.getElementById('explore-streets');
 try { exploreStreets.value = localStorage.getItem('feets-explore-streets') || 'any'; } catch {}
@@ -2494,6 +2500,7 @@ function summarizeExplore() {
   const parts = [
     !exploreUnrun.checked && 'any streets',
     exploreUnrun.checked && exploreFinish.checked && 'finish started',
+    exploreGroup.checked && 'for groups',
     level !== 3 && (level < 3 ? 'simpler' : 'more thorough'),
     exploreHeading.value !== '' && `heading ${text(exploreHeading)}`,
     exploreStreets.value !== 'any' && text(exploreStreets),
@@ -2639,6 +2646,7 @@ document.getElementById('plan-explore').onsubmit = async e => {
       finish: unrun && exploreFinish.checked,
       heights,
       hills: exploreHills.value,
+      group: exploreGroup.checked,
       end,
     });
     if (!found) {

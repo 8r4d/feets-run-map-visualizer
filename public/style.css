@@ -1588,6 +1588,7 @@ body {
 }
 
 #plan-explore #explore-unrun-row,
+#plan-explore #explore-group-row,
 #plan-explore #explore-finish-row,
 #plan-explore .explore-select-row {
   flex-basis: 100%;
@@ -1605,6 +1606,7 @@ body {
 }
 
 #plan-explore #explore-unrun,
+#plan-explore #explore-group,
 #plan-explore #explore-finish {
   width: auto;
 }
