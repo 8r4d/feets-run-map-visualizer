@@ -304,9 +304,19 @@ const Planner = (() => {
   // tried with a few shorter reaches and the loop with the most new street wins.
   const REACHES = [1, 0.9, 0.8, 0.7];
 
-  async function explore(graph, start, chains, budget, progress = () => {}, level = 5) {
+  // heading: favour going this way from the start, in degrees clockwise from
+  // north (180 is south), or null for any way. The result then has `widened`
+  // set if there was too little unrun street that way and it looked wider.
+  async function explore(graph, start, chains, budget, progress = () => {}, level = 5, heading = null) {
     const options = LEVELS[level] || LEVELS[5];
-    if (options.stops) return fewStops(graph, start, chains, budget, options, progress);
+    const facing = heading === null ? { chains, widened: false } : towards(graph, start, chains, budget, heading);
+    const loop = options.stops
+      ? await fewStops(graph, start, facing.chains, budget, options, progress)
+      : await greedyBest(graph, start, facing.chains, budget, options, progress);
+    return loop && { ...loop, widened: facing.widened };
+  }
+
+  async function greedyBest(graph, start, chains, budget, options, progress) {
     const home = search(graph, start, budget / 2, null).metres;  // nothing further than halfway is any use
     let best = null;
     for (const [i, reach] of REACHES.entries()) {
@@ -316,6 +326,33 @@ const Planner = (() => {
       if (loop && (!best || loop.fresh > best.fresh + 1)) best = loop;
     }
     return best;
+  }
+
+  // The chains that lie the chosen way from the start: their middle within
+  // CONE degrees of `heading`, or close enough to the start (NEAR of the
+  // budget) that any way is fine, since a loop has to leave and come back.
+  // With less than ENOUGH of the budget in unrun street that way, it tries
+  // the wider cone, and then gives up on the heading.
+  const CONES = [50, 80];
+  const NEAR = 0.03;
+  const ENOUGH = 0.15;
+
+  function towards(graph, start, chains, budget, heading) {
+    const { lat, lon } = graph;
+    const [la, lo] = [lat[start], lon[start]];
+    const info = chains.map(c => {
+      const mid = c[Math.floor(c.length / 2)];
+      const bearing = Math.atan2((lon[mid] - lo) * Math.cos(la * Math.PI / 180), lat[mid] - la) * 180 / Math.PI;
+      let len = 0;
+      for (let i = 1; i < c.length; i++) len += distance(lat[c[i - 1]], lon[c[i - 1]], lat[c[i]], lon[c[i]]);
+      return { off: Math.abs(((bearing - heading) % 360 + 540) % 360 - 180), near: distance(la, lo, lat[mid], lon[mid]) < budget * NEAR, len };
+    });
+    for (const [i, cone] of CONES.entries()) {
+      const keep = chains.filter((_, k) => info[k].near || info[k].off <= cone);
+      const metres = info.reduce((m, x, k) => m + (x.near || x.off <= cone ? x.len : 0), 0);
+      if (metres >= budget * ENOUGH) return { chains: keep, widened: i > 0 };
+    }
+    return { chains, widened: true };
   }
 
   // One greedy loop: from where it is, it goes for the chain with the most

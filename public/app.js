@@ -2410,6 +2410,13 @@ try { exploreLevel.value = localStorage.getItem('feets-explore-level') || explor
 exploreLevel.onchange = () => {
   try { localStorage.setItem('feets-explore-level', exploreLevel.value); } catch {}
 };
+// Heading: favour unrun streets that lie this way from the start (degrees, '' for any).
+const exploreHeading = document.getElementById('explore-heading');
+try { exploreHeading.value = localStorage.getItem('feets-explore-heading') || ''; } catch {}
+if (exploreHeading.selectedIndex < 0) exploreHeading.value = '';
+exploreHeading.onchange = () => {
+  try { localStorage.setItem('feets-explore-heading', exploreHeading.value); } catch {}
+};
 
 document.getElementById('plan-explore').onsubmit = async e => {
   e.preventDefault();
@@ -2437,7 +2444,7 @@ document.getElementById('plan-explore').onsubmit = async e => {
     const chains = Planner.chains(g, areas, area => trackCoverage(area).visited);
     const found = await Planner.explore(g, start, chains, target * 1000, (i, n) => {
       planStatus.textContent = `Looking for streets you haven't run… (step ${i} of ${n})`;
-    }, Number(exploreLevel.value));
+    }, Number(exploreLevel.value), exploreHeading.value === '' ? null : Number(exploreHeading.value));
     if (!found) {
       planStatus.textContent = `No unrun streets fit in a ${target} km loop from ${where}. Try a longer one.`;
       return;
@@ -2445,7 +2452,10 @@ document.getElementById('plan-explore').onsubmit = async e => {
     resetPlan();
     Object.assign(plan, { waypoints: found.waypoints, legs: found.legs, straight: found.legs.map(() => false), name: `Unrun streets, ${target} km` });
     planChanged();
-    planStatus.textContent = `A loop from ${where}. Change it like any route: drag points, or click them to remove them.`;
+    const way = exploreHeading.value === '' ? '' : ` heading ${exploreHeading.selectedOptions[0].text}`;
+    planStatus.textContent = (found.widened && way
+      ? `There wasn't much unrun street${way} from ${where}, so this loop goes wider. `
+      : `A loop${way} from ${where}. `) + 'Change it like any route: drag points, or click them to remove them.';
     map.fitBounds(L.latLngBounds(routePoints(plan)), { padding: [40, 40], maxZoom: 17 });
   } finally {
     button.disabled = false;
