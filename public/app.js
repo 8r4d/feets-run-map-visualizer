@@ -1191,6 +1191,11 @@ function fillAreaSelect() {
   exploreWithin.value = within;
   if (exploreWithin.selectedIndex < 0) exploreWithin.value = '';
   summarizeExplore();
+  // GPS art's area: the same choices, but somewhere has to be picked.
+  const artValue = artArea.value || (() => { try { return localStorage.getItem('feets-art-area'); } catch { return null; } })();
+  artArea.replaceChildren(...[...exploreWithin.options].filter(o => o.value).map(o => new Option(o.text, o.value)));
+  if (artValue) artArea.value = artValue;
+  if (artArea.selectedIndex < 0 && artArea.options.length) artArea.selectedIndex = 0;
 }
 
 function setActiveArea(id) {
@@ -1775,7 +1780,8 @@ let routes = [];  // saved, as from Store.routes()
 // The route being drawn. waypoints: [[lat, lon]] on streets; legs[i] joins
 // waypoints i and i+1, straight[i] when no streets connect them, or 'direct'
 // when you made it straight (see legPopup).
-const plan = { id: null, name: '', waypoints: [], legs: [], straight: [], dirty: false };
+// artShape: for GPS art, the shape it was made from ([lat, lon] points), drawn faintly underneath.
+const plan = { id: null, name: '', waypoints: [], legs: [], straight: [], dirty: false, artShape: null };
 let planLayer = null;
 let graph = null;
 let graphKey = '';
@@ -1939,6 +1945,7 @@ function resetPlan(route = null) {
     legs: data.legs.map(leg => leg.map(p => [...p])),
     straight: [...(data.straight || data.legs.map(() => false))],
     dirty: false,
+    artShape: null,
   });
   planStatus.textContent = '';
   if (data.elevation) {
@@ -1990,6 +1997,9 @@ function drawPlan() {
   arrowLayer = null;
   if (!planMode || !plan.waypoints.length) return;
   planLayer = L.layerGroup();
+  if (plan.artShape) {
+    L.polyline(plan.artShape, { color: '#8e24aa', weight: 6, opacity: 0.3, interactive: false }).addTo(planLayer);
+  }
   plan.legs.forEach((leg, i) => {
     const line = L.polyline(leg, {
       color: '#1a73e8', weight: 5, opacity: 0.85, dashArray: plan.straight[i] ? '6 8' : null,
@@ -2543,11 +2553,13 @@ function withHandles(waypoints, legs) {
 // The street points a loop may use with "Stay within" set: a Uint8Array over
 // the graph's points, with its name; null for anywhere. Kept until the graph
 // or the choice changes.
-let withinCache = null;
-function withinMask(g) {
-  const value = exploreWithin.value;
+// (Also used by GPS art, with its own choice of area.)
+const withinCache = new WeakMap();  // graph -> Map(value -> mask)
+function withinMask(g, value = exploreWithin.value) {
   if (!value) return null;
-  if (withinCache && withinCache.g === g && withinCache.value === value) return withinCache.mask;
+  if (!withinCache.has(g)) withinCache.set(g, new Map());
+  const cached = withinCache.get(g).get(value);
+  if (cached) return cached;
   const [kind, id, h] = value.split(':');
   const area = areas.find(a => String(a.id) === id);
   if (!area) return null;
@@ -2580,8 +2592,9 @@ function withinMask(g) {
   const biggest = sizes.indexOf(Math.max(...sizes));
   for (let i = 0; i < allowed.length; i++) allowed[i] = allowed[i] && piece[i] === biggest ? 1 : 0;
   const name = kind === 'h' ? area.data.hoods[Number(h)].name : area.name;
-  withinCache = { g, value, mask: { allowed, name } };
-  return withinCache.mask;
+  const mask = { allowed, name };
+  withinCache.get(g).set(value, mask);
+  return mask;
 }
 
 // The allowed point nearest to [lat, lon], or -1 if none is.
@@ -3449,6 +3462,141 @@ async function addFoundArea(place, { osmId, built }) {
   scheduleTrophies();
   toast(`New street map: ${saved.name}`, `Added because you've been there ${place.runs} times. See it in Streets mode.`);
 }
+
+// --- GPS art ---
+// Pick a shape and an area, and "Find best fit" tries the shape all over it
+// (see Art.fit), routes the best few along the streets, and shows the one
+// that matches the shape most closely. "Next fit" steps through the others.
+// Nothing else counts: not coverage, hills or doubling back.
+const artArea = document.getElementById('art-area');
+const artKm = document.getElementById('art-km');
+const artFree = document.getElementById('art-free');
+const artNext = document.getElementById('art-next');
+const ART_ROUTED = 6;      // best placements routed and judged
+const ART_THIN = 300;      // metres: drag points on art routes about this far apart
+let artShapeId = 'heart';
+let artFits = null;        // { shape, km, where, results: [{ legs, straight, outline, fid, metres }], index, shown }
+
+for (const [el, key] of [[artArea, 'feets-art-area'], [artKm, 'feets-art-km']]) {
+  try { if (localStorage.getItem(key)) el.value = localStorage.getItem(key); } catch {}
+  el.addEventListener('change', () => { try { localStorage.setItem(key, el.value); } catch {} });
+}
+try { artFree.checked = localStorage.getItem('feets-art-free') === 'on'; } catch {}
+artFree.onchange = () => { try { localStorage.setItem('feets-art-free', artFree.checked ? 'on' : 'off'); } catch {} };
+try { artShapeId = localStorage.getItem('feets-art-shape') || artShapeId; } catch {}
+
+// The shape picker: a button per shape, with a little drawing of it.
+const artShapes = document.getElementById('art-shapes');
+artShapes.replaceChildren(...Art.SHAPES.map(shape => {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.title = shape.name;
+  button.setAttribute('aria-label', shape.name);
+  button.innerHTML = Art.icon(shape);
+  button.onclick = () => {
+    artShapeId = shape.id;
+    try { localStorage.setItem('feets-art-shape', shape.id); } catch {}
+    for (const b of artShapes.children) b.setAttribute('aria-pressed', String(b === button));
+  };
+  button.setAttribute('aria-pressed', String(shape.id === artShapeId));
+  return button;
+}));
+
+// The art route as drawn, so stepping between fits doesn't ask about losing
+// one you haven't changed.
+const artSignature = () => `${plan.waypoints.length}:${routePoints(plan).length}:${plan.waypoints.flat().join()}`;
+
+// Legs every few metres become fewer, longer ones, so there's a drag point
+// about every ART_THIN metres rather than at every target.
+function thinLegs(legs, straight) {
+  const out = { waypoints: [legs[0][0]], legs: [], straight: [] };
+  let cur = null, curStraight = false;
+  legs.forEach((leg, i) => {
+    if (cur && (straight[i] || curStraight || lineMetres(cur) >= ART_THIN)) {
+      out.legs.push(cur);
+      out.straight.push(curStraight);
+      out.waypoints.push(cur[cur.length - 1]);
+      cur = null;
+    }
+    cur = cur ? [...cur, ...leg.slice(1)] : [...leg];
+    curStraight = straight[i];
+  });
+  out.legs.push(cur);
+  out.straight.push(curStraight);
+  out.waypoints.push(cur[cur.length - 1]);
+  return out;
+}
+
+function showArtFit(index) {
+  const { shape, km: length, where, results } = artFits;
+  const r = results[index];
+  const thin = thinLegs(r.legs, r.straight);
+  resetPlan();
+  Object.assign(plan, { ...thin, name: `${shape.name}, ${length} km`, artShape: r.outline });
+  planChanged();
+  artFits.index = index;
+  artFits.shown = artSignature();
+  map.fitBounds(L.latLngBounds(r.outline), { padding: [40, 40] });
+  artNext.hidden = results.length < 2;
+  planStatus.textContent = `${shape.name} in ${where}, fit ${index + 1} of ${results.length}: ${km(r.metres)}, `
+    + `on average ${Math.round(r.fid.mean)} m from the shape (95% within ${Math.round(r.fid.worst)} m). `
+    + 'The faint purple line is the shape. Drag points to tidy it up.';
+}
+
+// Whether it's fine to replace the route on the map without asking.
+const mayReplaceForArt = () => (artFits && artFits.shown === artSignature()) || mayDiscard();
+
+document.getElementById('art-fit').onclick = async () => {
+  const shape = Art.SHAPES.find(s => s.id === artShapeId) || Art.SHAPES[0];
+  const length = Number(artKm.value);
+  if (!(length > 0)) return;
+  if (!artArea.value) {
+    planStatus.textContent = 'Add an area in Streets mode first: the art is drawn on its streets.';
+    return;
+  }
+  if (!mayReplaceForArt()) return;
+  const g = planGraph();
+  const mask = withinMask(g, artArea.value);
+  if (!mask) return;
+  const buttons = [document.getElementById('art-fit'), artNext];
+  buttons.forEach(b => { b.disabled = true; });
+  try {
+    planStatus.textContent = `Fitting a ${shape.name.toLowerCase()} into ${mask.name}…`;
+    if (!mask.field) mask.field = Art.prepare(g, mask.allowed);  // kept with the mask, for the next go
+    const { field } = mask;
+    const fits = await Art.fit(field, shape, { km: length, free: artFree.checked }, f => {
+      planStatus.textContent = `Fitting a ${shape.name.toLowerCase()} into ${mask.name}… ${Math.round(f * 100)}%`;
+    });
+    if (!fits.length) {
+      planStatus.textContent = `A ${length} km ${shape.name.toLowerCase()} is too big for ${mask.name}. Try a shorter one, or a bigger area.`;
+      return;
+    }
+    const results = [];
+    for (const [k, placement] of fits.slice(0, ART_ROUTED).entries()) {
+      planStatus.textContent = `Drawing it on the streets… (${k + 1} of ${Math.min(ART_ROUTED, fits.length)})`;
+      await new Promise(r => setTimeout(r));
+      const input = Art.routeInput(g, field, shape, placement);
+      if (input.targets.length < 2) continue;
+      const { legs, straight } = Planner.followShape(g, input.targets, input.near, mask.allowed);
+      const points = legs.flatMap((leg, i) => (i ? leg.slice(1) : leg));
+      results.push({ legs, straight, outline: input.outline, fid: Art.fidelity(field, input, points), metres: lineMetres(points) });
+    }
+    if (!results.length) {
+      planStatus.textContent = `Couldn't draw a ${shape.name.toLowerCase()} on the streets of ${mask.name}.`;
+      return;
+    }
+    results.sort((a, b) => a.fid.mean - b.fid.mean);
+    artFits = { shape, km: length, where: mask.name, results, index: 0 };
+    showArtFit(0);
+  } finally {
+    buttons.forEach(b => { b.disabled = false; });
+  }
+};
+
+artNext.onclick = () => {
+  if (!artFits || !mayReplaceForArt()) return;
+  showArtFit((artFits.index + 1) % artFits.results.length);
+};
 
 // --- Startup ---
 (async () => {

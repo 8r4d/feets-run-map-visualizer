@@ -182,6 +182,57 @@ const Planner = (() => {
     return { points: points.reverse(), metres };
   }
 
+  // --- Following a shape (GPS art, see art.js) ---
+  // The route through `targets` (graph points, in order) that keeps closest
+  // to a drawn shape: each link counts longer the further it is from the
+  // shape, by 1 + its distance (from `near`, metres per point) / CORRIDOR.
+  // Going over the same street twice costs nothing extra. Only points
+  // `allowed` allows are used where that's possible. Returns { legs, straight }:
+  // a leg of [lat, lon] points from each target to the next, and whether it's
+  // a straight line (when no streets join them).
+  const CORRIDOR = 20;
+
+  function followShape(graph, targets, near, allowed = null) {
+    const { lat, lon, adj } = graph;
+    const step = (from, to, only) => {
+      const cost = new Map([[from, 0]]);
+      const came = new Map();
+      const done = new Set();
+      const heap = new Heap();
+      heap.push(from, distance(lat[from], lon[from], lat[to], lon[to]));
+      while (heap.size) {
+        const a = heap.pop();
+        if (a === to) break;
+        if (done.has(a)) continue;
+        done.add(a);
+        const base = cost.get(a);
+        const edges = adj[a];
+        for (let k = 0; k < edges.length; k += 3) {
+          const b = edges[k];
+          if (only && !only[b]) continue;
+          const c = base + edges[k + 1] * (1 + (near[a] + near[b]) / 2 / CORRIDOR) * (edges[k + 2] & 1 ? AVOID : 1);
+          if (c < (cost.get(b) ?? Infinity)) {
+            cost.set(b, c);
+            came.set(b, a);
+            heap.push(b, c + distance(lat[b], lon[b], lat[to], lon[to]));
+          }
+        }
+      }
+      if (!cost.has(to)) return null;
+      const path = [];
+      for (let i = to; i !== undefined; i = came.get(i)) path.push([lat[i], lon[i]]);
+      return path.reverse();
+    };
+    const legs = [], straight = [];
+    for (let i = 1; i < targets.length; i++) {
+      const [a, b] = [targets[i - 1], targets[i]];
+      const path = step(a, b, allowed) || (allowed && step(a, b, null));
+      legs.push(path || [[lat[a], lon[a]], [lat[b], lon[b]]]);
+      straight.push(!path);
+    }
+    return { legs, straight };
+  }
+
   // Waypoints on the streets that retrace a recorded run: its corners (where
   // the line turns by more than TURN metres, by Douglas-Peucker) plus a point
   // at least every STEP metres, so the shortest path between neighbours keeps
@@ -834,5 +885,5 @@ ${pts}
 `;
   }
 
-  return { build, snap, route, trace, explore, chains, distance, gpx };
+  return { build, snap, route, trace, explore, chains, followShape, distance, gpx };
 })();

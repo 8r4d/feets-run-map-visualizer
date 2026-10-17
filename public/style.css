@@ -70,6 +70,7 @@ body {
 #mode-bar #plan-stats { grid-area: 2 / 1; }
 #mode-bar #plan-streets-toggle { grid-area: 3 / 1; }
 #mode-bar #plan-status { grid-area: 4 / 1; }
+#mode-bar #art { grid-area: 4 / 3; }
 #mode-bar #plan-elevation { grid-area: 1 / 2 / span 4; width: 220px; }
 #mode-bar #plan-edit { grid-area: 1 / 3; }
 #mode-bar #plan-explore { grid-area: 2 / 3; }
@@ -984,6 +985,7 @@ body {
 .public-view #fade-control,
 .public-view #plan-edit,
 .public-view #plan-explore,
+.public-view #art,
 .public-view #filters,
 .public-view #list-header,
 .public-view #track-list,
@@ -1632,6 +1634,54 @@ body {
 
 #plan-explore button {
   flex: 1;
+}
+
+/* Plan mode: GPS art */
+#art-shapes {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+}
+
+#art-shapes button {
+  display: grid;
+  place-items: center;
+  padding: 4px 0;
+  color: #555;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+#art-shapes button[aria-pressed="true"] {
+  color: #8e24aa;
+  border-color: #8e24aa;
+  background: #f8eefa;
+}
+
+#art .panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+#art .art-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#art .art-row select {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+}
+
+#art-km {
+  width: 4em;
+  font: inherit;
 }
 
 /* Help: the index in the sidebar, and the window its pages open in. The
