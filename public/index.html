@@ -75,7 +75,7 @@
           <table></table>
         </details>
         <details id="todo" class="panel" open hidden>
-          <summary>Still to run <span class="count"></span></summary>
+          <summary>Still to cover <span class="count"></span></summary>
           <div class="panel-body">
             <small class="hint">Nearest to the middle of the map first</small>
             <ul id="todo-list"></ul>
@@ -83,7 +83,7 @@
         </details>
       </div>
       <details id="unrunnable" class="panel" hidden>
-        <summary>Unrunnable streets <span class="count"></span></summary>
+        <summary>Off-limits streets <span class="count"></span></summary>
         <div class="panel-body">
           <ul></ul>
         </div>
@@ -101,7 +101,7 @@
       <div id="plan-edit" class="filter-row">
         <button id="plan-undo" type="button" title="Remove the last point">Undo</button>
         <button id="plan-loop" type="button" title="Route back to the first point">Back to start</button>
-        <button id="plan-reverse" type="button" title="Run it the other way round">Reverse</button>
+        <button id="plan-reverse" type="button" title="Go the other way round">Reverse</button>
         <button id="plan-clear" type="button" title="Start a new route">New</button>
       </div>
       <form id="plan-explore" class="filter-row" title="A loop from the route's first point, or from you (⌖), or from the middle of the map">
@@ -110,10 +110,10 @@
         <details id="explore-options">
           <summary>Options <span id="explore-summary"></span></summary>
           <div class="explore-options-body">
-            <label id="explore-unrun-row" title="Go for streets you haven't run. Untick for a loop over any streets.">
-              <input id="explore-unrun" type="checkbox" checked> Through streets I haven't run
+            <label id="explore-unrun-row" title="Go for streets you haven't covered yet. Untick for a loop over any streets.">
+              <input id="explore-unrun" type="checkbox" checked> Through streets I haven't covered
             </label>
-            <label id="explore-finish-row" title="Favour streets you've run part of, so more of them get finished">
+            <label id="explore-finish-row" title="Favour streets you've partly covered, so more of them get finished">
               <input id="explore-finish" type="checkbox"> Finish streets I've started
             </label>
             <label id="explore-group-row" title="No dead ends, and no going back along streets already on the route where there's another way: easier to lead a group round">
@@ -122,7 +122,7 @@
             <label id="explore-level-row" title="Simple: a plain loop through a few long stretches. Thorough: as many different streets as fit, however it winds.">
               Simple <input id="explore-level" type="range" min="1" max="5" step="1" value="3" aria-label="Complexity"> Thorough
             </label>
-            <label id="explore-heading-row" class="explore-select-row" title="Favour unrun streets that lie this way from the start">
+            <label id="explore-heading-row" class="explore-select-row" title="Favour new streets that lie this way from the start">
               Heading <select id="explore-heading">
                 <option value="">any way</option>
                 <option value="0">north</option>
@@ -206,8 +206,8 @@
         <button id="change-password" type="button">Change password</button>
         <button id="home-set" type="button" title="Open the map here, at this zoom, instead of zoomed out to every track">Set home to this view</button>
         <button id="home-clear" type="button" title="Open the map zoomed out to every track again" hidden>Clear home</button>
-        <label id="auto-areas-row" title="Twice a day at most, while feets is open, it adds the street map for one place you've run that has none yet">
-          <input id="auto-areas" type="checkbox"> Add street maps where I run
+        <label id="auto-areas-row" title="Twice a day at most, while feets is open, it adds the street map for one place you've been that has none yet">
+          <input id="auto-areas" type="checkbox"> Add street maps where I've been
         </label>
         <button id="invite" type="button" title="Invite someone to use feets with their own tracks" hidden>Invite member</button>
         <button id="invite-viewer" type="button" title="Invite someone to look at your map without changing anything" hidden>Invite viewer</button>
@@ -227,7 +227,7 @@
           <a id="strava-connect" class="strava-button" href="api.php?action=strava_connect" hidden>Connect with Strava</a>
           <div id="strava-connected" hidden>
             <button id="strava-import" class="strava-button" type="button">Import from Strava</button>
-            <button id="strava-refresh" class="link-button" type="button" title="Pick up names and types you've changed on Strava, for all your imported runs">Refresh names</button>
+            <button id="strava-refresh" class="link-button" type="button" title="Pick up names and types you've changed on Strava, for all your imported activities">Refresh names</button>
             <button id="strava-disconnect" class="link-button" type="button">Disconnect</button>
           </div>
           <div id="strava-status"></div>
@@ -253,7 +253,7 @@
     <details id="about" class="panel">
       <summary>About feets</summary>
       <div class="panel-body">
-        <p>feets is a run data visualization and route planning app made by 8r4d.</p>
+        <p>feets is an activity mapping and route planning app made by 8r4d.</p>
         <ul>
           <li><a href="https://run.8r4d.com/" target="_blank" rel="noopener">Check out my running blog</a></li>
           <li><a href="https://github.com/8r4d/feets-run-map-visualizer" target="_blank" rel="noopener">Source code on GitHub</a></li>
@@ -323,7 +323,7 @@
   <script src="planner.js?v=37"></script>
   <script src="stats.js?v=29"></script>
   <script src="elevation.js?v=3"></script>
-  <script src="achievements.js?v=22"></script>
-  <script src="app.js?v=69"></script>
+  <script src="achievements.js?v=23"></script>
+  <script src="app.js?v=70"></script>
 </body>
 </html>

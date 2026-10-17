@@ -436,7 +436,7 @@ function trackPopup(track, latlng) {
   const toRoute = document.createElement('button');
   toRoute.className = 'link-button';
   toRoute.type = 'button';
-  toRoute.textContent = 'Create route from this run';
+  toRoute.textContent = 'Create route from this activity';
   toRoute.onclick = () => {
     map.closePopup(popup);
     routeFromTrack(track);
@@ -762,7 +762,7 @@ function listItem({ track, layer }) {
   const toRoute = document.createElement('button');
   toRoute.className = 'to-route';
   toRoute.textContent = '⤳';
-  toRoute.title = 'Plan a route from this run';
+  toRoute.title = 'Plan a route from this activity';
   toRoute.onclick = () => routeFromTrack(track);
 
   const fixPoints = document.createElement('button');
@@ -1251,7 +1251,7 @@ function drawStreets() {
         opacity: 0.9,
         dashArray: s.cat === 'trail' ? '4 5' : null,
       };
-    const tip = `${s.name || `Unnamed ${CAT_NAMES[s.cat]}`} · ${unrunnable ? 'unrunnable' : Math.round(f * 100) + '%'}`;
+    const tip = `${s.name || `Unnamed ${CAT_NAMES[s.cat]}`} · ${unrunnable ? 'off-limits' : Math.round(f * 100) + '%'}`;
     for (const run of s.runs) {
       L.polyline(run, style).bindTooltip(tip, { sticky: true })
         .on('click', e => { if (!planMode) streetPopup(w, e.latlng); }).addTo(streetLayer);  // plan mode: map click adds a point
@@ -1288,12 +1288,12 @@ function renderCoverage() {
   legend.className = 'legend';
   legend.innerHTML = `<span style="--c:${STREET_COLORS.done}">done</span><span style="--c:${STREET_COLORS.started}">started</span>`
     + `<span style="--c:${STREET_COLORS.todo}">not yet</span><span class="dashed">trail</span>`
-    + `<span class="dotted">unrunnable</span>`;
+    + `<span class="dotted">off-limits</span>`;
   const note = document.createElement('small');
   note.className = 'coverage-note';
   note.textContent = `Counting the ${tracks} ${tracks === 1 ? 'track' : 'tracks'} on the map. ` +
-    'Use the filters below to count only some, e.g. runs.' +
-    (readOnly() ? '' : ' Click a street to mark it unrunnable.');
+    'Use the filters below to count only some, e.g. one activity type.' +
+    (readOnly() ? '' : ' Click a street to mark it off-limits.');
   box.replaceChildren(...cats.map(c => progressRow(CAT_LABELS[c], summary.total[c])), legend, note);
 
   const hoods = activeArea.area.data.hoods;
@@ -1359,13 +1359,13 @@ function streetPopup(w, latlng) {
   title.textContent = s.name || `Unnamed ${CAT_NAMES[s.cat]}`;
   const info = document.createElement('div');
   info.textContent = unrunnable
-    ? 'Marked unrunnable'
-    : `${CAT_NAMES[s.cat]} · ${Math.round(coverage.result.fraction[w] * 100)}% run`;
+    ? 'Marked off-limits'
+    : `${CAT_NAMES[s.cat]} · ${Math.round(coverage.result.fraction[w] * 100)}% covered`;
   box.append(title, info);
   if (!readOnly()) {
     const button = document.createElement('button');
     button.type = 'button';
-    button.textContent = unrunnable ? 'Count it again' : 'Mark unrunnable';
+    button.textContent = unrunnable ? 'Count it again' : 'Mark off-limits';
     if (s.name) button.title = `Applies to all of ${s.name} in this area`;
     button.onclick = () => setUnrunnable(w, !unrunnable);
     box.append(button);
@@ -1427,7 +1427,7 @@ function renderTodo() {
     const li = document.createElement('li');
     const share = g.len ? g.covered / g.len : 0;
     li.innerHTML = '<span class="swatch"></span><div class="name"><strong></strong><small></small></div>'
-      + '<button class="link-button skip" type="button" title="Mark unrunnable">Skip</button>';
+      + '<button class="link-button skip" type="button" title="Mark off-limits">Skip</button>';
     li.querySelector('.skip').onclick = e => {
       e.stopPropagation();
       setUnrunnable(g.ways[0], true);
@@ -1623,7 +1623,7 @@ function renderTrophies() {
   if (!shown) {
     const empty = document.createElement('li');
     empty.className = 'trophy-empty';
-    empty.textContent = 'None yet. Add a street area and go run it.';
+    empty.textContent = 'None yet. Add a street area and go explore it.';
     list.replaceChildren(empty);
     return;
   }
@@ -2216,7 +2216,7 @@ function renderPlan() {
     const metres = lineMetres(points);
     // Street lengths are shared out by their points, so a short route can come out a little over.
     const fresh = Math.min(metres, newStreetMetres(points));
-    stats.textContent = `${km(metres)}${climb} · ${km(fresh)} on streets you haven't run`
+    stats.textContent = `${km(metres)}${climb} · ${km(fresh)} on new streets`
       + (plan.straight.some(Boolean) ? '. Dashed parts are straight lines.' : '');
   }
   document.getElementById('plan-undo').disabled = !n;
@@ -2647,7 +2647,7 @@ document.getElementById('plan-explore').onsubmit = async e => {
   button.disabled = true;
   // Any streets: the same search, aiming for every street rather than just the unrun ones.
   const unrun = exploreUnrun.checked;
-  const looking = unrun ? "Looking for streets you haven't run…" : 'Looking for a loop…';
+  const looking = unrun ? 'Looking for new streets…' : 'Looking for a loop…';
   planStatus.textContent = looking;
   try {
     // Hills need heights, looked up first; without them it plans anyway.
@@ -2680,7 +2680,7 @@ document.getElementById('plan-explore').onsubmit = async e => {
       const inside = within ? ` inside ${within.name}` : '';
       const shape = oneWay ? `route from ${where} to your last point` : `loop from ${where}`;
       planStatus.textContent = unrun
-        ? `No unrun streets${inside} fit in a ${target} km ${shape}. Try a longer one, or fewer options.`
+        ? `No new streets${inside} fit in a ${target} km ${shape}. Try a longer one, or fewer options.`
         : `No ${target} km ${shape} fits${inside}. Try a longer one, or fewer options.`;
       return;
     }
@@ -2688,13 +2688,13 @@ document.getElementById('plan-explore').onsubmit = async e => {
     const handles = withHandles(found.waypoints, found.legs);
     Object.assign(plan, {
       waypoints: handles.waypoints, legs: handles.legs, straight: handles.legs.map(() => false),
-      name: `${unrun ? 'Unrun streets' : oneWay ? 'Route' : 'Loop'}, ${target} km`,
+      name: `${unrun ? 'New streets' : oneWay ? 'Route' : 'Loop'}, ${target} km`,
     });
     planChanged();
     const way = exploreHeading.value === '' ? '' : ` heading ${exploreHeading.selectedOptions[0].text}`;
     const what = oneWay ? `A route${way} from ${where} to your last point.` : `A loop${way} from ${where}.`;
     planStatus.textContent = (found.widened && way
-      ? `There wasn't much ${unrun ? 'unrun street' : 'room'}${way} from ${where}, so this goes wider.`
+      ? `There wasn't much ${unrun ? 'new street' : 'room'}${way} from ${where}, so this goes wider.`
       : what) + startNote + hillNote + ' Change it like any route: drag points, or click them to remove them.';
     map.fitBounds(L.latLngBounds(routePoints(plan)), { padding: [40, 40], maxZoom: 17 });
   } finally {
@@ -2765,7 +2765,7 @@ let authMode = 'login';
 const AUTH_MODES = {
   setup: {
     title: 'Create your account',
-    intro: 'First run: enter the app_password from feets-config.php, then choose your username and password. You will be the admin.',
+    intro: 'First time: enter the app_password from feets-config.php, then choose your username and password. You will be the admin.',
     button: 'Create account',
     fields: ['setup', 'username', 'password'],
   },
@@ -3223,7 +3223,7 @@ function askExpiry() {
 // { code, days }, or null.
 async function createViewLink(label = null, days = null) {
   label ??= prompt("Name this link, e.g. who it's for. Anyone with it can see your map, tracks and routes "
-    + 'without logging in, until you turn it off or it expires.', 'Run club');
+    + 'without logging in, until you turn it off or it expires.', 'Club');
   if (!label || !label.trim()) return null;
   days ??= askExpiry();
   if (days === null) return null;
@@ -3447,7 +3447,7 @@ async function addFoundArea(place, { osmId, built }) {
   fillAreaSelect();
   setActiveArea(active || saved.id);
   scheduleTrophies();
-  toast(`New street map: ${saved.name}`, `Added because you've run there ${place.runs} times. See it in Streets mode.`);
+  toast(`New street map: ${saved.name}`, `Added because you've been there ${place.runs} times. See it in Streets mode.`);
 }
 
 // --- Startup ---

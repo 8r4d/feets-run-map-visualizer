@@ -89,7 +89,7 @@ const Achievements = (() => {
       if (streetM >= n * 1000) add(`streets:${n}`, `${n} km of streets`, 'Unique streets, paths and trails covered');
     }
     for (const n of rules.hoodsDone) {
-      if (hoodsDone.size >= n) add(`hoods:${n}`, n === 1 ? 'First neighbourhood' : `${n} neighbourhoods`, 'Every street run');
+      if (hoodsDone.size >= n) add(`hoods:${n}`, n === 1 ? 'First neighbourhood' : `${n} neighbourhoods`, 'Every street covered');
     }
 
     const totalM = tracks.reduce((sum, t) => sum + t.distance, 0);

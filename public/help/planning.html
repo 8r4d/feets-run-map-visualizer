@@ -11,8 +11,8 @@ it, save it, put it on your watch or share it.</p>
 
 <p class="tip">Routes only follow streets in your areas. If Plan mode says
 there's no street nearby, add an area for that part of the map in Streets mode
-first. feets also adds areas by itself for places you've run a few times (see
-<em>Add street maps where I run</em> under <em>Account</em>).</p>
+first. feets also adds areas by itself for places you've been a few times (see
+<em>Add street maps where I've been</em> under <em>Account</em>).</p>
 
 <h3>Drawing a route yourself</h3>
 <ul>
@@ -27,20 +27,20 @@ first. feets also adds areas by itself for places you've run a few times (see
   <li>If two points have no streets joining them, the route draws a dashed
     straight line between them.</li>
   <li><em>Undo</em> removes the last point. <em>Back to start</em> adds a last
-    leg home to the first point. <em>Reverse</em> runs the route the other way.
+    leg home to the first point. <em>Reverse</em> turns the route the other way round.
     <em>New</em> starts again, and asks first if the route isn't saved.</li>
 </ul>
 
 <h3>What the panel tells you</h3>
 <ul>
   <li><strong>Distance, climb, and new street:</strong> for example "6.0 km ·
-    ↑ 59 m · 2.3 km on streets you haven't run".</li>
+    ↑ 59 m · 2.3 km on new streets".</li>
   <li><strong>The elevation chart</strong> appears a moment after you stop
     changing the route. Heights come from Open-Meteo's free service. If it
     can't be reached, or its daily limit is used up, some heights are
     estimated, and the chart says so.</li>
   <li><strong>Show street coverage</strong> colours the streets as in Streets
-    mode, so you can aim for the red ones you haven't run. Untick it for a
+    mode, so you can aim for the red ones you haven't covered. Untick it for a
     plainer map.</li>
   <li><strong>Arrows</strong> along the line show the way round.
     <strong>▶</strong> at the top right of the map traces the route from start
@@ -66,21 +66,21 @@ that length and draws it, ready to change like one you drew yourself.</p>
 it's folded away, its heading lists any you've changed, for example "Options ·
 heading south, flatter". Your settings are remembered in this browser.</p>
 
-<h3>Through streets I haven't run</h3>
-<p>Ticked (the usual setting), the loop goes for streets you haven't run.
-Unticked, it makes a loop over any streets, which is handy for a run
-somewhere new or a route for someone else.</p>
-<p class="tip">What counts as "run" is the tracks <em>on the map</em> right
-now. Hidden tracks, the year and type filters, and ◎ all change it. For
-example, pick this year in the filters to find streets you haven't run this
-year, or untick your rides so cycling doesn't count.</p>
-<p>Streets you've marked unrunnable are never aimed for. A route crosses or
+<h3>Through streets I haven't covered</h3>
+<p>Ticked (the usual setting), the loop goes for streets you haven't covered.
+Unticked, it makes a loop over any streets, which is handy somewhere new or
+for a route for someone else.</p>
+<p class="tip">What counts as "covered" is the tracks <em>on the map</em>
+right now. Hidden tracks, the year and type filters, and ◎ all change it. For
+example, pick this year in the filters to find streets you haven't covered
+this year, or pick one activity type so only that counts.</p>
+<p>Streets you've marked off-limits are never aimed for. A route crosses or
 follows one only when there's no reasonable way round, because they count as
 three times longer.</p>
 
 <h3>Finish streets I've started</h3>
-<p>This one works with <em>Through streets I haven't run</em>. It's greyed
-out when that's unticked. It favours streets you've already run part of
+<p>This one works with <em>Through streets I haven't covered</em>. It's
+greyed out when that's unticked. It favours streets you've already partly covered
 (the orange ones), counting them three times as much as untouched streets.
 Your count of completed streets then goes up faster, though the loop may pick
 up a little less new street in all.</p>
@@ -91,7 +91,7 @@ going back along streets it has already used. That makes it much easier to
 lead a group round, with no "now turn round and come back" moments.</p>
 <ul>
   <li>A dead end means any street you can only leave the way you came in.
-    Unrun streets like that are skipped altogether.</li>
+    New streets like that are skipped altogether.</li>
   <li>If your start is itself on a dead-end street, the route still uses it,
     since there's no other way out.</li>
   <li>Expect a little less new street per loop, and a second or so longer to
@@ -104,12 +104,12 @@ lead a group round, with no "now turn round and come back" moments.</p>
 <p>The slider sets how winding the loop can be, in five steps:</p>
 <ul>
   <li><strong>1:</strong> a plain loop through one or two long stretches you
-    haven't run. The easiest to follow.</li>
+    haven't covered. The easiest to follow.</li>
   <li><strong>2:</strong> up to three stretches.</li>
   <li><strong>3 (the middle):</strong> up to four stretches.</li>
   <li><strong>4:</strong> goes after many shorter stretches, a few side trips
-    per km, and runs more unrun streets on the way between them.</li>
-  <li><strong>5:</strong> as many unrun streets as fit, however much it
+    per km, and takes in more new streets on the way between them.</li>
+  <li><strong>5:</strong> as many new streets as fit, however much it
     winds. The most new street, and the hardest to follow without a watch.</li>
 </ul>
 <p>Levels 1 to 3 try every combination of the longest stretches in reach and
@@ -118,7 +118,7 @@ the loop a stretch at a time, picking up whatever is close.</p>
 
 <h3>Heading</h3>
 <p>Makes the loop favour one direction from the start, such as south. It only
-aims for unrun streets roughly that way (within about 50° of it). Streets
+aims for new streets roughly that way (within about 50° of it). Streets
 right by the start are always allowed, since a loop has to leave and come
 back. If there isn't enough that way, it looks wider (about 80°), and failing
 that ignores the heading. The message then says it went wider.</p>
@@ -160,7 +160,7 @@ ramp. Check the elevation chart once the loop is made.</p>
   <li><strong>At my last point:</strong> a route from one place to another.
     Click the map for a start, then a finish, then <em>Make a loop</em>. You get
     a route of about the chosen length from the first point to the last. It
-    works for running to work, or ending at a café or a friend's place.</li>
+    works for getting to work, or ending at a café or a friend's place.</li>
 </ul>
 <p>The length has to be more than the shortest way between the two points by
 the streets, or no route fits. Your two points are replaced by the route,
@@ -174,7 +174,7 @@ finishing off a neighbourhood.</p>
   <li>If your start (or finish) is outside, the route starts from the nearest
     street inside instead, and the message says so.</li>
   <li>Streets along the edge belong to whichever side they're on. A loop
-    may not use a road that runs right along the boundary.</li>
+    may not use a road that lies right along the boundary.</li>
   <li>The smaller the area, the less room there is. A long loop inside a small
     neighbourhood will come out shorter, or doubling back.</li>
 </ul>
@@ -182,7 +182,7 @@ finishing off a neighbourhood.</p>
 <h3>Putting options together</h3>
 <p>Every option you add narrows what the loop can use. They all work
 together, but a lot of them at once, in a small space, can leave nothing that
-fits. Then you'll see "No unrun streets fit… Try a longer one, or fewer
+fits. Then you'll see "No new streets fit… Try a longer one, or fewer
 options".</p>
 <ul>
   <li>The combinations that most often leave nothing are <em>Stay in</em> a
@@ -190,8 +190,8 @@ options".</p>
     <em>No dead ends</em>, together with a short length.</li>
   <li>Loosen one at a time: a longer length, <em>any way</em> for heading,
     then a bigger area.</li>
-  <li>If you've run almost everything nearby, untick <em>Through streets I
-    haven't run</em>, or hide some tracks so their streets count as unrun
+  <li>If you've covered almost everything nearby, untick <em>Through streets
+    I haven't covered</em>, or hide some tracks so their streets count as new
     again.</li>
 </ul>
 
