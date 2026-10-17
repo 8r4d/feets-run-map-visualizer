@@ -2513,6 +2513,33 @@ function summarizeExplore() {
 document.getElementById('plan-explore').addEventListener('change', summarizeExplore);
 document.getElementById('plan-explore').addEventListener('input', summarizeExplore);
 
+// A made route only has points where it joins and leaves each stretch, and
+// dragging one reroutes both its legs the shortest way. So each leg gets a
+// point about every HANDLE_EVERY metres (none within HANDLE_GAP of a point it
+// has): the same route, with handles that each move just a short piece of it.
+const HANDLE_EVERY = 400, HANDLE_GAP = 150;
+
+function withHandles(waypoints, legs) {
+  const out = { waypoints: [waypoints[0]], legs: [] };
+  legs.forEach((leg, i) => {
+    const length = lineMetres(leg);
+    const pieces = Math.max(1, Math.round(length / HANDLE_EVERY));
+    let from = 0, along = 0, next = length / pieces;
+    for (let k = 1; k < leg.length - 1; k++) {
+      along += Planner.distance(...leg[k - 1], ...leg[k]);
+      if (along >= next && along > HANDLE_GAP && length - along > HANDLE_GAP) {
+        out.legs.push(leg.slice(from, k + 1));
+        out.waypoints.push(leg[k]);
+        from = k;
+        next += length / pieces;
+      }
+    }
+    out.legs.push(leg.slice(from));
+    out.waypoints.push(waypoints[i + 1]);
+  });
+  return out;
+}
+
 // The street points a loop may use with "Stay within" set: a Uint8Array over
 // the graph's points, with its name; null for anywhere. Kept until the graph
 // or the choice changes.
@@ -2658,8 +2685,9 @@ document.getElementById('plan-explore').onsubmit = async e => {
       return;
     }
     resetPlan();
+    const handles = withHandles(found.waypoints, found.legs);
     Object.assign(plan, {
-      waypoints: found.waypoints, legs: found.legs, straight: found.legs.map(() => false),
+      waypoints: handles.waypoints, legs: handles.legs, straight: handles.legs.map(() => false),
       name: `${unrun ? 'Unrun streets' : oneWay ? 'Route' : 'Loop'}, ${target} km`,
     });
     planChanged();
