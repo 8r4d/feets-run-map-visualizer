@@ -1103,10 +1103,29 @@ async function loadAreas() {
     areas = [];
     areaStatus.textContent = 'Could not load areas: ' + err.message;
   }
+  await syncUnrunnable();
   let saved = '';
   try { saved = localStorage.getItem('feets-area') || ''; } catch {}
   fillAreaSelect();
   setActiveArea(areas.some(a => String(a.id) === saved) ? saved : areas[0] ? String(areas[0].id) : '');
+}
+
+// Streets marked unrunnable in one area but not in another that has them too
+// (marked before areas were kept in step, or an area added since) get marked
+// there as well: unrunnable anywhere is unrunnable everywhere.
+async function syncUnrunnable() {
+  if (readOnly() || areas.length < 2) return;
+  const marked = new Set(areas.flatMap(a => a.excluded || []));
+  for (const a of areas) {
+    const have = new Set(a.excluded || []);
+    const missing = [...new Set(a.data.streets.map(s => s.id))].filter(id => marked.has(id) && !have.has(id));
+    if (!missing.length) continue;
+    try {
+      a.excluded = (await Store.excludeWays(a.id, missing, true)).excluded;
+    } catch (err) {
+      console.error('Unrunnable streets:', err);
+    }
+  }
 }
 
 function clearAreas() {
@@ -1344,14 +1363,19 @@ function streetPopup(w, latlng) {
 // Marks a street unrunnable, or counts it again. A named street changes
 // everywhere in the area (a big road often crosses several neighbourhoods);
 // an unnamed path or trail just where it is.
+// A street is marked in every area that has it (the same OSM ways), so an
+// area and its sub-areas agree.
 async function setUnrunnable(w, unrunnable) {
   const { area } = activeArea;
   const s = area.data.streets[w];
-  const ways = s.name
+  const ways = new Set(s.name
     ? area.data.streets.filter(o => o.name === s.name && o.cat === s.cat).map(o => o.id)
-    : [s.id];
+    : [s.id]);
   try {
-    area.excluded = (await Store.excludeWays(area.id, ways, unrunnable)).excluded;
+    for (const a of areas) {
+      const here = a === area ? [...ways] : a.data.streets.filter(o => ways.has(o.id)).map(o => o.id);
+      if (here.length) a.excluded = (await Store.excludeWays(a.id, here, unrunnable)).excluded;
+    }
     map.closePopup();
     setActiveArea(area.id);  // re-index without (or with) those streets, then recount
     scheduleTrophies();
@@ -1493,6 +1517,7 @@ async function fetchAndSaveArea(osmId) {
     areaStatus.textContent = 'Saving…';
     const saved = await Store.saveArea({ osmId, name: built.name, data: built.data });
     areas = [...areas.filter(a => a.id !== saved.id), saved].sort((a, b) => a.name.localeCompare(b.name));
+    await syncUnrunnable();
     fillAreaSelect();
     setActiveArea(saved.id);
     scheduleTrophies();
@@ -3057,6 +3082,7 @@ async function areaFor(place, tooBig) {
 async function addFoundArea(place, { osmId, built }) {
   const saved = await Store.saveArea({ osmId, name: built.name, data: built.data });
   areas = [...areas.filter(a => a.id !== saved.id), saved].sort((a, b) => a.name.localeCompare(b.name));
+  await syncUnrunnable();
   const active = activeArea && activeArea.area.id;
   fillAreaSelect();
   setActiveArea(active || saved.id);
