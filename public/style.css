@@ -1189,7 +1189,8 @@ body {
 }
 
 /* Locate-me button under the zoom controls; pulses while waiting for a fix. */
-#map .locate-button {
+#map .locate-button,
+#map .home-button {
   font-size: 20px;
   line-height: 30px;
   text-decoration: none;

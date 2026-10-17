@@ -66,6 +66,8 @@
 // Goals
 //   GET  api.php?action=goals                {week, month} in km, null when not set
 //   POST api.php?action=goals_save           {week, month}, returns the goals
+//   POST api.php?action=home_save            {lat, lon, zoom}: where the map opens; {} clears it. Returns {home}
+//                                            (sent as user.home by me, login and the like; null when not set)
 //
 // Achievements (worked out in the browser by achievements.js; the server only remembers them)
 //   GET  api.php?action=achievements         [{code, title, detail, earnedAt}], oldest first
@@ -96,6 +98,7 @@ const SCHEMA = [
       read_only     BOOLEAN      NOT NULL DEFAULT FALSE,  -- view-only account
       data_owner    INT          NULL,                    -- whose data a view-only account sees
       goals         TEXT         NULL,                    -- JSON: { week, month } in km, see save_goals()
+      home          TEXT         NULL,                    -- JSON: { lat, lon, zoom }, where the map opens
       created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) CHARACTER SET utf8mb4
     SQL,
@@ -309,6 +312,10 @@ function db(): PDO {
         if (!$pdo->query("SHOW COLUMNS FROM users LIKE 'goals'")->fetch()) {
             $pdo->exec('ALTER TABLE users ADD COLUMN goals TEXT NULL AFTER data_owner');
         }
+        // ...and a home for the map.
+        if (!$pdo->query("SHOW COLUMNS FROM users LIKE 'home'")->fetch()) {
+            $pdo->exec('ALTER TABLE users ADD COLUMN home TEXT NULL AFTER goals');
+        }
         // ...and view links that expire.
         if (!$pdo->query("SHOW COLUMNS FROM view_links LIKE 'expires_at'")->fetch()) {
             $pdo->exec('ALTER TABLE view_links ADD COLUMN expires_at TIMESTAMP NULL AFTER created_at');
@@ -406,6 +413,11 @@ function user_json(array $user): array {
     }
     if ($json['viewLink']) {
         $json['expiresAt'] = $user['expires_at'];  // Unix ms, or null
+    } else {
+        // View-only accounts open on the home of the map they see.
+        $home = db()->prepare('SELECT home FROM users WHERE id = ?');
+        $home->execute([$json['readOnly'] ? $user['data_owner'] : $user['id']]);
+        $json['home'] = json_decode((string) $home->fetchColumn(), true) ?: null;
     }
     return $json;
 }
@@ -1904,6 +1916,24 @@ function save_goals(int $userId, array $b): array {
     return $goals;
 }
 
+// --- Home ---
+// Where the map opens, in place of zooming out to every track.
+
+function save_home(int $userId, array $b): array {
+    $lat = $b['lat'] ?? null;
+    $lon = $b['lon'] ?? null;
+    $zoom = $b['zoom'] ?? null;
+    $home = null;
+    if (is_numeric($lat) && is_numeric($lon) && is_numeric($zoom)
+        && abs((float) $lat) <= 90 && abs((float) $lon) <= 180 && $zoom >= 0 && $zoom <= 19) {
+        $home = ['lat' => round((float) $lat, 5), 'lon' => round((float) $lon, 5), 'zoom' => (int) round((float) $zoom)];
+    } elseif ($b) {
+        fail('That is not a place on the map', 400);
+    }
+    db()->prepare('UPDATE users SET home = ? WHERE id = ?')->execute([$home === null ? null : json_encode($home), $userId]);
+    return ['home' => $home];
+}
+
 // --- Achievements ---
 
 function list_achievements(int $userId): array {
@@ -2016,6 +2046,8 @@ if ($method === 'POST' && $action === 'invite') {
     send_json(goals($userId));
 } elseif ($method === 'POST' && $action === 'goals_save') {
     send_json(save_goals($userId, read_json()));
+} elseif ($method === 'POST' && $action === 'home_save') {
+    send_json(save_home($userId, read_json()));
 } elseif ($method === 'POST' && $action === 'track_metrics') {
     send_json(backfill_metrics($userId));
 } elseif ($method === 'GET' && $action === 'track_profile' && $id) {

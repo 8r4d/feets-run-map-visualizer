@@ -90,6 +90,9 @@ const Store = (() => {
     goals: () => json('GET', '?action=goals'),
     saveGoals: goals => json('POST', '?action=goals_save', goals),
 
+    // Where the map opens: { lat, lon, zoom }, or null to clear it. Resolves to { home }.
+    saveHome: home => json('POST', '?action=home_save', home || {}),
+
     // Achievements: each resolves to [{ code, title, detail, earnedAt }], oldest first.
     achievements: () => json('GET', '?action=achievements'),
     addAchievements: achievements => json('POST', '?action=achievement_add', { achievements }),

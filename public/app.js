@@ -60,11 +60,59 @@ const LocateControl = L.Control.extend({
       button.classList.add('locating');
       map.locate({ enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
     });
+    // Back to home (see setHome): only in the bar while there is one, so the
+    // bar's rounded corners stay right.
+    const homeButton = L.DomUtil.create('a', 'home-button');
+    homeButton.href = '#';
+    homeButton.role = 'button';
+    homeButton.title = 'Go to home';
+    homeButton.setAttribute('aria-label', 'Go to home');
+    homeButton.innerHTML = '&#8962;';
+    L.DomEvent.on(homeButton, 'click', e => {
+      L.DomEvent.preventDefault(e);
+      goHome();
+    });
     this.button = button;
+    this.homeButton = homeButton;
     return bar;
   },
 });
 const locateControl = new LocateControl().addTo(map);
+
+// --- Home ---
+// Where the map opens, at a set zoom, rather than zoomed out to every track.
+// Saved on the account; view-only accounts get their owner's.
+let home = null;  // { lat, lon, zoom }
+
+function setHome(value) {
+  home = value || null;
+  const { button, homeButton } = locateControl;
+  if (home) button.after(homeButton);
+  else homeButton.remove();
+  document.getElementById('home-clear').hidden = !home;
+}
+
+function goHome() {
+  if (home) map.setView([home.lat, home.lon], home.zoom);
+}
+
+document.getElementById('home-set').onclick = async () => {
+  const c = map.getCenter().wrap();
+  try {
+    setHome((await Store.saveHome({ lat: c.lat, lon: c.lng, zoom: map.getZoom() })).home);
+    alert('Home set: the map will open here.');
+  } catch (err) {
+    alert(err.message);
+  }
+};
+
+document.getElementById('home-clear').onclick = async () => {
+  try {
+    setHome((await Store.saveHome(null)).home);
+  } catch (err) {
+    alert(err.message);
+  }
+};
 
 map.on('locationfound', e => {
   locateControl.button.classList.remove('locating');
@@ -2338,7 +2386,7 @@ async function loadTracks() {
   try {
     (await Store.all()).forEach(show);
     render();
-    fitAll();
+    if (!home) fitAll();
   } catch (err) {
     document.getElementById('summary').textContent = 'Could not load tracks: ' + err.message;
   }
@@ -2390,6 +2438,8 @@ async function signedIn(user) {
   trophyBox.hidden = false;
   document.getElementById('stats-box').hidden = false;
   document.getElementById('goals-box').hidden = false;
+  setHome(user.home);
+  goHome();  // straight away, while the tracks load
   clearTracks();
   await loadTracks();
   await loadGoals();
@@ -2410,6 +2460,7 @@ async function signedIn(user) {
 
 function signedOut() {
   currentUser = null;
+  setHome(null);
   document.body.classList.remove('public-view');
   document.getElementById('view-expiry').hidden = true;
   Store.setViewCode('');  // a turned-off view link: logging in works normally
