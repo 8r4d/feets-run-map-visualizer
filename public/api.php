@@ -70,6 +70,13 @@
 // Goals
 //   GET  api.php?action=goals                {week, month} in km, null when not set
 //   POST api.php?action=goals_save           {week, month}, returns the goals
+//   GET  api.php?action=segments             your segments: [{id, name, distance, points, createdAt,
+//                                            efforts: {track id: [[start, seconds], ...]}}]
+//   POST api.php?action=segment_save         {name, points, distance}, returns the segment
+//   POST api.php?action=segment_rename&id=ID {name}
+//   POST api.php?action=segment_delete&id=ID
+//   POST api.php?action=segment_efforts&id=ID  {efforts: {track id: [[start, seconds], ...]}}: what the
+//                                            browser found, kept so each activity is only checked once
 //   GET  api.php?action=quests               this week's quests: {week, quests, done: [ids], completed}, see save_quests()
 //   POST api.php?action=quests_save          {week, quests, done, completed}
 //   POST api.php?action=home_save            {lat, lon, zoom}: where the map opens; {} clears it. Returns {home}
@@ -199,6 +206,26 @@ const SCHEMA = [
       created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       INDEX (user_id)
+    ) CHARACTER SET utf8mb4
+    SQL,
+    <<<SQL
+    CREATE TABLE IF NOT EXISTS segments (  -- short stretches to time yourself on, see segments.js
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      user_id     INT          NOT NULL,
+      name        VARCHAR(255) NOT NULL,
+      distance_m  DOUBLE       NOT NULL DEFAULT 0,
+      points      MEDIUMTEXT   NOT NULL,  -- JSON: [[lat, lon], ...]
+      created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX (user_id)
+    ) CHARACTER SET utf8mb4
+    SQL,
+    <<<SQL
+    CREATE TABLE IF NOT EXISTS segment_efforts (  -- the times each activity took on a segment, worked out in the browser
+      segment_id  INT  NOT NULL,
+      track_id    INT  NOT NULL,
+      efforts     TEXT NOT NULL,  -- JSON: [[start (Unix seconds), seconds], ...], [] if it didn't do the segment
+      PRIMARY KEY (segment_id, track_id),
+      INDEX (track_id)
     ) CHARACTER SET utf8mb4
     SQL,
     <<<SQL
@@ -1108,11 +1135,14 @@ function edit_track(int $userId, int $id, array $b): array {
     $geometry = simplify_geometry($segments, json_decode($row['geometry'], true)['waypoints'] ?? []);
     db()->prepare('UPDATE tracks SET gpx = ?, geometry = ?, distance_m = ?, metrics = ?, profile = ?, simplified = 1 WHERE id = ?')
         ->execute([$gpx, $geometry, $distance, json_encode($metrics), $profile === null ? null : json_encode($profile), $id]);
+    // Its segment times were worked out from the points it had; find them again.
+    db()->prepare('DELETE FROM segment_efforts WHERE track_id = ?')->execute([$id]);
     return track_json(track_gpx($userId, $id));
 }
 
 function delete_track(int $userId, int $id): array {
     db()->prepare('DELETE FROM tracks WHERE id = ? AND user_id = ?')->execute([$id, $userId]);
+    db()->prepare('DELETE FROM segment_efforts WHERE track_id = ?')->execute([$id]);
     return ['ok' => true];
 }
 
@@ -1935,6 +1965,88 @@ function save_goals(int $userId, array $b): array {
     return $goals;
 }
 
+// --- Segments ---
+// A segment is a short stretch, cut from one of your activities, that you
+// time yourself on. Finding the efforts on it is done in the browser (see
+// segments.js); they're kept here so each activity is only checked once.
+
+const SEGMENT_MAX_BYTES = 200000;
+
+function segment_json(array $row, array $efforts): array {
+    return ['id' => (int) $row['id'], 'name' => $row['name'], 'distance' => (float) $row['distance_m'],
+            'points' => json_decode($row['points'], true), 'createdAt' => $row['created_at'], 'efforts' => (object) $efforts];
+}
+
+function segments(int $userId, ?int $onlyId = null): array {
+    $stmt = db()->prepare('SELECT * FROM segments WHERE user_id = ?' . ($onlyId ? ' AND id = ?' : '') . ' ORDER BY name');
+    $stmt->execute($onlyId ? [$userId, $onlyId] : [$userId]);
+    $rows = $stmt->fetchAll();
+    $efforts = [];
+    if ($rows) {
+        $ids = array_map(fn($r) => (int) $r['id'], $rows);
+        $marks = implode(',', array_fill(0, count($ids), '?'));
+        $e = db()->prepare("SELECT segment_id, track_id, efforts FROM segment_efforts WHERE segment_id IN ($marks)");
+        $e->execute($ids);
+        foreach ($e->fetchAll() as $r) {
+            $efforts[(int) $r['segment_id']][(int) $r['track_id']] = json_decode($r['efforts'], true);
+        }
+    }
+    return array_map(fn($r) => segment_json($r, $efforts[(int) $r['id']] ?? []), $rows);
+}
+
+function segment_name(array $b): string {
+    $name = mb_substr(trim((string) ($b['name'] ?? '')), 0, 255);
+    if ($name === '') {
+        fail('Give the segment a name', 400);
+    }
+    return $name;
+}
+
+function save_segment(int $userId, array $b): array {
+    $points = $b['points'] ?? null;
+    if (!is_array($points) || count($points) < 2) {
+        fail('A segment needs a start and an end', 400);
+    }
+    $json = json_encode(array_map(fn($p) => [round((float) $p[0], 6), round((float) $p[1], 6)], $points));
+    if (strlen($json) > SEGMENT_MAX_BYTES) {
+        fail('That segment is too long', 400);
+    }
+    db()->prepare('INSERT INTO segments (user_id, name, distance_m, points) VALUES (?, ?, ?, ?)')
+        ->execute([$userId, segment_name($b), (float) ($b['distance'] ?? 0), $json]);
+    return segments($userId, (int) db()->lastInsertId())[0];
+}
+
+function owns_segment(int $userId, int $id): void {
+    $stmt = db()->prepare('SELECT id FROM segments WHERE id = ? AND user_id = ?');
+    $stmt->execute([$id, $userId]);
+    if (!$stmt->fetchColumn()) {
+        fail('Segment not found', 404);
+    }
+}
+
+function rename_segment(int $userId, int $id, array $b): array {
+    owns_segment($userId, $id);
+    db()->prepare('UPDATE segments SET name = ? WHERE id = ?')->execute([segment_name($b), $id]);
+    return segments($userId, $id)[0];
+}
+
+function delete_segment(int $userId, int $id): array {
+    owns_segment($userId, $id);
+    db()->prepare('DELETE FROM segment_efforts WHERE segment_id = ?')->execute([$id]);
+    db()->prepare('DELETE FROM segments WHERE id = ?')->execute([$id]);
+    return ['ok' => true];
+}
+
+function save_segment_efforts(int $userId, int $id, array $b): array {
+    owns_segment($userId, $id);
+    $insert = db()->prepare('REPLACE INTO segment_efforts (segment_id, track_id, efforts) VALUES (?, ?, ?)');
+    foreach ((array) ($b['efforts'] ?? []) as $trackId => $list) {
+        $clean = array_map(fn($e) => [(int) $e[0], round((float) $e[1], 1)], array_filter((array) $list, 'is_array'));
+        $insert->execute([$id, (int) $trackId, json_encode($clean)]);
+    }
+    return ['ok' => true];
+}
+
 // --- Weekly quests ---
 // Made up in the browser each week from your coverage (see quests.js); kept
 // here so every device shows the same ones. week: the Monday they start, as
@@ -2135,6 +2247,16 @@ if ($method === 'POST' && $action === 'invite') {
     send_json(goals($userId));
 } elseif ($method === 'POST' && $action === 'goals_save') {
     send_json(save_goals($userId, read_json()));
+} elseif ($method === 'GET' && $action === 'segments') {
+    send_json(segments($userId));
+} elseif ($method === 'POST' && $action === 'segment_save') {
+    send_json(save_segment($userId, read_json()));
+} elseif ($method === 'POST' && $action === 'segment_rename' && $id) {
+    send_json(rename_segment($userId, $id, read_json()));
+} elseif ($method === 'POST' && $action === 'segment_delete' && $id) {
+    send_json(delete_segment($userId, $id));
+} elseif ($method === 'POST' && $action === 'segment_efforts' && $id) {
+    send_json(save_segment_efforts($userId, $id, read_json()));
 } elseif ($method === 'GET' && $action === 'quests') {
     send_json(quests($userId));
 } elseif ($method === 'POST' && $action === 'quests_save') {

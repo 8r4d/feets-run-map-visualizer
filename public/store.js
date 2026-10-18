@@ -90,6 +90,13 @@ const Store = (() => {
     renameRoute: (id, name) => json('POST', `?action=route_rename&id=${id}`, { name }),  // → stored route
     deleteRoute: id => json('POST', `?action=route_delete&id=${id}`),
 
+    // Segments (see segments.js): { id, name, distance, points, createdAt, efforts: { track id: [[start, seconds]] } }.
+    segments: () => json('GET', '?action=segments'),
+    saveSegment: segment => json('POST', '?action=segment_save', segment),  // { name, points, distance } → segment
+    renameSegment: (id, name) => json('POST', `?action=segment_rename&id=${id}`, { name }),
+    deleteSegment: id => json('POST', `?action=segment_delete&id=${id}`),
+    saveSegmentEfforts: (id, efforts) => json('POST', `?action=segment_efforts&id=${id}`, { efforts }),
+
     // Distance goals in km: { week, month }, null when not set.
     goals: () => json('GET', '?action=goals'),
     saveGoals: goals => json('POST', '?action=goals_save', goals),

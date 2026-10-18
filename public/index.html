@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>feets</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=74">
+  <link rel="stylesheet" href="style.css?v=77">
 </head>
 <body>
   <aside id="sidebar">
@@ -37,6 +37,13 @@
         <small class="hint" id="quests-note"></small>
       </div>
     </details>
+    <details id="segments-box" class="panel" hidden>
+      <summary>Segments <span id="segments-count"></span></summary>
+      <div class="panel-body">
+        <ul id="segment-list"></ul>
+        <small class="hint" id="segments-hint">Make one from an activity: click its line on the map, then <em>Make a segment</em>.</small>
+      </div>
+    </details>
     <details id="goals-box" class="panel" hidden>
       <summary>Goals <span id="goals-summary"></span></summary>
       <div class="panel-body">
@@ -58,15 +65,22 @@
       <input id="fade" type="range" min="0" max="90" step="5" value="0">
       <output id="fade-value">0%</output>
     </label>
-    <label id="fog-regrow-row" hidden title="How soon the fog comes back where you haven't been lately. A place stays clear for a while (a week, a month, 2 months or 6 months), then slowly fogs over until it's dark again">
-      Fog grows back <select id="fog-regrow">
-        <option value="">never</option>
-        <option value="month">within a month</option>
-        <option value="quarter">within 3 months</option>
-        <option value="half">within 6 months</option>
-        <option value="year">within a year</option>
-      </select>
-    </label>
+    <div id="fog-options" hidden>
+      <label id="fog-width-row" title="How wide a band each activity clears: wider reveals the blocks either side of the streets you've been down">
+        <span>Clearing</span>
+        <input id="fog-width" type="range" min="100" max="500" step="50" value="250">
+        <output id="fog-width-value">250 m</output>
+      </label>
+      <label id="fog-regrow-row" title="How soon the fog comes back where you haven't been lately. A place stays clear for a while (a week, a month, 2 months or 6 months), then slowly fogs over until it's dark again">
+        Fog grows back <select id="fog-regrow">
+          <option value="">never</option>
+          <option value="month">within a month</option>
+          <option value="quarter">within 3 months</option>
+          <option value="half">within 6 months</option>
+          <option value="year">within a year</option>
+        </select>
+      </label>
+    </div>
     <section id="streets-panel" hidden>
       <div class="filter-row">
         <select id="area-select" aria-label="Area"></select>
@@ -358,15 +372,16 @@
 
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="gpx.js?v=18"></script>
-  <script src="store.js?v=33"></script>
+  <script src="store.js?v=34"></script>
   <script src="osm.js?v=20"></script>
   <script src="coverage.js?v=22"></script>
   <script src="planner.js?v=38"></script>
   <script src="art.js?v=6"></script>
   <script src="quests.js?v=3"></script>
+  <script src="segments.js?v=1"></script>
   <script src="stats.js?v=29"></script>
   <script src="elevation.js?v=3"></script>
   <script src="achievements.js?v=24"></script>
-  <script src="app.js?v=82"></script>
+  <script src="app.js?v=85"></script>
 </body>
 </html>

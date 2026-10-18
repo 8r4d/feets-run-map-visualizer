@@ -183,6 +183,7 @@ let trackVersion = 0;    // bumped whenever the tracks on the map may have chang
 let planStreets = true;
 let pointEdit = null;    // the track whose stray points are being removed (see editPoints)
 let race = null;         // a ghost race on the map (see startRace)
+let segmentPick = null;  // making a segment (see startSegmentPick)
 try { planStreets = localStorage.getItem('feets-plan-streets') !== 'off'; } catch {}
 const showStreets = () => streetsMode || (planMode && planStreets);
 let baseBeforeHeatmap = null;
@@ -227,8 +228,8 @@ function syncLayers() {
 }
 
 // --- Fog of war ---
-// Fog mode hides the map under a dark layer, cleared FOG_WIDTH metres wide
-// along every on-foot activity on the map (the filters and checkboxes count),
+// Fog mode hides the map under a dark layer, cleared fogWidth metres wide
+// (the Clearing slider) along every on-foot activity on the map (the filters and checkboxes count),
 // so the places you've never been stand out as the dark bits. A canvas over
 // the view, redrawn when the map stops moving, half a view beyond each edge
 // so a pan doesn't show its edge before the redraw.
@@ -239,7 +240,9 @@ function syncLayers() {
 // light on dark into a mask, each line as light as it is fresh, keeping the
 // lighter where they cross ('lighten'), and the fog is made from the mask.
 // Each line is drawn in a few passes, widest and faintest first, for soft edges.
-const FOG_WIDTH = 150;    // metres cleared along each activity
+const FOG_WIDTH = 250;    // metres cleared along each activity, unless the Clearing slider says otherwise
+let fogWidth = FOG_WIDTH;
+try { fogWidth = Number(localStorage.getItem('feets-fog-width')) || FOG_WIDTH; } catch {}
 const FOG_COLOR = [16, 20, 31];
 const FOG_PAD = 0.5;
 const FOG_PASSES = [[1.6, 0.2], [1.3, 0.45], [1, 1]];  // [width, strength]
@@ -331,7 +334,7 @@ const FogLayer = L.Layer.extend({
 
     // The mask: black, with the clearings drawn in grey to white.
     const metresPerPixel = 40075016.686 * Math.cos(m.getCenter().lat * Math.PI / 180) / 2 ** (m.getZoom() + 8);
-    const width = Math.max(2, FOG_WIDTH / metresPerPixel);
+    const width = Math.max(2, fogWidth / metresPerPixel);
     const mask = this.mask.getContext('2d');
     mask.globalCompositeOperation = 'source-over';
     mask.fillStyle = '#000';
@@ -400,6 +403,7 @@ new ResizeObserver(() => {
 function setMode(mode) {
   if (pointEdit && mode !== 'tracks') endPointEdit();
   if (race && mode !== 'tracks') stopRace();
+  if (segmentPick && mode !== 'tracks') stopSegmentPick();
   const heat = mode === 'heatmap';
   if (heat !== heatmap) {
     if (heat) {
@@ -451,7 +455,7 @@ function savedFade(mode) {
 // In Fog mode the same slider sets how dark the fog is, and the map itself
 // isn't faded, so the cleared parts look like the plain map.
 function applyFade() {
-  document.getElementById('fog-regrow-row').hidden = !fogMode;
+  document.getElementById('fog-options').hidden = !fogMode;
   const percent = Number(fadeInput.value);
   const container = map.getContainer();
   container.style.setProperty('--map-fade', fogMode ? 0 : percent / 100);
@@ -460,6 +464,20 @@ function applyFade() {
   document.getElementById('fade-label').textContent = fogMode ? 'Fog' : 'Fade map';
   document.getElementById('fade-value').textContent = percent + '%';
 }
+
+const fogWidthInput = document.getElementById('fog-width');
+const showFogWidth = () => { document.getElementById('fog-width-value').textContent = `${fogWidth} m`; };
+fogWidthInput.value = fogWidth;
+showFogWidth();
+fogWidthInput.oninput = () => {
+  fogWidth = Number(fogWidthInput.value);
+  showFogWidth();
+};
+// Redrawn when the slider is let go, not at every step of a drag.
+fogWidthInput.onchange = () => {
+  try { localStorage.setItem('feets-fog-width', String(fogWidth)); } catch {}
+  fogLayer.redraw();
+};
 
 const fogRegrowSelect = document.getElementById('fog-regrow');
 fogRegrowSelect.value = fogRegrow;
@@ -608,7 +626,16 @@ function trackPopup(track, latlng) {
     race.type = 'button';
     race.textContent = 'Race a past run';
     race.onclick = () => offerRaces(track, box, popup);
-    box.append(race);
+    const segment = document.createElement('button');
+    segment.className = 'link-button';
+    segment.type = 'button';
+    segment.textContent = 'Make a segment';
+    segment.title = 'Pick a stretch of this activity to time yourself on';
+    segment.onclick = () => {
+      map.closePopup(popup);
+      startSegmentPick(track).catch(err => alert(err.message));
+    };
+    box.append(race, segment);
   }
   if (!readOnly()) {
     const fix = document.createElement('button');
@@ -1758,6 +1785,7 @@ async function loadTrophies() {
 function scheduleTrophies() {
   if (!currentUser || readOnly()) return;
   scheduleQuests();
+  scheduleSegments();
   clearTimeout(trophyTimer);
   trophyTimer = setTimeout(() => {
     trophyCheck = trophyCheck.then(checkTrophies).catch(err => console.error('Achievements:', err));
@@ -3085,6 +3113,7 @@ async function signedIn(user) {
   backfillMetrics();  // in the background
   await loadAreas();
   await loadTrophies();
+  await loadSegments();
   scheduleTrophies();
   await loadRoutes();
   if (planMode) renderPlan();
@@ -3102,6 +3131,8 @@ async function signedIn(user) {
 function signedOut() {
   currentUser = null;
   questState = null;
+  segments = [];
+  segmentsBox.hidden = true;
   questsBox.hidden = true;
   setHome(null);
   clearTimeout(scanTimer);
@@ -4118,6 +4149,255 @@ function showRace() {
       : `${who} ahead by ${km(Math.abs(lead))}` + (at < runners[back].finish && seconds > 0 ? ` (${clock(seconds)})` : '') + '.';
   }
   bar.querySelector('.race-gap').textContent = gap;
+}
+
+// --- Segments ---
+// Short stretches you time yourself on (see segments.js). Made from an
+// activity's popup; the efforts on each are found a little after activities
+// change, checking each on-foot activity once and keeping what's found on the
+// server. A new best gets a note.
+const segmentsBox = document.getElementById('segments-box');
+let segments = [];     // as from Store.segments()
+let segmentTimer = null, segmentRun = 0;
+let segmentOpen = null;      // the id of the segment whose efforts are showing
+let segmentHighlight = null;
+
+async function loadSegments() {
+  if (readOnly()) return;
+  try {
+    segments = await Store.segments();
+  } catch {
+    segments = [];
+  }
+  renderSegments();
+}
+
+function scheduleSegments() {
+  clearTimeout(segmentTimer);
+  segmentTimer = setTimeout(() => updateSegments().catch(err => console.error('Segments:', err)), 2500);
+}
+
+// The efforts on a segment by activities still here, fastest first:
+// [{ track, start, seconds }].
+function segmentEfforts(seg) {
+  const out = [];
+  for (const [id, list] of Object.entries(seg.efforts)) {
+    const entry = loaded.get(Number(id));
+    if (!entry) continue;
+    for (const [start, seconds] of list) out.push({ track: entry.track, start, seconds });
+  }
+  return out.sort((a, b) => a.seconds - b.seconds);
+}
+
+// Activities not yet checked against each segment are checked now: the ones
+// whose line could have done it (Segments.candidate) have their timed points
+// fetched, once, and searched.
+async function updateSegments() {
+  if (!currentUser || readOnly() || !segments.length) return;
+  const run = ++segmentRun;
+  const tracks = [...loaded.values()].map(e => e.track).filter(t => Stats.onFoot(t) && t.metrics && t.metrics.moving);
+  const timed = new Map();
+  for (const seg of segments) {
+    const firstLook = !Object.keys(seg.efforts).length;
+    const before = segmentEfforts(seg)[0];
+    const found = {};
+    for (const t of tracks) {
+      if (seg.efforts[t.id] !== undefined || !Segments.candidate(seg, t)) continue;
+      try {
+        if (!timed.has(t.id)) timed.set(t.id, await Store.trackPoints(t.id));
+      } catch {
+        continue;
+      }
+      if (run !== segmentRun) return;
+      found[t.id] = Segments.efforts(seg, timed.get(t.id));
+    }
+    if (!Object.keys(found).length) continue;
+    Object.assign(seg.efforts, found);
+    await Store.saveSegmentEfforts(seg.id, found).catch(() => {});
+    const best = segmentEfforts(seg)[0];
+    if (!firstLook && best && found[best.track.id] && (!before || best.seconds < before.seconds)) {
+      toast(`🏅 New best on ${seg.name}: ${clock(best.seconds)}`,
+        before ? `${clock(before.seconds - best.seconds)} faster than your old best.` : 'Your first time on it.');
+    }
+    renderSegments();
+  }
+}
+
+const paceOn = (seg, seconds) => paceText(seconds / (seg.distance / 1000));
+
+function renderSegments() {
+  segmentsBox.hidden = readOnly();
+  document.getElementById('segments-count').textContent = segments.length ? `(${segments.length})` : '';
+  document.getElementById('segments-hint').hidden = segments.length > 0;
+  document.getElementById('segment-list').replaceChildren(...segments.map(seg => {
+    const efforts = segmentEfforts(seg);
+    const li = document.createElement('li');
+    li.className = seg.id === segmentOpen ? 'open' : '';
+    li.innerHTML = '<div class="segment-head"><strong></strong><span class="best"></span></div><small></small>';
+    li.querySelector('strong').textContent = seg.name;
+    li.querySelector('.best').textContent = efforts.length ? clock(efforts[0].seconds) : '–';
+    li.querySelector('small').textContent = `${km(seg.distance)} · ${efforts.length ? `${efforts.length} effort${efforts.length === 1 ? '' : 's'}` : 'no efforts yet'}`;
+    li.querySelector('.segment-head').onclick = () => {
+      segmentOpen = segmentOpen === seg.id ? null : seg.id;
+      renderSegments();
+      if (segmentOpen) showSegment(seg);
+    };
+    if (seg.id === segmentOpen) li.append(segmentDetail(seg, efforts));
+    return li;
+  }));
+}
+
+// A segment's leaderboard and tools.
+function segmentDetail(seg, efforts) {
+  const box = document.createElement('div');
+  box.className = 'segment-detail';
+  const table = document.createElement('ol');
+  table.className = 'segment-board';
+  table.replaceChildren(...efforts.slice(0, 10).map((e, i) => {
+    const row = document.createElement('li');
+    row.innerHTML = '<span class="rank"></span><span class="when"></span><span class="time"></span><span class="pace"></span>';
+    row.querySelector('.rank').textContent = i === 0 ? '🏅' : `${i + 1}`;
+    row.querySelector('.when').textContent = new Date(e.start * 1000).toLocaleDateString(undefined, { dateStyle: 'medium' });
+    row.querySelector('.time').textContent = clock(e.seconds);
+    row.querySelector('.pace').textContent = paceOn(seg, e.seconds);
+    row.title = e.track.name;
+    return row;
+  }));
+  if (!efforts.length) table.append(Object.assign(document.createElement('li'), { textContent: 'None yet: checking your activities…' }));
+  const tools = document.createElement('div');
+  tools.className = 'segment-tools';
+  const button = (text, onclick) => Object.assign(document.createElement('button'), { type: 'button', className: 'link-button', textContent: text, onclick });
+  tools.append(
+    button('Show', () => showSegment(seg)),
+    button('Rename', async () => {
+      const name = await askName('Rename segment', seg.name, 'Rename');
+      if (!name) return;
+      try {
+        Object.assign(seg, { name: (await Store.renameSegment(seg.id, name)).name });
+        renderSegments();
+      } catch (err) { alert(err.message); }
+    }),
+    button('Delete', async () => {
+      if (!confirm(`Delete the segment "${seg.name}" and its times?`)) return;
+      try {
+        await Store.deleteSegment(seg.id);
+        segments = segments.filter(s => s !== seg);
+        renderSegments();
+      } catch (err) { alert(err.message); }
+    }),
+  );
+  if (efforts.length > 10) tools.prepend(Object.assign(document.createElement('small'), { textContent: `Fastest 10 of ${efforts.length}.` }));
+  box.append(table, tools);
+  return box;
+}
+
+// The segment in orange on the map, for a few seconds.
+function showSegment(seg) {
+  if (segmentHighlight) segmentHighlight.remove();
+  segmentHighlight = L.polyline(seg.points, { color: '#ff6d00', weight: 8, opacity: 0.8, interactive: false }).addTo(map);
+  map.fitBounds(segmentHighlight.getBounds(), { padding: [60, 60], maxZoom: 17 });
+  const shown = segmentHighlight;
+  setTimeout(() => { shown.remove(); if (segmentHighlight === shown) segmentHighlight = null; }, 6000);
+}
+
+// Making a segment: the activity's line in purple; click where it starts,
+// then where it ends (again to change the end), and save.
+async function startSegmentPick(track) {
+  // segments.js is a file of its own: say so if it didn't load (not uploaded, say).
+  if (typeof Segments === 'undefined') throw new Error("Segments can't be made: segments.js didn't load. Upload it next to app.js, then reload the page.");
+  stopSegmentPick();
+  if (race) stopRace();
+  if (pointEdit) endPointEdit();
+  if (mapMode !== 'tracks') setMode('tracks');
+  const timed = (await Store.trackPoints(track.id)).filter(p => p[3] != null);
+  if (timed.length < 2) throw new Error(`"${track.name}" has no times to make a segment from.`);
+  const layer = L.layerGroup().addTo(map);
+  const line = L.polyline(timed.map(p => [p[0], p[1]]), { color: '#8e24aa', weight: 5, opacity: 0.6, interactive: false }).addTo(layer);
+  const piece = L.polyline([], { color: '#ff6d00', weight: 8, opacity: 0.9, interactive: false }).addTo(layer);
+  const ends = L.layerGroup().addTo(layer);
+  const panel = L.DomUtil.create('div', 'point-edit');
+  panel.innerHTML = '<strong>Making a segment</strong><span class="step"></span>'
+    + '<div><button type="button">Save</button><button class="link-button" type="button">Cancel</button></div>';
+  const step = panel.querySelector('.step');
+  const [save, cancel] = panel.querySelectorAll('button');
+  L.DomEvent.disableClickPropagation(panel);
+  const control = L.control({ position: 'topright' });
+  control.onAdd = () => panel;
+  control.addTo(map);
+  const solo = soloId;
+  soloId = -1;  // just this activity's line while picking
+  render();
+  segmentPick = { track, timed, layer, control, solo, from: null, to: null, cut: null };
+  step.textContent = 'Click the purple line where the segment starts.';
+  save.disabled = true;
+
+  // The point of the line nearest a click, if the click was near the line.
+  const nearest = latlng => {
+    let best = -1, bestD = Infinity;
+    timed.forEach((p, i) => {
+      const d = Planner.distance(latlng.lat, latlng.lng, p[0], p[1]);
+      if (d < bestD) { bestD = d; best = i; }
+    });
+    return bestD <= 80 ? best : -1;
+  };
+  segmentPick.onClick = e => {
+    const i = nearest(e.latlng);
+    if (i < 0) {
+      step.textContent = 'Click on the purple line, or a little closer to it.';
+      return;
+    }
+    const pick = segmentPick;
+    if (pick.from === null) pick.from = i;
+    else pick.to = i;
+    ends.clearLayers();
+    for (const k of [pick.from, pick.to]) {
+      if (k !== null) L.circleMarker([timed[k][0], timed[k][1]], { radius: 7, color: '#fff', weight: 2, fillColor: '#ff6d00', fillOpacity: 1, interactive: false }).addTo(ends);
+    }
+    if (pick.to === null) {
+      step.textContent = 'Now click where it ends.';
+      return;
+    }
+    pick.cut = Segments.cut(timed, pick.from, pick.to);
+    piece.setLatLngs(pick.cut.points);
+    const ok = pick.cut.distance >= Segments.MIN && pick.cut.distance <= Segments.MAX
+      && Planner.distance(...pick.cut.points[0], ...pick.cut.points[pick.cut.points.length - 1]) > 2 * Segments.NEAR;
+    save.disabled = !ok;
+    const time = Math.abs(timed[pick.to][3] - timed[pick.from][3]);
+    step.textContent = !ok
+      ? (pick.cut.distance < Segments.MIN ? `That's ${km(pick.cut.distance)}: make it at least ${km(Segments.MIN)}.`
+        : pick.cut.distance > Segments.MAX ? `That's ${km(pick.cut.distance)}: keep it under ${km(Segments.MAX)}.`
+          : 'Its start and end are too close together: a segment can’t be a loop.')
+      : `${km(pick.cut.distance)}, ${clock(time)} this time. Save it, or click again to move the end.`;
+  };
+  map.on('click', segmentPick.onClick);
+  cancel.onclick = () => stopSegmentPick();
+  save.onclick = async () => {
+    const pick = segmentPick;
+    const name = await askName('Name this segment', `${track.name} segment`, 'Save');
+    if (!name) return;
+    try {
+      const seg = await Store.saveSegment({ name, points: pick.cut.points, distance: pick.cut.distance });
+      segments = [...segments, seg].sort((a, b) => a.name.localeCompare(b.name));
+      stopSegmentPick();
+      segmentOpen = seg.id;
+      segmentsBox.open = true;
+      renderSegments();
+      updateSegments().catch(err => console.error('Segments:', err));
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+  map.fitBounds(line.getBounds(), { padding: [40, 40] });
+}
+
+function stopSegmentPick() {
+  if (!segmentPick) return;
+  map.off('click', segmentPick.onClick);
+  segmentPick.layer.remove();
+  segmentPick.control.remove();
+  soloId = segmentPick.solo;
+  segmentPick = null;
+  render();
 }
 
 // --- Streaks and weekly quests ---
