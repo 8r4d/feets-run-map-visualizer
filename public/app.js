@@ -3191,6 +3191,7 @@ async function signedIn(user) {
   document.getElementById('settings-box').hidden = Boolean(user.readOnly);
   document.querySelector('#settings-box summary').textContent = user.isAdmin ? t('Account & admin') : t('Account');
   document.getElementById('reset-link').hidden = !user.isAdmin;
+  adminAccounts.hidden = !user.isAdmin;
   document.getElementById('user-bar').hidden = false;
   if (user.viewLink) {
     await showPublicView(user);
@@ -3486,10 +3487,41 @@ async function invite(viewer) {
         : "Send this link to the person you're inviting. It works once, within 7 days:",
       `${location.origin}${location.pathname}?invite=${code}`
     );
+    loadAdmin();
   } catch (err) {
     alert(err.message);
   }
 }
+
+// A row in the Account lists: a name with a line of details under it, and
+// buttons ([label, onclick, danger?]) beside it, wrapping under it on a
+// narrow panel (.row-list in style.css).
+function accountRow(name, details, actions) {
+  const li = document.createElement('li');
+  const text = document.createElement('div');
+  text.className = 'row-text';
+  text.append(name);
+  if (details) {
+    const small = document.createElement('small');
+    small.textContent = details;
+    text.append(small);
+  }
+  const buttons = document.createElement('div');
+  buttons.className = 'row-actions';
+  for (const [label, onclick, danger] of actions) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'link-button' + (danger ? ' danger' : '');
+    button.textContent = label;
+    button.onclick = onclick;
+    buttons.append(button);
+  }
+  li.append(text, buttons);
+  return li;
+}
+
+const linkExpiry = link => (!link.expiresAt ? 'no expiry'
+  : link.expiresAt < Date.now() ? 'expired' : `until ${whenText(link.expiresAt)}`);
 
 // View links: the map for people without an account, e.g. a running club.
 async function loadViewLinks() {
@@ -3499,22 +3531,99 @@ async function loadViewLinks() {
   } catch {}
   const list = document.getElementById('view-link-list');
   list.hidden = !links.length;
-  list.replaceChildren(...links.map(link => {
-    const li = document.createElement('li');
-    li.innerHTML = '<span></span><button class="link-button" type="button">Copy link</button>'
-      + '<button class="link-button" type="button">Turn off</button>';
-    li.querySelector('span').textContent = link.label + (!link.expiresAt ? ''
-      : link.expiresAt < Date.now() ? ' (expired)' : ` (until ${whenText(link.expiresAt)})`);
-    const [copy, off] = li.querySelectorAll('button');
-    copy.onclick = () => prompt('Anyone with this link can see your map, tracks and routes:', viewUrl(link.code));
-    off.onclick = async () => {
+  list.replaceChildren(...links.map(link => accountRow(link.label, linkExpiry(link), [
+    ['Copy link', () => prompt('Anyone with this link can see your map, tracks and routes:', viewUrl(link.code))],
+    ['Turn off', async () => {
       if (!confirm(`Turn off the "${link.label}" link? Anyone using it will see the login screen instead.`)) return;
       await Store.deleteViewLink(link.code).catch(err => alert(err.message));
       loadViewLinks();
-    };
-    return li;
-  }));
+      loadAdmin();
+    }, true],
+  ])));
   return links;
+}
+
+// --- Admin: every account, view link and unused invite ---
+// In Account, for the admin only, loaded when "All accounts and links" is
+// opened. Deleting a member deletes everything of theirs (see
+// admin_delete_user in api.php), so it asks for their username to be typed.
+const adminAccounts = document.getElementById('admin-accounts');
+adminAccounts.addEventListener('toggle', () => { if (adminAccounts.open) loadAdmin(); });
+
+const joinedDate = text => new Date(String(text).replace(' ', 'T')).toLocaleDateString(undefined, { dateStyle: 'medium' });
+
+async function loadAdmin() {
+  if (!adminAccounts.open || !currentUser || !currentUser.isAdmin) return;
+  const box = document.getElementById('admin-list');
+  let data;
+  try {
+    data = await Store.adminOverview();
+  } catch (err) {
+    box.textContent = err.message;
+    return;
+  }
+  const again = () => loadAdmin().then(loadViewLinks);
+  const act = (fn, ...args) => fn(...args).then(again, err => alert(err.message));
+  const group = (title, rows, empty) => {
+    const h = document.createElement('h3');
+    h.textContent = title;
+    const list = document.createElement('ul');
+    list.className = 'row-list';
+    if (rows.length) list.append(...rows);
+    else list.append(accountRow(empty, '', []));
+    return [h, list];
+  };
+
+  const users = data.users.map(u => {
+    const kind = u.kind === 'admin' ? 'Admin' : u.kind === 'viewer' ? `Viewer of ${u.owner || 'nobody'}` : 'Member';
+    const details = [kind, u.kind === 'viewer' ? '' : `${u.tracks} tracks`, `joined ${joinedDate(u.createdAt)}`, u.signedIn ? 'signed in' : '']
+      .filter(Boolean).join(' · ');
+    const actions = [];
+    if (u.kind !== 'admin') {
+      actions.push(['Reset password', () => resetLinkFor(u.username)]);
+      if (u.signedIn) actions.push(['Sign out', () => {
+        if (confirm(`Log ${u.username} out on every device? They can log in again.`)) act(Store.adminSignOutUser, u.id);
+      }]);
+      actions.push(['Delete', () => {
+        if (u.kind === 'viewer') {
+          if (confirm(`Delete the view-only account ${u.username}? They won't be able to log in any more.`)) act(Store.adminDeleteUser, u.id);
+          return;
+        }
+        const typed = prompt(`Delete ${u.username} and everything of theirs: ${u.tracks} tracks, their routes, areas, `
+          + "segments, shapes, trophies, Strava connection and view links. This can't be undone.\n\n"
+          + `Type ${u.username} to delete:`);
+        if (typed === null) return;
+        if (typed.trim() !== u.username) {
+          alert("That isn't the username, so nothing was deleted.");
+          return;
+        }
+        act(Store.adminDeleteUser, u.id);
+      }, true]);
+    }
+    return accountRow(u.username + (u.self ? ' (you)' : ''), details, actions);
+  });
+
+  const links = data.viewLinks.map(link => accountRow(link.label, `${link.owner || 'deleted account'}'s map · ${linkExpiry(link)}`, [
+    ['Copy link', () => prompt('Anyone with this link can see the map, tracks and routes:', viewUrl(link.code))],
+    ['Turn off', () => {
+      if (confirm(`Turn off the "${link.label}" link to ${link.owner}'s map? Anyone using it will see the login screen instead.`)) {
+        act(Store.adminDeleteViewLink, link.code);
+      }
+    }, true],
+  ]));
+
+  const invites = data.invites.map(inv => accountRow(inv.kind === 'viewer' ? 'Viewer invite' : 'Member invite', `made ${joinedDate(inv.createdAt)}`, [
+    ['Copy link', () => prompt('The invite link. It works once, within 7 days of being made:', `${location.origin}${location.pathname}?invite=${inv.code}`)],
+    ['Cancel invite', () => {
+      if (confirm('Cancel this invite? The link will stop working.')) act(Store.adminDeleteInvite, inv.code);
+    }, true],
+  ]));
+
+  box.replaceChildren(
+    ...group('Accounts', users, 'No accounts.'),
+    ...group('View links', links, 'No view links.'),
+    ...group('Unused invites', invites, 'No unused invites.'),
+  );
 }
 
 const viewUrl = (code, routeId) => `${location.origin}${location.pathname}?view=${code}` + (routeId ? `&route=${routeId}` : '');
@@ -3591,11 +3700,14 @@ document.getElementById('auth-cancel').onclick = () => {
   }
 };
 
-document.getElementById('reset-link').onclick = async () => {
+document.getElementById('reset-link').onclick = () => {
   const username = prompt('Make a password reset link for which username?');
-  if (!username || !username.trim()) return;
+  if (username && username.trim()) resetLinkFor(username.trim());
+};
+
+async function resetLinkFor(username) {
   try {
-    const result = await Store.createResetLink(username.trim());
+    const result = await Store.createResetLink(username);
     prompt(
       `Send this link to ${result.username}. It works once, within 48 hours, and lets them choose a new password:`,
       `${location.origin}${location.pathname}?reset=${result.code}`
@@ -3603,7 +3715,7 @@ document.getElementById('reset-link').onclick = async () => {
   } catch (err) {
     alert(err.message);
   }
-};
+}
 
 // --- Help ---
 // The Help box lists pages in help/; each opens in one window. A page is

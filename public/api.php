@@ -18,6 +18,13 @@
 //                                      expiresAt: Unix ms, or null for a link that never expires
 //   POST api.php?action=view_link_create  {label, days}, returns {code}. days: 1-365, or 0 for no expiry
 //   POST api.php?action=view_link_delete  {code}
+//   GET  api.php?action=admin_overview    admin only: {users: [{id, username, kind (admin, member or viewer),
+//                                         owner, createdAt, tracks, signedIn, self}], viewLinks: [{code, label,
+//                                         owner, createdAt, expiresAt}], invites: [{code, kind, createdAt}]}
+//   POST api.php?action=admin_user_delete     admin only: {id}: the account and everything that's theirs
+//   POST api.php?action=admin_user_sign_out   admin only: {id}: logs the account out everywhere
+//   POST api.php?action=admin_view_link_delete  admin only: {code}, anyone's link
+//   POST api.php?action=admin_invite_delete   admin only: {code}, an invite not yet used
 //
 // View links: any request with ?view=CODE is answered as a view-only account
 // of the link's owner that can only list saved routes, with no login, until
@@ -625,6 +632,111 @@ function create_view_link(int $userId, array $b): array {
 // Only the link's owner can turn it off; anyone else's request changes nothing.
 function delete_view_link(int $userId, array $b): array {
     db()->prepare('DELETE FROM view_links WHERE owner = ? AND code = ?')->execute([$userId, (string) ($b['code'] ?? '')]);
+    return ['ok' => true];
+}
+
+// --- Admin: every account, view link and open invite ---
+// Only the admin sees these. Deleting an account takes everything that is
+// theirs with it (tracks, routes, areas, segments, shapes, trophies, Strava
+// connection, view links, and any view-only accounts looking at their map).
+// The admin's own account, and any other admin's, can't be deleted here.
+
+function require_admin(array $user): void {
+    if (!$user['is_admin']) {
+        fail('Only the admin can do that', 403);
+    }
+}
+
+function admin_overview(array $admin): array {
+    require_admin($admin);
+    $users = db()->query(
+        'SELECT u.id, u.username, u.is_admin, u.read_only, o.username AS owner, u.created_at AS createdAt,
+                (SELECT COUNT(*) FROM tracks t WHERE t.user_id = u.id) AS tracks,
+                (SELECT MAX(s.expires_at) FROM sessions s WHERE s.user_id = u.id) > NOW() AS signedIn
+         FROM users u LEFT JOIN users o ON o.id = u.data_owner
+         ORDER BY u.is_admin DESC, u.read_only, u.username'
+    )->fetchAll();
+    $links = db()->query(
+        'SELECT v.code, v.label, u.username AS owner, v.created_at AS createdAt, UNIX_TIMESTAMP(v.expires_at) AS expiresAt
+         FROM view_links v LEFT JOIN users u ON u.id = v.owner ORDER BY v.created_at DESC'
+    )->fetchAll();
+    $invites = db()->query(
+        'SELECT code, read_only, created_at AS createdAt FROM invites
+         WHERE used_by IS NULL AND created_at > NOW() - INTERVAL ' . INVITE_DAYS . ' DAY ORDER BY created_at DESC'
+    )->fetchAll();
+    return [
+        'users' => array_map(fn($u) => [
+            'id' => (int) $u['id'],
+            'username' => $u['username'],
+            'kind' => $u['is_admin'] ? 'admin' : ($u['read_only'] ? 'viewer' : 'member'),
+            'owner' => $u['owner'],
+            'createdAt' => $u['createdAt'],
+            'tracks' => (int) $u['tracks'],
+            'signedIn' => (bool) $u['signedIn'],
+            'self' => (int) $u['id'] === (int) $admin['id'],
+        ], $users),
+        'viewLinks' => array_map(fn($l) => [
+            'code' => $l['code'],
+            'label' => $l['label'],
+            'owner' => $l['owner'],
+            'createdAt' => $l['createdAt'],
+            'expiresAt' => $l['expiresAt'] === null ? null : (int) $l['expiresAt'] * 1000,
+        ], $links),
+        'invites' => array_map(fn($i) => [
+            'code' => $i['code'],
+            'kind' => $i['read_only'] ? 'viewer' : 'member',
+            'createdAt' => $i['createdAt'],
+        ], $invites),
+    ];
+}
+
+function admin_delete_user(array $admin, array $b): array {
+    require_admin($admin);
+    $id = (int) ($b['id'] ?? 0);
+    $stmt = db()->prepare('SELECT id, is_admin FROM users WHERE id = ?');
+    $stmt->execute([$id]);
+    $target = $stmt->fetch();
+    if (!$target) {
+        fail('No such account', 404);
+    }
+    if ($target['is_admin']) {
+        fail("An admin account can't be deleted here", 403);
+    }
+    $pdo = db();
+    $pdo->beginTransaction();
+    // Their view-only accounts go too.
+    $viewers = $pdo->prepare('SELECT id FROM users WHERE data_owner = ?');
+    $viewers->execute([$id]);
+    foreach ([$id, ...array_map('intval', $viewers->fetchAll(PDO::FETCH_COLUMN))] as $uid) {
+        $pdo->prepare('DELETE FROM segment_efforts WHERE track_id IN (SELECT id FROM tracks WHERE user_id = ?)
+                       OR segment_id IN (SELECT id FROM segments WHERE user_id = ?)')->execute([$uid, $uid]);
+        foreach (['tracks', 'segments', 'routes', 'areas', 'art_shapes', 'achievements', 'sessions',
+                  'password_resets', 'strava_accounts', 'strava_states'] as $table) {
+            $pdo->prepare("DELETE FROM $table WHERE user_id = ?")->execute([$uid]);
+        }
+        $pdo->prepare('DELETE FROM view_links WHERE owner = ?')->execute([$uid]);
+        $pdo->prepare('DELETE FROM users WHERE id = ?')->execute([$uid]);
+    }
+    $pdo->commit();
+    return ['ok' => true];
+}
+
+// Logs an account out on every device, without deleting it.
+function admin_sign_out_user(array $admin, array $b): array {
+    require_admin($admin);
+    db()->prepare('DELETE FROM sessions WHERE user_id = ?')->execute([(int) ($b['id'] ?? 0)]);
+    return ['ok' => true];
+}
+
+function admin_delete_view_link(array $admin, array $b): array {
+    require_admin($admin);
+    db()->prepare('DELETE FROM view_links WHERE code = ?')->execute([(string) ($b['code'] ?? '')]);
+    return ['ok' => true];
+}
+
+function admin_delete_invite(array $admin, array $b): array {
+    require_admin($admin);
+    db()->prepare('DELETE FROM invites WHERE code = ? AND used_by IS NULL')->execute([(string) ($b['code'] ?? '')]);
     return ['ok' => true];
 }
 
@@ -2295,6 +2407,16 @@ if ($method === 'POST' && $action === 'invite') {
     send_json(change_password($user, read_json()));
 } elseif ($method === 'POST' && $action === 'reset_link') {
     send_json(create_reset_link($user, read_json()));
+} elseif ($method === 'GET' && $action === 'admin_overview') {
+    send_json(admin_overview($user));
+} elseif ($method === 'POST' && $action === 'admin_user_delete') {
+    send_json(admin_delete_user($user, read_json()));
+} elseif ($method === 'POST' && $action === 'admin_user_sign_out') {
+    send_json(admin_sign_out_user($user, read_json()));
+} elseif ($method === 'POST' && $action === 'admin_view_link_delete') {
+    send_json(admin_delete_view_link($user, read_json()));
+} elseif ($method === 'POST' && $action === 'admin_invite_delete') {
+    send_json(admin_delete_invite($user, read_json()));
 } elseif ($method === 'GET' && $action === 'strava_status') {
     send_json(strava_status($userId));
 } elseif ($method === 'GET' && $action === 'strava_connect') {

@@ -5,6 +5,16 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.4.0 — 2026-10-18
+
+- Admin: "All accounts and links" in Account lists every account (admin,
+  members, viewers), every view link and every unused invite. The admin can
+  reset passwords, log an account out everywhere, delete viewers and members
+  (a member's tracks, routes, areas and the rest go with them, after typing
+  their username), turn off anyone's view link and cancel invites.
+- Your view links in Account wrap onto more lines instead of pushing the Copy
+  link and Turn off buttons out of sight.
+
 ## 1.3.0 — 2026-10-18
 
 - A welcome card for new accounts: until the first track arrives, the sidebar

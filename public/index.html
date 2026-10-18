@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>feets</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=82">
+  <link rel="stylesheet" href="style.css?v=83">
 </head>
 <body>
   <aside id="sidebar">
@@ -284,7 +284,11 @@
         <button id="invite-viewer" type="button" title="Invite someone to look at your map without changing anything" hidden>Invite viewer</button>
         <button id="reset-link" type="button" title="Make a password reset link for someone" hidden>Reset a password</button>
         <button id="view-link-create" type="button" title="A link that shows your map without logging in, e.g. for a club">Share view link</button>
-        <ul id="view-link-list" hidden></ul>
+        <ul id="view-link-list" class="row-list" hidden></ul>
+        <details id="admin-accounts" hidden>
+          <summary>All accounts and links</summary>
+          <div id="admin-list"></div>
+        </details>
       </div>
     </details>
     <details id="import-box" class="panel" hidden>
@@ -323,7 +327,7 @@
     </details>
     <details id="about" class="panel">
       <!-- The version: bump it here and in CHANGELOG.md with each release. -->
-      <summary>About feets <span id="version">v1.3.0</span></summary>
+      <summary>About feets <span id="version">v1.4.0</span></summary>
       <div class="panel-body">
         <p>feets is an activity mapping and route planning app made by 8r4d.</p>
         <ul>
@@ -401,7 +405,7 @@
   <script src="lang/fr.js?v=3"></script>
   <script src="lang/zh.js?v=2"></script>
   <script src="gpx.js?v=18"></script>
-  <script src="store.js?v=36"></script>
+  <script src="store.js?v=37"></script>
   <script src="osm.js?v=20"></script>
   <script src="coverage.js?v=22"></script>
   <script src="planner.js?v=39"></script>
@@ -411,6 +415,6 @@
   <script src="stats.js?v=29"></script>
   <script src="elevation.js?v=3"></script>
   <script src="achievements.js?v=24"></script>
-  <script src="app.js?v=92"></script>
+  <script src="app.js?v=93"></script>
 </body>
 </html>

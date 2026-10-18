@@ -1307,34 +1307,75 @@ body {
   font-size: 13px;
 }
 
-#view-link-list {
+/* Lists in Account: your view links, and for the admin every account, link
+   and invite. Each row is a name with details under it, and its buttons beside
+   it, or under it when there's no room, so they're always in view. */
+#view-link-list,
+#admin-accounts {
   flex-basis: 100%;
+}
+
+.row-list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
   font-size: 13px;
 }
 
-#view-link-list li {
+.row-list li {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 8px;
+  gap: 2px 12px;
+  padding: 5px 0;
+  border-top: 1px solid #eee;
 }
 
-#settings-box #view-link-list button {
+.row-list li:first-child {
+  border-top: none;
+}
+
+.row-text {
+  flex: 1 1 10em;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.row-text small {
+  display: block;
+  color: #777;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+}
+
+#settings-box .row-list .row-actions button {
   padding: 0;
   font-size: 12px;
 }
 
-#view-link-list span {
-  margin-right: auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+#settings-box .row-list .row-actions button.danger {
+  color: #c00;
+}
+
+#admin-accounts summary {
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#admin-list h3 {
+  margin: 10px 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #777;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 #settings-box .panel-body button {

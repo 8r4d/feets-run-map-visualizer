@@ -55,6 +55,12 @@ const Store = (() => {
     // Passwords. resetPassword and recover log in and resolve to { username, isAdmin }.
     changePassword: (current, password) => json('POST', '?action=change_password', { current, password }),
     createResetLink: username => json('POST', '?action=reset_link', { username }),  // { code, username }
+    // Admin only: every account, view link and unused invite (see admin_overview in api.php).
+    adminOverview: () => json('GET', '?action=admin_overview'),
+    adminDeleteUser: id => json('POST', '?action=admin_user_delete', { id }),
+    adminSignOutUser: id => json('POST', '?action=admin_user_sign_out', { id }),
+    adminDeleteViewLink: code => json('POST', '?action=admin_view_link_delete', { code }),
+    adminDeleteInvite: code => json('POST', '?action=admin_invite_delete', { code }),
     resetInfo: code => json('GET', `?action=reset_info&code=${encodeURIComponent(code)}`),  // { username }
     resetPassword: (code, password) => json('POST', '?action=reset_password', { code, password }),
     recover: (setupPassword, username, password) => json('POST', '?action=recover', { setupPassword, username, password }),
