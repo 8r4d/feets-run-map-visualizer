@@ -176,7 +176,8 @@ let heatLayer = null;
 let heatmap = false;
 let streetsMode = false;
 let planMode = false;
-let mapMode = 'tracks';  // tracks, heatmap, streets or plan
+let mapMode = 'tracks';  // tracks, heatmap, fog, streets or plan
+let fogMode = false;
 let trackVersion = 0;    // bumped whenever the tracks on the map may have changed
 // Plan mode can hide the coloured streets (Streets mode always shows them).
 let planStreets = true;
@@ -211,17 +212,117 @@ function drawHeatmap() {
 // Puts the right layers on the map for the current mode and visibility.
 function syncLayers() {
   trackVersion++;
-  const showTracks = !heatmap && !streetsMode && !planMode;
+  const showTracks = !heatmap && !fogMode && !streetsMode && !planMode;
   for (const { track, layer } of loaded.values()) {
     if (onMap(track) && showTracks && !(pointEdit && pointEdit.id === track.id)) layer.addTo(map);
     else layer.remove();
   }
   if (heatmap) drawHeatmap();
   else if (heatLayer) heatLayer.remove();
+  if (fogMode) fogLayer.addTo(map).redraw();
+  else fogLayer.remove();
   // Streets and plan mode: coverage depends on which tracks are on the map.
   if (showStreets()) scheduleCoverage();
   else if (streetLayer) streetLayer.remove();
 }
+
+// --- Fog of war ---
+// Fog mode hides the map under a dark layer, cleared FOG_WIDTH metres wide
+// along every on-foot activity on the map (the filters and checkboxes count),
+// so the places you've never been stand out as the dark bits. A canvas over
+// the view, redrawn when the map stops moving: the fog is filled in, then
+// each line rubbed out of it in a few passes, widest and faintest first, for
+// soft edges. Drawn half a view beyond each edge, so a pan doesn't show its
+// edge before the redraw.
+const FOG_WIDTH = 100;    // metres cleared along each activity
+const FOG_COLOR = '#10141f';
+const FOG_PAD = 0.5;
+const FOG_PASSES = [[1.6, 0.2], [1.3, 0.45], [1, 1]];  // [width, strength]
+
+const FogLayer = L.Layer.extend({
+  initialize() {
+    this.opacity = 0.8;
+    this.boxes = new WeakMap();  // track -> [south, west, north, east]
+  },
+  onAdd(m) {
+    if (!m.getPane('fog')) {
+      const pane = m.createPane('fog');
+      pane.style.zIndex = 350;  // over the map, under markers and popups
+      pane.style.pointerEvents = 'none';
+    }
+    this.canvas = L.DomUtil.create('canvas', 'fog-layer leaflet-zoom-hide', m.getPane('fog'));
+    this.canvas.style.opacity = this.opacity;
+    m.on('moveend zoomend resize viewreset', this.redraw, this);
+    this.redraw();
+  },
+  onRemove(m) {
+    m.off('moveend zoomend resize viewreset', this.redraw, this);
+    this.canvas.remove();
+    this.canvas = null;
+  },
+  setOpacity(opacity) {
+    this.opacity = opacity;
+    if (this.canvas) this.canvas.style.opacity = opacity;
+    return this;
+  },
+  box(track) {
+    if (!this.boxes.has(track)) {
+      let [s, w, n, e] = [Infinity, Infinity, -Infinity, -Infinity];
+      for (const seg of track.segments) for (const [la, lo] of seg) {
+        if (la < s) s = la; if (la > n) n = la; if (lo < w) w = lo; if (lo > e) e = lo;
+      }
+      this.boxes.set(track, [s, w, n, e]);
+    }
+    return this.boxes.get(track);
+  },
+  redraw() {
+    if (!this.canvas || !this._map) return this;
+    const m = this._map;
+    const size = m.getSize();
+    const pad = size.multiplyBy(FOG_PAD).round();
+    const full = size.add(pad.multiplyBy(2));
+    const origin = m.containerPointToLayerPoint(pad.multiplyBy(-1));
+    L.DomUtil.setPosition(this.canvas, origin);
+    const ratio = window.devicePixelRatio || 1;
+    this.canvas.width = full.x * ratio;
+    this.canvas.height = full.y * ratio;
+    this.canvas.style.width = full.x + 'px';
+    this.canvas.style.height = full.y + 'px';
+    const ctx = this.canvas.getContext('2d');
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = FOG_COLOR;
+    ctx.fillRect(0, 0, full.x, full.y);
+    // Which activities, and how wide FOG_WIDTH is on screen here.
+    const view = L.latLngBounds(m.containerPointToLatLng(pad.multiplyBy(-1)), m.containerPointToLatLng(size.add(pad)));
+    const [s, w, n, e] = [view.getSouth(), view.getWest(), view.getNorth(), view.getEast()];
+    const lines = [];
+    for (const { track } of loaded.values()) {
+      if (!onMap(track) || !Stats.onFoot(track)) continue;
+      const [ts, tw, tn, te] = this.box(track);
+      if (ts > n || tn < s || tw > e || te < w) continue;
+      for (const seg of track.segments) lines.push(seg.map(p => m.latLngToLayerPoint(p).subtract(origin)));
+    }
+    const metresPerPixel = 40075016.686 * Math.cos(m.getCenter().lat * Math.PI / 180) / 2 ** (m.getZoom() + 8);
+    const width = Math.max(2, FOG_WIDTH / metresPerPixel);
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.lineCap = ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#000';
+    for (const [k, strength] of FOG_PASSES) {
+      ctx.globalAlpha = strength;
+      ctx.lineWidth = width * k;
+      ctx.beginPath();
+      for (const line of lines) {
+        ctx.moveTo(line[0].x, line[0].y);
+        for (let i = 1; i < line.length; i++) ctx.lineTo(line[i].x, line[i].y);
+      }
+      ctx.stroke();
+    }
+    return this;
+  },
+});
+const fogLayer = new FogLayer();
 
 // --- Mode bar ---
 // On a wide screen, the Streets and Plan panels move out of the sidebar into a
@@ -266,6 +367,7 @@ function setMode(mode) {
     }
   }
   heatmap = heat;
+  fogMode = mode === 'fog';
   streetsMode = mode === 'streets';
   planMode = mode === 'plan';
   mapMode = mode;
@@ -293,7 +395,7 @@ function setMode(mode) {
 // tracks, black for the heatmap), so the lines stand out more. Each mode
 // remembers its own setting.
 const fadeInput = document.getElementById('fade');
-const FADE_DEFAULTS = { tracks: 0, heatmap: 30, streets: 50 };
+const FADE_DEFAULTS = { tracks: 0, heatmap: 30, streets: 50, fog: 80 };
 
 function savedFade(mode) {
   try {
@@ -303,11 +405,15 @@ function savedFade(mode) {
   return FADE_DEFAULTS[mode];
 }
 
+// In Fog mode the same slider sets how dark the fog is, and the map itself
+// isn't faded, so the cleared parts look like the plain map.
 function applyFade() {
   const percent = Number(fadeInput.value);
   const container = map.getContainer();
-  container.style.setProperty('--map-fade', percent / 100);
+  container.style.setProperty('--map-fade', fogMode ? 0 : percent / 100);
   container.style.setProperty('--fade-color', heatmap ? '#000' : '#fff');
+  fogLayer.setOpacity(percent / 100);
+  document.getElementById('fade-label').textContent = fogMode ? 'Fog' : 'Fade map';
   document.getElementById('fade-value').textContent = percent + '%';
 }
 
@@ -2764,7 +2870,7 @@ for (const button of document.querySelectorAll('#mode button')) {
 let startMode = 'tracks';
 try {
   const saved = localStorage.getItem('feets-mode');
-  if (['heatmap', 'streets', 'plan'].includes(saved)) startMode = saved;
+  if (['heatmap', 'fog', 'streets', 'plan'].includes(saved)) startMode = saved;
 } catch {}
 setMode(startMode);
 
