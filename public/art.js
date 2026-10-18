@@ -11,7 +11,20 @@ const Art = (() => {
   const CAP = 120;        // metres: a point further than this from a street counts as this far
   const SAMPLES = 96;     // points along a shape when trying placements
   const FINE = 240;       // ... when polishing the best ones
-  const TARGET_EVERY = 100;  // metres between the points a route is made to go through
+  // How strictly a route keeps to its shape, from 1 (loose) to 5 (strict),
+  // 3 being the middle: detail, the share of the shape's size within which
+  // small wiggles are smoothed away (0: none); every, metres between the
+  // points a route is made to go through; corridor, metres off the shape that
+  // double what a street costs (see Planner.followShape). Looser lets the
+  // route take easier streets; stricter hugs every corner, zig-zags and all.
+  const RIGOR = {
+    1: { detail: 0.05, every: 250, corridor: 45 },
+    2: { detail: 0.025, every: 160, corridor: 30 },
+    3: { detail: 0, every: 100, corridor: 20 },
+    4: { detail: 0, every: 70, corridor: 14 },
+    5: { detail: 0, every: 50, corridor: 10 },
+  };
+  const rigor = level => RIGOR[level] || RIGOR[3];
   const OVERHEAD = 0.85;  // a route comes out longer than its shape (streets go round corners)
   const UPRIGHT = 0.1;    // metres of score per degree of tilt, unless rotating freely: shapes read best upright
 
@@ -407,6 +420,19 @@ const Art = (() => {
   }
   const SHAPES = LIBRARY.map(makeShape);
 
+  // A shape as loose or strict as `level` (see RIGOR): the same shape when
+  // nothing is smoothed away, otherwise a simpler one with the same id and name.
+  const smoothed = new Map();
+  function atRigor(shape, level) {
+    const { detail } = rigor(level);
+    if (!detail) return shape;
+    const key = `${shape.id}:${level}`;
+    if (!smoothed.has(key) || smoothed.get(key).from !== shape) {
+      smoothed.set(key, { from: shape, shape: makeShape({ id: shape.id, name: shape.name, theme: shape.theme, points: () => simplify(shape.points, detail) }) });
+    }
+    return smoothed.get(key).shape;
+  }
+
   function finish(points) {
     const xs = points.map(p => p[0]), ys = points.map(p => p[1]);
     const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
@@ -611,10 +637,12 @@ const Art = (() => {
 
   // --- Routing and judging a placement ---
 
-  // What Planner.followShape needs for a placement: { targets (graph points
-  // to go through, in order), near (each graph point's distance to the
-  // shape), outline ([lat, lon] of the placed shape, for drawing) }.
-  function routeInput(graph, field, shape, placement) {
+  // What Planner.followShape needs for a placement, as strict as `level`
+  // (see RIGOR): { targets (graph points to go through, in order), near (each
+  // graph point's distance to the shape), corridor, outline ([lat, lon] of
+  // the placed shape, for drawing) }.
+  function routeInput(graph, field, shape, placement, level = 3) {
+    const { every, corridor } = rigor(level);
     const metres = shape.length * placement.s;
     const dense = place(resample(shape, Math.max(2, Math.ceil(metres / 10))), placement);
     const shapeField = distanceField(field.cols, field.rows, dense);
@@ -623,14 +651,14 @@ const Art = (() => {
       const cell = cellAt(field, field.toXY(graph.lat[i], graph.lon[i]));
       if (cell >= 0) near[i] = Math.min(CAP * 4, shapeField.dist[cell]);
     }
-    // Targets: the shape's corners, and points every TARGET_EVERY metres between.
+    // Targets: the shape's corners, and points every `every` metres between.
     const unit = place(shape.points, placement);
     const stops = [];
     for (let i = 0; i < unit.length; i++) {
       stops.push(unit[i]);
       if (i < unit.length - 1) {
         const [a, b] = [unit[i], unit[i + 1]];
-        const gaps = Math.floor(Math.hypot(b[0] - a[0], b[1] - a[1]) / TARGET_EVERY);
+        const gaps = Math.floor(Math.hypot(b[0] - a[0], b[1] - a[1]) / every);
         for (let k = 1; k <= gaps; k++) stops.push([a[0] + (b[0] - a[0]) * k / (gaps + 1), a[1] + (b[1] - a[1]) * k / (gaps + 1)]);
       }
     }
@@ -641,7 +669,7 @@ const Art = (() => {
       if (node >= 0 && node !== targets[targets.length - 1]) targets.push(node);
     }
     if (shape.closed && targets.length > 1 && targets[0] !== targets[targets.length - 1]) targets.push(targets[0]);
-    return { targets, near, outline: dense.map(field.toLatLon), shapeField };
+    return { targets, near, corridor, outline: dense.map(field.toLatLon), shapeField };
   }
 
   // How closely a route ([lat, lon] points) matches its shape, both ways: how
@@ -686,5 +714,5 @@ const Art = (() => {
     return `<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
   }
 
-  return { SHAPES, makeShape, trace, prepare, fit, routeInput, fidelity, onStreets, icon, outline, sizeFor, kmFor };
+  return { SHAPES, makeShape, atRigor, trace, prepare, fit, routeInput, fidelity, onStreets, icon, outline, sizeFor, kmFor };
 })();

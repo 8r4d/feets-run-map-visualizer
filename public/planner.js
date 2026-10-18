@@ -185,14 +185,15 @@ const Planner = (() => {
   // --- Following a shape (GPS art, see art.js) ---
   // The route through `targets` (graph points, in order) that keeps closest
   // to a drawn shape: each link counts longer the further it is from the
-  // shape, by 1 + its distance (from `near`, metres per point) / CORRIDOR.
+  // shape, by 1 + its distance (from `near`, metres per point) / corridor
+  // (CORRIDOR unless given: smaller keeps closer to the shape).
   // Going over the same street twice costs nothing extra. Only points
   // `allowed` allows are used where that's possible. Returns { legs, straight }:
   // a leg of [lat, lon] points from each target to the next, and whether it's
   // a straight line (when no streets join them).
   const CORRIDOR = 20;
 
-  function followShape(graph, targets, near, allowed = null) {
+  function followShape(graph, targets, near, allowed = null, corridor = CORRIDOR) {
     const { lat, lon, adj } = graph;
     const step = (from, to, only) => {
       const cost = new Map([[from, 0]]);
@@ -210,7 +211,7 @@ const Planner = (() => {
         for (let k = 0; k < edges.length; k += 3) {
           const b = edges[k];
           if (only && !only[b]) continue;
-          const c = base + edges[k + 1] * (1 + (near[a] + near[b]) / 2 / CORRIDOR) * (edges[k + 2] & 1 ? AVOID : 1);
+          const c = base + edges[k + 1] * (1 + (near[a] + near[b]) / 2 / corridor) * (edges[k + 2] & 1 ? AVOID : 1);
           if (c < (cost.get(b) ?? Infinity)) {
             cost.set(b, c);
             came.set(b, a);

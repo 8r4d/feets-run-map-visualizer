@@ -3739,6 +3739,7 @@ const artKm = document.getElementById('art-km');
 const artFree = document.getElementById('art-free');
 const artNext = document.getElementById('art-next');
 const artTheme = document.getElementById('art-theme');
+const artRigor = document.getElementById('art-rigor');
 const ART_ROUTED = 6;      // best placements routed and judged
 const ART_THIN = 300;      // metres: drag points on art routes about this far apart
 const ART_REACH = 0.65;    // the ⟳ handle sits this far (of the shape's size) above its middle
@@ -3751,6 +3752,7 @@ for (const [el, key] of [[artArea, 'feets-art-area'], [artKm, 'feets-art-km']]) 
   try { if (localStorage.getItem(key)) el.value = localStorage.getItem(key); } catch {}
   el.addEventListener('change', () => { try { localStorage.setItem(key, el.value); } catch {} });
 }
+try { artRigor.value = localStorage.getItem('feets-art-rigor') || artRigor.value; } catch {}
 try { artFree.checked = localStorage.getItem('feets-art-free') === 'on'; } catch {}
 artFree.onchange = () => { try { localStorage.setItem('feets-art-free', artFree.checked ? 'on' : 'off'); } catch {} };
 try { artShapeId = localStorage.getItem('feets-art-shape') || artShapeId; } catch {}
@@ -3894,10 +3896,10 @@ function thinLegs(legs, straight) {
 }
 
 // A placement drawn on the streets, and how well it matches: a result for artFits.
-function routeArt({ g, field, shape, allowed }, placement) {
-  const input = Art.routeInput(g, field, shape, placement);
+function routeArt({ g, field, shape, allowed, rigor }, placement) {
+  const input = Art.routeInput(g, field, shape, placement, rigor);
   if (input.targets.length < 2) return null;
-  const { legs, straight } = Planner.followShape(g, input.targets, input.near, allowed);
+  const { legs, straight } = Planner.followShape(g, input.targets, input.near, allowed, input.corridor);
   const points = legs.flatMap((leg, i) => (i ? leg.slice(1) : leg));
   return { placement, legs, straight, outline: input.outline, fid: Art.fidelity(field, input, points), metres: lineMetres(points) };
 }
@@ -3932,7 +3934,8 @@ function artSetup() {
     planStatus.textContent = 'Upload an SVG first, or pick another set of shapes.';
     return null;
   }
-  const shape = allArtShapes().find(s => s.id === artShapeId) || Art.SHAPES[0];
+  const rigor = Number(artRigor.value);
+  const shape = Art.atRigor(allArtShapes().find(s => s.id === artShapeId) || Art.SHAPES[0], rigor);
   const length = Number(artKm.value);
   if (!(length > 0)) return null;
   if (!artArea.value) {
@@ -3943,7 +3946,7 @@ function artSetup() {
   const mask = withinMask(g, artArea.value);
   if (!mask) return null;
   if (!mask.field) mask.field = Art.prepare(g, mask.allowed);  // kept with the mask, for the next go
-  return { shape, km: length, where: mask.name, g, field: mask.field, allowed: mask.allowed };
+  return { shape, rigor, km: length, where: mask.name, g, field: mask.field, allowed: mask.allowed };
 }
 
 document.getElementById('art-fit').onclick = async () => {
@@ -3995,6 +3998,22 @@ document.getElementById('art-place').onclick = () => {
   }
   artFits = { ...setup, results: [r], index: 0 };
   showArtFit(0, { fit: false });
+};
+
+// Loose to strict (see Art.atRigor): the art on show is drawn again where it
+// is, if it hasn't been changed since.
+artRigor.onchange = () => {
+  try { localStorage.setItem('feets-art-rigor', artRigor.value); } catch {}
+  if (!artFits || artFits.shown !== artSignature() || !plan.art) return;
+  const rigor = Number(artRigor.value);
+  const base = allArtShapes().find(s => s.id === artFits.shape.id);
+  if (!base) return;
+  const next = { ...artFits, rigor, shape: Art.atRigor(base, rigor) };
+  const r = routeArt(next, { ...plan.art });
+  if (!r) return;
+  artFits = next;
+  artFits.results[artFits.index] = r;
+  showArtFit(artFits.index, { fit: false });
 };
 
 artNext.onclick = () => {
