@@ -284,6 +284,7 @@ function fogClearness(track, now = Date.now()) {
 // Each is lightened to the least clear pixel around it, so with "Fog grows
 // back" it fades with its clearings. That pixel is read one step further out
 // as well, past the anti-aliased edge of the line, to get the line's own value.
+const FOG_STEPS = [[-1, 0], [1, 0], [0, -1], [0, 1]];
 function fillFogGaps(light, w, h, maxPixels) {
   const seen = new Uint8Array(w * h);
   const queue = new Int32Array(w * h);
@@ -296,7 +297,7 @@ function fillFogGaps(light, w, h, maxPixels) {
       const p = queue[head++];
       const x = p % w, y = (p - x) / w;
       if (x === 0 || y === 0 || x === w - 1 || y === h - 1) edge = true;
-      for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+      for (const [dx, dy] of FOG_STEPS) {
         const qx = x + dx, qy = y + dy;
         if (qx < 0 || qy < 0 || qx >= w || qy >= h) continue;
         const q = qy * w + qx;
