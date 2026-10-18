@@ -2069,6 +2069,12 @@ body {
   padding-left: 18px;
 }
 
+#version {
+  font-size: 12px;
+  font-weight: normal;
+  color: #777;
+}
+
 #about small {
   color: #777;
 }
