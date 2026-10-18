@@ -4005,6 +4005,19 @@ async function updateQuests() {
     for (const q of finished) toast(`Quest done: ${q.title}`, `${questState.completed} quests done in all.`);
   }
   renderQuests(Quests.streak(firsts), progress);
+  await awardStreakTrophies(firsts);
+}
+
+// Streak trophies (see Quests.streakTrophies), saved and announced like the
+// others (see checkTrophies).
+async function awardStreakTrophies(firsts) {
+  const known = new Set(trophies.map(a => a.code));
+  const fresh = Quests.streakTrophies(firsts).filter(a => !known.has(a.code));
+  if (!fresh.length) return;
+  trophies = await Store.addAchievements(fresh);
+  renderTrophies();
+  if (fresh.length > 3) toast(`🏆 ${fresh.length} streak trophies`, 'See them under Trophies.');
+  else fresh.forEach(a => toast(`🏆 ${a.title}`, a.detail));
 }
 
 function renderQuests(streak, progress) {

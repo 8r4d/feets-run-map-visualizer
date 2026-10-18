@@ -8,6 +8,8 @@
 // There are two sets: all-time, and per calendar year from FIRST_YEAR on.
 // A year's trophies count only that year's tracks, so "Brander Gardens
 // complete" for 2026 means every street run again within 2026.
+// (Streak trophies come from quests.js, as they need what each activity
+// covered first.)
 const Achievements = (() => {
   // Tracks with no type (most GPX uploads) count too.
   const ON_FOOT = new Set(['Run', 'TrailRun', 'Walk', 'Hike']);
@@ -122,5 +124,5 @@ const Achievements = (() => {
     return m ? Number(m[1]) : null;
   };
 
-  return { evaluate, yearOfCode };
+  return { evaluate, yearOfCode, FIRST_YEAR };
 })();

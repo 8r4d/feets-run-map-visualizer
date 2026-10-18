@@ -90,14 +90,42 @@ const Quests = (() => {
     let current = 0;
     for (let d = counted ? thisWeek : shiftWeek(thisWeek, -1); counts(d); d = shiftWeek(d, -1)) current++;
     // The best: the longest run of counting weeks, ever.
-    const starts = [...weeks.keys()].filter(k => weeks.get(k) >= STREAK_MIN).sort((a, b) => a - b);
+    const best = longestRun([...weeks.keys()].filter(k => weeks.get(k) >= STREAK_MIN).sort((a, b) => a - b));
+    return { current, best: Math.max(best, current), thisWeek: weeks.get(thisWeek.getTime()) || 0, counted };
+  }
+
+  // --- Streak trophies ---
+  // All time: the best streak ever. Each year from Achievements.FIRST_YEAR:
+  // the longest streak of weeks starting in that year. [{ code, title, detail }],
+  // as Achievements.evaluate gives.
+  const STREAK_TROPHIES = [4, 8, 12, 26, 52];
+
+  // The longest run of counting weeks among week starts (ms, ascending).
+  function longestRun(starts) {
     let best = 0, run = 0, prev = null;
     for (const k of starts) {
       run = prev !== null && shiftWeek(new Date(prev), 1).getTime() === k ? run + 1 : 1;
       best = Math.max(best, run);
       prev = k;
     }
-    return { current, best: Math.max(best, current), thisWeek: weeks.get(thisWeek.getTime()) || 0, counted };
+    return best;
+  }
+
+  function streakTrophies(firstsMap) {
+    const weeks = byWeek(firstsMap);
+    const starts = [...weeks.keys()].filter(k => weeks.get(k) >= STREAK_MIN).sort((a, b) => a - b);
+    const earned = [];
+    const detail = n => `New streets every week for ${n} weeks`;
+    const allTime = longestRun(starts);
+    for (const n of STREAK_TROPHIES) if (allTime >= n) earned.push({ code: `streak:${n}`, title: `${n}-week streak`, detail: detail(n) });
+    const years = [...new Set(starts.map(k => new Date(k).getFullYear()))].filter(y => y >= Achievements.FIRST_YEAR);
+    for (const year of years) {
+      const best = longestRun(starts.filter(k => new Date(k).getFullYear() === year));
+      for (const n of STREAK_TROPHIES) {
+        if (best >= n) earned.push({ code: `year:${year}:streak:${n}`, title: `${year}: ${n}-week streak`, detail: detail(n) });
+      }
+    }
+    return earned;
   }
 
   // --- Quests ---
@@ -192,5 +220,5 @@ const Quests = (() => {
     return { have, of: quest.target, done: have >= quest.target };
   }
 
-  return { STREAK_MIN, firsts, streak, weekId, make, progress, kmText };
+  return { STREAK_MIN, firsts, streak, streakTrophies, weekId, make, progress, kmText };
 })();
