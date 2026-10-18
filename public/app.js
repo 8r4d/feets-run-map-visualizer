@@ -225,6 +225,16 @@ function syncLayers() {
   // Streets and plan mode: coverage depends on which tracks are on the map.
   if (showStreets()) scheduleCoverage();
   else if (streetLayer) streetLayer.remove();
+  // Each canvas renderer is its own <canvas>, and only the top one gets
+  // clicks, so one left over from another mode would swallow clicks on the
+  // tracks under it. Clicks pass through the ones not in use.
+  passClicks(heatRenderer, true);
+  passClicks(streetRenderer, !showStreets());
+  passClicks(pointRenderer, !pointEdit);
+}
+
+function passClicks(renderer, pass) {
+  if (renderer._container) renderer._container.style.pointerEvents = pass ? 'none' : '';
 }
 
 // --- Fog of war ---
