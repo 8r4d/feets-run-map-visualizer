@@ -36,6 +36,7 @@ body {
 }
 
 #map-area {
+  position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -343,21 +344,31 @@ body {
   flex: 1;
 }
 
+/* The mode switcher, over the top left of the map beside the zoom buttons,
+   looking like Leaflet's own controls. */
 #mode {
+  position: absolute;
+  top: 10px;
+  left: 54px;
+  z-index: 1000;
   display: flex;
-  border: 1px solid #ccc;
-  border-radius: 6px;
+  border-radius: 4px;
   overflow: hidden;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.4);
 }
 
 #mode button {
-  flex: 1;
-  padding: 6px;
+  padding: 6px 11px;
   font: inherit;
+  font-size: 13px;
   color: #444;
   background: #fff;
   border: none;
   cursor: pointer;
+}
+
+#mode button:hover:not([aria-pressed="true"]) {
+  background: #f4f4f4;
 }
 
 #mode button + button {
@@ -512,6 +523,18 @@ body {
 
 /* Phones: map on top with two thirds of the screen, the panel underneath.
    #panel-toggle sits between them (column-reverse puts it after the map). */
+/* Phones: small enough to clear the layers button on the right. */
+@media (max-width: 640px) {
+  #mode {
+    left: 50px;
+  }
+
+  #mode button {
+    padding: 5px 7px;
+    font-size: 12px;
+  }
+}
+
 @media (max-width: 640px) {
   body { flex-direction: column-reverse; }
   #sidebar { width: 100%; max-height: 33vh; border-right: none; }

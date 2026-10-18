@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>feets</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=72">
+  <link rel="stylesheet" href="style.css?v=73">
 </head>
 <body>
   <aside id="sidebar">
@@ -53,13 +53,6 @@
         <small class="hint">Counts runs, walks, hikes and tracks with no type, whatever the filters say. Weeks start on Monday.</small>
       </div>
     </details>
-    <div id="mode" role="group" aria-label="Map style">
-      <button type="button" data-mode="tracks" aria-pressed="true">Tracks</button>
-      <button type="button" data-mode="heatmap" aria-pressed="false">Heatmap</button>
-      <button type="button" data-mode="streets" aria-pressed="false">Streets</button>
-      <button type="button" data-mode="fog" aria-pressed="false" title="Fog of war: the map hidden except where you've been on foot">Fog</button>
-      <button type="button" data-mode="plan" aria-pressed="false">Plan</button>
-    </div>
     <label id="fade-control">
       <span id="fade-label">Fade map</span>
       <input id="fade" type="range" min="0" max="90" step="5" value="0">
@@ -302,6 +295,14 @@
   <!-- Phones only: the panel sits under the map, and this bar folds it away. -->
   <button id="panel-toggle" type="button" aria-controls="sidebar" aria-expanded="true">Hide panel</button>
   <div id="map-area">
+    <!-- The mode switcher sits over the top of the map (see #mode in style.css). -->
+    <div id="mode" role="group" aria-label="Map style">
+      <button type="button" data-mode="tracks" aria-pressed="true">Tracks</button>
+      <button type="button" data-mode="heatmap" aria-pressed="false">Heatmap</button>
+      <button type="button" data-mode="fog" aria-pressed="false" title="Fog of war: the map hidden except where you've been on foot">Fog</button>
+      <button type="button" data-mode="streets" aria-pressed="false">Streets</button>
+      <button type="button" data-mode="plan" aria-pressed="false">Plan</button>
+    </div>
     <main id="map"></main>
     <!-- Desktop, Streets and Plan modes: that mode's panel moves here, under the map (see app.js). -->
     <div id="mode-bar" hidden></div>
