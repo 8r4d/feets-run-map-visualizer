@@ -250,6 +250,8 @@ function passClicks(renderer, pass) {
 // light on dark into a mask, each line as light as it is fresh, keeping the
 // lighter where they cross ('lighten'), and the fog is made from the mask.
 // Each line is drawn in a few passes, widest and faintest first, for soft edges.
+// A patch of fog smaller than FOG_GAP with clearings all round it is cleared
+// too, as clear as the least clear clearing around it (see fillFogGaps).
 const FOG_WIDTH = 250;    // metres cleared along each activity, unless the Clearing slider says otherwise
 let fogWidth = FOG_WIDTH;
 try { fogWidth = Number(localStorage.getItem('feets-fog-width')) || FOG_WIDTH; } catch {}
@@ -259,6 +261,8 @@ const FOG_PASSES = [[1.6, 0.2], [1.3, 0.45], [1, 1]];  // [width, strength]
 // "Fog grows back": [days a clearing stays clear, days until it's fog again].
 const FOG_REGROW = { month: [7, 30], quarter: [30, 91], half: [61, 182], year: [182, 365] };
 const FOG_LEVELS = 20;    // steps of freshness
+const FOG_GAP = 20000;    // square metres: enclosed patches of fog smaller than this are cleared
+const FOG_EDGE = 128;     // mask pixels darker than this count as fog when looking for gaps
 
 let fogRegrow = '';       // '' (never) or a FOG_REGROW key
 try {
@@ -272,6 +276,46 @@ function fogClearness(track, now = Date.now()) {
   const [fresh, gone] = FOG_REGROW[fogRegrow];
   const days = (now - new Date(track.time).getTime()) / 86400000;
   return Math.max(0, Math.min(1, (gone - days) / (gone - fresh)));
+}
+
+// Clears the small patches of fog in the mask (one byte in four, as from
+// getImageData) that clearings shut in on every side: patches of fog under
+// maxPixels that don't reach the edge, where there might be more fog beyond.
+// Each is lightened to the least clear pixel around it, so with "Fog grows
+// back" it fades with its clearings. That pixel is read one step further out
+// as well, past the anti-aliased edge of the line, to get the line's own value.
+function fillFogGaps(light, w, h, maxPixels) {
+  const seen = new Uint8Array(w * h);
+  const queue = new Int32Array(w * h);
+  for (let start = 0; start < w * h; start++) {
+    if (seen[start] || light[start * 4] >= FOG_EDGE) continue;
+    let head = 0, tail = 0, edge = false, rim = 255;
+    seen[start] = 1;
+    queue[tail++] = start;
+    while (head < tail) {
+      const p = queue[head++];
+      const x = p % w, y = (p - x) / w;
+      if (x === 0 || y === 0 || x === w - 1 || y === h - 1) edge = true;
+      for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+        const qx = x + dx, qy = y + dy;
+        if (qx < 0 || qy < 0 || qx >= w || qy >= h) continue;
+        const q = qy * w + qx;
+        if (light[q * 4] >= FOG_EDGE) {
+          const rx = qx + dx, ry = qy + dy;
+          const beyond = rx < 0 || ry < 0 || rx >= w || ry >= h ? 0 : light[(ry * w + rx) * 4];
+          rim = Math.min(rim, Math.max(light[q * 4], beyond));
+        } else if (!seen[q]) {
+          seen[q] = 1;
+          queue[tail++] = q;
+        }
+      }
+    }
+    if (edge || tail >= maxPixels) continue;
+    for (let i = 0; i < tail; i++) {
+      const p = queue[i] * 4;
+      if (light[p] < rim) light[p] = rim;
+    }
+  }
 }
 
 const FogLayer = L.Layer.extend({
@@ -366,6 +410,8 @@ const FogLayer = L.Layer.extend({
     }
     // The fog: its colour, as thick as the mask is dark.
     const light = mask.getImageData(0, 0, full.x, full.y).data;
+    const gapPixels = FOG_GAP / metresPerPixel ** 2;
+    if (gapPixels > 1) fillFogGaps(light, full.x, full.y, gapPixels);
     const ctx = this.canvas.getContext('2d');
     const fog = ctx.createImageData(full.x, full.y);
     const out = fog.data;
