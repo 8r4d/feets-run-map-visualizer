@@ -230,14 +230,32 @@ function syncLayers() {
 // Fog mode hides the map under a dark layer, cleared FOG_WIDTH metres wide
 // along every on-foot activity on the map (the filters and checkboxes count),
 // so the places you've never been stand out as the dark bits. A canvas over
-// the view, redrawn when the map stops moving: the fog is filled in, then
-// each line rubbed out of it in a few passes, widest and faintest first, for
-// soft edges. Drawn half a view beyond each edge, so a pan doesn't show its
-// edge before the redraw.
-const FOG_WIDTH = 100;    // metres cleared along each activity
-const FOG_COLOR = '#10141f';
+// the view, redrawn when the map stops moving, half a view beyond each edge
+// so a pan doesn't show its edge before the redraw.
+//
+// With "Fog grows back" on, a clearing stays clear for FOG_FRESH days after
+// the activity, then thins back to fog until it's gone after FOG_GONE days.
+// Each spot is as clear as its most recent visit: the clearings are drawn
+// light on dark into a mask, each line as light as it is fresh, keeping the
+// lighter where they cross ('lighten'), and the fog is made from the mask.
+// Each line is drawn in a few passes, widest and faintest first, for soft edges.
+const FOG_WIDTH = 150;    // metres cleared along each activity
+const FOG_COLOR = [16, 20, 31];
 const FOG_PAD = 0.5;
 const FOG_PASSES = [[1.6, 0.2], [1.3, 0.45], [1, 1]];  // [width, strength]
+const FOG_FRESH = 182;    // days a clearing stays clear, growing back...
+const FOG_GONE = 365;     // ... until it's fog again
+const FOG_LEVELS = 20;    // steps of freshness
+
+let fogRegrows = false;
+try { fogRegrows = localStorage.getItem('feets-fog-regrow') === 'on'; } catch {}
+
+// How clear an activity leaves the fog, 0 to 1, by its age.
+function fogClearness(track, now = Date.now()) {
+  if (!fogRegrows || !track.time) return 1;
+  const days = (now - new Date(track.time).getTime()) / 86400000;
+  return Math.max(0, Math.min(1, (FOG_GONE - days) / (FOG_GONE - FOG_FRESH)));
+}
 
 const FogLayer = L.Layer.extend({
   initialize() {
@@ -252,6 +270,7 @@ const FogLayer = L.Layer.extend({
     }
     this.canvas = L.DomUtil.create('canvas', 'fog-layer leaflet-zoom-hide', m.getPane('fog'));
     this.canvas.style.opacity = this.opacity;
+    this.mask = document.createElement('canvas');
     m.on('moveend zoomend resize viewreset', this.redraw, this);
     this.redraw();
   },
@@ -283,42 +302,62 @@ const FogLayer = L.Layer.extend({
     const full = size.add(pad.multiplyBy(2));
     const origin = m.containerPointToLayerPoint(pad.multiplyBy(-1));
     L.DomUtil.setPosition(this.canvas, origin);
-    const ratio = window.devicePixelRatio || 1;
-    this.canvas.width = full.x * ratio;
-    this.canvas.height = full.y * ratio;
+    // The fog is soft anyway, so one canvas pixel per screen pixel will do.
+    for (const c of [this.canvas, this.mask]) {
+      c.width = full.x;
+      c.height = full.y;
+    }
     this.canvas.style.width = full.x + 'px';
     this.canvas.style.height = full.y + 'px';
-    const ctx = this.canvas.getContext('2d');
-    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = FOG_COLOR;
-    ctx.fillRect(0, 0, full.x, full.y);
-    // Which activities, and how wide FOG_WIDTH is on screen here.
+
+    // The activities in view, by how clear they leave the fog.
     const view = L.latLngBounds(m.containerPointToLatLng(pad.multiplyBy(-1)), m.containerPointToLatLng(size.add(pad)));
     const [s, w, n, e] = [view.getSouth(), view.getWest(), view.getNorth(), view.getEast()];
-    const lines = [];
+    const levels = new Map();  // level -> lines of points
+    const now = Date.now();
     for (const { track } of loaded.values()) {
       if (!onMap(track) || !Stats.onFoot(track)) continue;
+      const level = Math.round(fogClearness(track, now) * FOG_LEVELS);
+      if (!level) continue;
       const [ts, tw, tn, te] = this.box(track);
       if (ts > n || tn < s || tw > e || te < w) continue;
-      for (const seg of track.segments) lines.push(seg.map(p => m.latLngToLayerPoint(p).subtract(origin)));
+      if (!levels.has(level)) levels.set(level, []);
+      for (const seg of track.segments) levels.get(level).push(seg.map(p => m.latLngToLayerPoint(p).subtract(origin)));
     }
+
+    // The mask: black, with the clearings drawn in grey to white.
     const metresPerPixel = 40075016.686 * Math.cos(m.getCenter().lat * Math.PI / 180) / 2 ** (m.getZoom() + 8);
     const width = Math.max(2, FOG_WIDTH / metresPerPixel);
-    ctx.globalCompositeOperation = 'destination-out';
-    ctx.lineCap = ctx.lineJoin = 'round';
-    ctx.strokeStyle = '#000';
+    const mask = this.mask.getContext('2d');
+    mask.globalCompositeOperation = 'source-over';
+    mask.fillStyle = '#000';
+    mask.fillRect(0, 0, full.x, full.y);
+    mask.globalCompositeOperation = 'lighten';
+    mask.lineCap = mask.lineJoin = 'round';
     for (const [k, strength] of FOG_PASSES) {
-      ctx.globalAlpha = strength;
-      ctx.lineWidth = width * k;
-      ctx.beginPath();
-      for (const line of lines) {
-        ctx.moveTo(line[0].x, line[0].y);
-        for (let i = 1; i < line.length; i++) ctx.lineTo(line[i].x, line[i].y);
+      for (const [level, lines] of levels) {
+        const v = Math.round(255 * strength * level / FOG_LEVELS);
+        mask.strokeStyle = `rgb(${v},${v},${v})`;
+        mask.lineWidth = width * k;
+        mask.beginPath();
+        for (const line of lines) {
+          mask.moveTo(line[0].x, line[0].y);
+          for (let i = 1; i < line.length; i++) mask.lineTo(line[i].x, line[i].y);
+        }
+        mask.stroke();
       }
-      ctx.stroke();
     }
+    // The fog: its colour, as thick as the mask is dark.
+    const light = mask.getImageData(0, 0, full.x, full.y).data;
+    const ctx = this.canvas.getContext('2d');
+    const fog = ctx.createImageData(full.x, full.y);
+    const out = fog.data;
+    const [r, g, b] = FOG_COLOR;
+    for (let i = 0; i < out.length; i += 4) {
+      out[i] = r; out[i + 1] = g; out[i + 2] = b;
+      out[i + 3] = 255 - light[i];
+    }
+    ctx.putImageData(fog, 0, 0);
     return this;
   },
 });
@@ -408,6 +447,7 @@ function savedFade(mode) {
 // In Fog mode the same slider sets how dark the fog is, and the map itself
 // isn't faded, so the cleared parts look like the plain map.
 function applyFade() {
+  document.getElementById('fog-regrow-row').hidden = !fogMode;
   const percent = Number(fadeInput.value);
   const container = map.getContainer();
   container.style.setProperty('--map-fade', fogMode ? 0 : percent / 100);
@@ -416,6 +456,14 @@ function applyFade() {
   document.getElementById('fade-label').textContent = fogMode ? 'Fog' : 'Fade map';
   document.getElementById('fade-value').textContent = percent + '%';
 }
+
+const fogRegrow = document.getElementById('fog-regrow');
+fogRegrow.checked = fogRegrows;
+fogRegrow.onchange = () => {
+  fogRegrows = fogRegrow.checked;
+  try { localStorage.setItem('feets-fog-regrow', fogRegrows ? 'on' : 'off'); } catch {}
+  fogLayer.redraw();
+};
 
 fadeInput.oninput = () => {
   applyFade();
