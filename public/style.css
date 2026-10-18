@@ -2107,3 +2107,56 @@ body {
   justify-content: center;
   margin-bottom: 6px;
 }
+
+/* Welcome card for a new account with no tracks (see updateWelcome in
+   app.js). Until the first track arrives, the boxes that would be empty are
+   hidden, so the card is what there is to look at. */
+#welcome {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-color: #fc5200;
+}
+
+#welcome h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+#welcome p {
+  margin: 0;
+}
+
+.welcome-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.welcome-buttons > * {
+  flex: 1;
+  min-width: 140px;
+}
+
+#welcome-gpx {
+  padding: 7px 12px;
+  font: inherit;
+  font-weight: 600;
+}
+
+#welcome a[data-help] {
+  color: #1a73e8;
+}
+
+.no-tracks #trophies-box,
+.no-tracks #stats-box,
+.no-tracks #quests-box,
+.no-tracks #segments-box,
+.no-tracks #goals-box,
+.no-tracks #filters,
+.no-tracks #list-header,
+.no-tracks #track-list,
+.no-tracks #more {
+  display: none !important;
+}

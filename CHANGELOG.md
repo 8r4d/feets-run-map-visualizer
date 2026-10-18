@@ -5,6 +5,13 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.3.0 — 2026-10-18
+
+- A welcome card for new accounts: until the first track arrives, the sidebar
+  shows Connect with Strava / Upload GPX buttons, a link to Getting Started and
+  a language picker, with Add tracks opened and the boxes that would only be
+  empty (trophies, stats, goals, filters, the track list) hidden.
+
 ## 1.2.0 — 2026-10-18
 
 - French (Français), translated as far as the Chinese: the sidebar, map

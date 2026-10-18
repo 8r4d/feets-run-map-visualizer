@@ -918,6 +918,31 @@ function renderList() {
     : `${filtered ? `${matching.length} of ${all.length}` : all.length} tracks · ${shown.length} on map · ${formatKm(km)}`
       + (metricsLeft ? ` · working out pace and climb, ${metricsLeft} to go` : '');
   renderGoals();
+  updateWelcome();
+}
+
+// --- Welcome ---
+// A new account, its tracks loaded and none there, gets a welcome card at the
+// top of the sidebar: Strava and GPX buttons, the Getting Started page, and a
+// language picker. The boxes that would only be empty are hidden meanwhile
+// (.no-tracks in style.css), and "Add tracks" is opened. All of it goes as
+// soon as the first track arrives. Not for view-only accounts.
+let tracksLoaded = false;  // set once the track list has come from the server
+const welcome = document.getElementById('welcome');
+{
+  const label = document.createElement('label');
+  label.className = 'lang-row';
+  label.append(t('Language') + ' ', I18n.picker());
+  welcome.append(label);
+}
+document.getElementById('welcome-gpx').onclick = () => fileInput.click();
+document.getElementById('welcome-strava-import').onclick = () => importFromStrava({ fit: true });
+
+function updateWelcome() {
+  const fresh = tracksLoaded && Boolean(currentUser) && !readOnly() && !loaded.size;
+  if (fresh && welcome.hidden) document.getElementById('import-box').open = true;
+  welcome.hidden = !fresh;
+  document.body.classList.toggle('no-tracks', fresh);
 }
 
 // Tracks stored before feets kept pace and elevation get them here, a batch
@@ -3113,12 +3138,14 @@ function showAuth(mode, options = {}) {
 function clearTracks() {
   for (const { layer } of loaded.values()) layer.remove();
   loaded.clear();
+  tracksLoaded = false;
   render();
 }
 
 async function loadTracks() {
   try {
     (await Store.all()).forEach(show);
+    tracksLoaded = true;
     render();
     if (!home) fitAll();
   } catch (err) {
@@ -3253,6 +3280,8 @@ async function refreshStrava() {
   stravaBox.hidden = !status.configured;
   document.getElementById('strava-connect').hidden = status.connected;
   document.getElementById('strava-connected').hidden = !status.connected;
+  document.getElementById('welcome-strava').hidden = !status.configured || status.connected;
+  document.getElementById('welcome-strava-import').hidden = !status.configured || !status.connected;
   stravaStatus.textContent = status.connected ? `Connected as ${status.athlete}` : '';
 
   // Automatic import (Strava's webhook) is one switch for the whole site: the admin flips it.

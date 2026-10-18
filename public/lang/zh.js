@@ -214,6 +214,13 @@ I18n.add('zh', {
   'Swim': '游泳',
   'Other': '其他',
 
+  // --- Welcome (a new account with no tracks yet) ---
+  'Welcome to feets': '欢迎使用 feets',
+  'Bring in your runs, walks and rides to get started. They all go on one map.': '导入你的跑步、步行和骑行记录就可以开始了。它们都会显示在同一张地图上。',
+  'Upload GPX files': '上传 GPX 文件',
+  'Most watches and fitness apps can export GPX files.': '大多数手表和运动应用都可以导出 GPX 文件。',
+  'New here? Read Getting Started': '第一次使用？请阅读入门指南',
+
   // --- Account and adding tracks ---
   'Account': '账户',
   'Account & admin': '账户与管理',

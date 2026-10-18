@@ -214,6 +214,13 @@ I18n.add('fr', {
   'Swim': "Natation",
   'Other': "Autre",
 
+  // --- Welcome (a new account with no tracks yet) ---
+  'Welcome to feets': "Bienvenue sur feets",
+  'Bring in your runs, walks and rides to get started. They all go on one map.': "Importez vos courses, marches et sorties à vélo pour commencer. Elles s'affichent toutes sur une même carte.",
+  'Upload GPX files': "Importer des fichiers GPX",
+  'Most watches and fitness apps can export GPX files.': "La plupart des montres et applications de sport exportent des fichiers GPX.",
+  'New here? Read Getting Started': "Nouveau ? Lisez Premiers pas",
+
   // --- Account and adding tracks ---
   'Account': "Compte",
   'Account & admin': "Compte et administration",
