@@ -5,6 +5,15 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.1.0 — 2026-10-18
+
+- Simplified Chinese (中文). feets picks it when your browser prefers Chinese,
+  and there's a Language picker in Account and on the login screen. The
+  sidebar, map controls, buttons, menus and login screen are translated;
+  messages, stats, trophies, quests and the help pages are still English.
+- Translations live in `public/lang/` (see `public/i18n.js` for how to add
+  phrases or another language).
+
 ## 1.0.0 — 2026-10-18
 
 The first numbered version. Everything feets does so far, including:

@@ -1,3 +1,13 @@
+// The page in the chosen language (see i18n.js), with a picker in Account
+// and on the login screen.
+I18n.translatePage();
+for (const at of [document.querySelector('#settings-box .panel-body'), document.querySelector('#auth .credits')]) {
+  const label = document.createElement('label');
+  label.className = 'lang-row';
+  label.append(t('Language') + ' ', I18n.picker());
+  at.prepend(label);
+}
+
 const COLORS = ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6', '#9a6324', '#000075', '#808000'];
 
 const map = L.map('map').setView([20, 0], 2);
@@ -31,7 +41,7 @@ new ResizeObserver(() => map.invalidateSize()).observe(map.getContainer());
 const panelToggle = document.getElementById('panel-toggle');
 function setPanelCollapsed(collapsed) {
   document.body.classList.toggle('panel-collapsed', collapsed);
-  panelToggle.textContent = collapsed ? 'Show panel' : 'Hide panel';
+  panelToggle.textContent = collapsed ? t('Show panel') : t('Hide panel');
   panelToggle.setAttribute('aria-expanded', String(!collapsed));
   try { localStorage.setItem('feets-panel', collapsed ? 'collapsed' : 'open'); } catch {}
 }
@@ -51,8 +61,8 @@ const LocateControl = L.Control.extend({
     const button = L.DomUtil.create('a', 'locate-button', bar);
     button.href = '#';
     button.role = 'button';
-    button.title = 'Show my location';
-    button.setAttribute('aria-label', 'Show my location');
+    button.title = t('Show my location');
+    button.setAttribute('aria-label', t('Show my location'));
     button.innerHTML = '&#8982;';
     L.DomEvent.disableClickPropagation(bar);
     L.DomEvent.on(button, 'click', e => {
@@ -65,8 +75,8 @@ const LocateControl = L.Control.extend({
     const homeButton = L.DomUtil.create('a', 'home-button');
     homeButton.href = '#';
     homeButton.role = 'button';
-    homeButton.title = 'Go to home';
-    homeButton.setAttribute('aria-label', 'Go to home');
+    homeButton.title = t('Go to home');
+    homeButton.setAttribute('aria-label', t('Go to home'));
     homeButton.innerHTML = '&#8962;';
     L.DomEvent.on(homeButton, 'click', e => {
       L.DomEvent.preventDefault(e);
@@ -153,7 +163,7 @@ const filters = { text: '', year: '', sport: '' };
 try { Object.assign(filters, JSON.parse(localStorage.getItem('feets-filters')) || {}); } catch {}
 
 const yearOf = track => (track.time ? String(new Date(track.time).getFullYear()) : '');
-const sportLabel = sport => (sport === NO_SPORT ? 'Other' : sport.replace(/([a-z])([A-Z])/g, '$1 $2'));
+const sportLabel = sport => t(sport === NO_SPORT ? 'Other' : sport.replace(/([a-z])([A-Z])/g, '$1 $2'));
 
 function matches(track) {
   return (!filters.text || track.name.toLowerCase().includes(filters.text.toLowerCase()))
@@ -518,7 +528,7 @@ function applyFade() {
   container.style.setProperty('--map-fade', fogMode ? 0 : percent / 100);
   container.style.setProperty('--fade-color', heatmap ? '#000' : '#fff');
   fogLayer.setOpacity(percent / 100);
-  document.getElementById('fade-label').textContent = fogMode ? 'Fog' : 'Fade map';
+  document.getElementById('fade-label').textContent = fogMode ? t('Fog') : t('Fade map');
   document.getElementById('fade-value').textContent = percent + '%';
 }
 
@@ -671,7 +681,7 @@ function trackPopup(track, latlng) {
   const toRoute = document.createElement('button');
   toRoute.className = 'link-button';
   toRoute.type = 'button';
-  toRoute.textContent = 'Create route from this activity';
+  toRoute.textContent = t('Create route from this activity');
   toRoute.onclick = () => {
     map.closePopup(popup);
     routeFromTrack(track);
@@ -681,13 +691,13 @@ function trackPopup(track, latlng) {
     const race = document.createElement('button');
     race.className = 'link-button';
     race.type = 'button';
-    race.textContent = 'Race a past run';
+    race.textContent = t('Race a past run');
     race.onclick = () => offerRaces(track, box, popup);
     const segment = document.createElement('button');
     segment.className = 'link-button';
     segment.type = 'button';
-    segment.textContent = 'Make a segment';
-    segment.title = 'Pick a stretch of this activity to time yourself on';
+    segment.textContent = t('Make a segment');
+    segment.title = t('Pick a stretch of this activity to time yourself on');
     segment.onclick = () => {
       map.closePopup(popup);
       startSegmentPick(track).catch(err => alert(err.message));
@@ -698,7 +708,7 @@ function trackPopup(track, latlng) {
     const fix = document.createElement('button');
     fix.className = 'link-button';
     fix.type = 'button';
-    fix.textContent = 'Remove stray points';
+    fix.textContent = t('Remove stray points');
     fix.onclick = () => {
       map.closePopup(popup);
       editPoints(track.id);
@@ -887,8 +897,8 @@ function renderList() {
   const years = [...new Set(all.map(e => yearOf(e.track)).filter(Boolean))].sort().reverse();
   const sports = [...new Set(all.map(e => e.track.sport || NO_SPORT))]
     .sort((a, b) => (a === NO_SPORT) - (b === NO_SPORT) || a.localeCompare(b));
-  fillSelect(yearSelect, years, 'All years', y => y, 'year');
-  fillSelect(sportSelect, sports, 'All types', sportLabel, 'sport');
+  fillSelect(yearSelect, years, t('All years'), y => y, 'year');
+  fillSelect(sportSelect, sports, t('All types'), sportLabel, 'sport');
 
   const matching = all
     .filter(e => matches(e.track))
@@ -898,7 +908,7 @@ function renderList() {
 
   document.getElementById('track-list').replaceChildren(...matching.slice(0, listLimit).map(listItem));
   moreButton.hidden = matching.length <= listLimit;
-  moreButton.textContent = `Show more (${matching.length - listLimit} more)`;
+  moreButton.textContent = t('Show more ({n} more)', { n: matching.length - listLimit });
 
   const filtered = filters.text || filters.year || filters.sport;
   renderStats(matching.map(e => e.track));
@@ -945,7 +955,7 @@ function listItem({ track, layer }) {
   const checkbox = document.createElement('input');
   checkbox.type = 'checkbox';
   checkbox.checked = track.visible;
-  checkbox.title = 'Show / hide';
+  checkbox.title = t('Show / hide');
   checkbox.onchange = () => setVisible(track.id, checkbox.checked);
 
   const swatch = document.createElement('span');
@@ -954,7 +964,7 @@ function listItem({ track, layer }) {
 
   const name = document.createElement('div');
   name.className = 'name';
-  name.title = 'Zoom to track and show its details';
+  name.title = t('Zoom to track and show its details');
   const details = [
     track.sport && sportLabel(track.sport),
     track.time && new Date(track.time).toLocaleDateString(),
@@ -1008,25 +1018,25 @@ function listItem({ track, layer }) {
   const download = document.createElement('button');
   download.className = 'download';
   download.textContent = '↓';
-  download.title = 'Download original GPX';
+  download.title = t('Download original GPX');
   download.onclick = () => Store.downloadGpx(track).catch(err => alert(err.message));
 
   const toRoute = document.createElement('button');
   toRoute.className = 'to-route';
   toRoute.textContent = '⤳';
-  toRoute.title = 'Plan a route from this activity';
+  toRoute.title = t('Plan a route from this activity');
   toRoute.onclick = () => routeFromTrack(track);
 
   const fixPoints = document.createElement('button');
   fixPoints.className = 'edit-points';
   fixPoints.textContent = '✎';
-  fixPoints.title = 'Remove stray GPS points';
+  fixPoints.title = t('Remove stray GPS points');
   fixPoints.onclick = () => editPoints(track.id);
 
   const del = document.createElement('button');
   del.className = 'delete';
   del.textContent = '×';
-  del.title = 'Delete';
+  del.title = t('Delete');
   del.onclick = () => removeTrack(track.id);
 
   li.append(checkbox, swatch, name, solo, toRoute, fixPoints, download, del);
@@ -1296,8 +1306,8 @@ const editToggle = document.getElementById('edit-toggle');
 editToggle.onclick = () => {
   const editing = editToggle.getAttribute('aria-pressed') !== 'true';
   editToggle.setAttribute('aria-pressed', String(editing));
-  editToggle.textContent = editing ? 'Done' : 'Edit';
-  editToggle.title = editing ? 'Hide the editing buttons' : 'Show the delete, plan-a-route, fix-points and download buttons';
+  editToggle.textContent = editing ? t('Done') : t('Edit');
+  editToggle.title = editing ? t('Hide the editing buttons') : t('Show the delete, plan-a-route, fix-points and download buttons');
   document.getElementById('track-list').classList.toggle('editing', editing);
 };
 document.getElementById('show-all').onclick = () => setVisibleMatching(true);
@@ -1589,7 +1599,7 @@ function renderUnrunnable() {
     const name = document.createElement('button');
     name.className = 'link-button name';
     name.textContent = m.label;
-    name.title = 'Show on map';
+    name.title = t('Show on map');
     name.onclick = () => showGroup(m);
     const info = document.createElement('small');
     info.textContent = `${CAT_NAMES[m.cat]} · ${km(m.len)}`;
@@ -1597,7 +1607,7 @@ function renderUnrunnable() {
     if (!readOnly()) {
       const again = document.createElement('button');
       again.className = 'link-button again';
-      again.textContent = 'Count again';
+      again.textContent = t('Count again');
       again.onclick = () => setUnrunnable(m.ways[0], false);
       li.append(again);
     }
@@ -1622,7 +1632,7 @@ function streetPopup(w, latlng) {
   if (!readOnly()) {
     const button = document.createElement('button');
     button.type = 'button';
-    button.textContent = unrunnable ? 'Count it again' : 'Mark off-limits';
+    button.textContent = unrunnable ? t('Count it again') : t('Mark off-limits');
     if (s.name) button.title = `Applies to all of ${s.name} in this area`;
     button.onclick = () => setUnrunnable(w, !unrunnable);
     box.append(button);
@@ -1695,7 +1705,7 @@ function renderTodo() {
       CAT_NAMES[g.cat], hoodName(g.hood), `${Math.round(share * 100)}%`, `${km(g.len - g.covered)} left`,
       here && `${km(distance)} away`,
     ].filter(Boolean).join(' · ');
-    li.title = 'Show on map';
+    li.title = t('Show on map');
     li.onclick = () => showGroup(g);
     return li;
   }));
@@ -2124,7 +2134,7 @@ function legPopup(i, latlng) {
   box.className = 'street-popup';
   const button = document.createElement('button');
   button.type = 'button';
-  button.textContent = direct ? 'Follow the streets' : 'Straight line here';
+  button.textContent = direct ? t('Follow the streets') : t('Straight line here');
   button.onclick = () => {
     map.closePopup();
     const [a, b] = [plan.waypoints[i], plan.waypoints[i + 1]];
@@ -2364,7 +2374,7 @@ const TraceControl = L.Control.extend({
     const playing = trace && trace.playing;
     const done = trace && !playing && trace.at >= trace.total;
     this.play.textContent = playing ? '❚❚' : done ? '↺' : '▶';
-    this.play.title = playing ? 'Pause' : done ? 'Trace it again' : trace ? 'Carry on' : 'Trace the route from start to finish';
+    this.play.title = t(playing ? 'Pause' : done ? 'Trace it again' : trace ? 'Carry on' : 'Trace the route from start to finish');
     this.speed.textContent = `${traceSpeed === 0.5 ? '½' : traceSpeed}×`;
     this.km.textContent = trace ? `${(trace.at / 1000).toFixed(1)} / ${(trace.total / 1000).toFixed(1)} km` : '';
     this.km.hidden = !trace;
@@ -3078,9 +3088,9 @@ function showAuth(mode, options = {}) {
   authMode = mode;
   const m = AUTH_MODES[mode];
   authForm.reset();
-  document.getElementById('auth-title').textContent = m.title;
-  document.getElementById('auth-intro').textContent = m.intro;
-  document.getElementById('auth-submit').textContent = m.button;
+  document.getElementById('auth-title').textContent = t(m.title);
+  document.getElementById('auth-intro').textContent = m.intro && t(m.intro);
+  document.getElementById('auth-submit').textContent = t(m.button);
   const inputs = { setup: setupInput, current: currentInput, username: usernameInput, password: passwordInput };
   for (const [field, input] of Object.entries(inputs)) {
     input.hidden = !m.fields.includes(field);
@@ -3122,7 +3132,7 @@ let currentUser = null;
 // link (or the newest) open. The server sends nothing else to a view link.
 async function showPublicView(user) {
   document.getElementById('user-name').textContent = user.owner;
-  document.getElementById('user-bar').firstElementChild.firstChild.textContent = 'Routes shared by ';
+  document.getElementById('user-bar').firstElementChild.firstChild.textContent = t('Routes shared by') + ' ';
   setMode('plan');
   fadeInput.value = 0;
   applyFade();
@@ -3143,8 +3153,8 @@ async function signedIn(user) {
   if (location.search && !user.viewLink) history.replaceState(null, '', location.pathname);
   document.getElementById('user-name').textContent = user.viewLink ? `${user.owner}'s map`
     : user.readOnly ? `${user.username} (view-only: ${user.owner}'s map)` : user.username;
-  document.getElementById('user-bar').firstElementChild.firstChild.textContent = user.viewLink ? 'Viewing ' : 'Signed in as ';
-  document.getElementById('logout').textContent = user.viewLink ? 'Log in' : 'Log out';
+  document.getElementById('user-bar').firstElementChild.firstChild.textContent = (user.viewLink ? t('Viewing') : t('Signed in as')) + ' ';
+  document.getElementById('logout').textContent = user.viewLink ? t('Log in') : t('Log out');
   document.body.classList.toggle('read-only', Boolean(user.readOnly));
   document.body.classList.toggle('public-view', Boolean(user.viewLink));
   document.getElementById('invite').hidden = !user.isAdmin;
@@ -3152,7 +3162,7 @@ async function signedIn(user) {
   // View-only accounts have nothing to add and no settings.
   document.getElementById('import-box').hidden = Boolean(user.readOnly);
   document.getElementById('settings-box').hidden = Boolean(user.readOnly);
-  document.querySelector('#settings-box summary').textContent = user.isAdmin ? 'Account & admin' : 'Account';
+  document.querySelector('#settings-box summary').textContent = user.isAdmin ? t('Account & admin') : t('Account');
   document.getElementById('reset-link').hidden = !user.isAdmin;
   document.getElementById('user-bar').hidden = false;
   if (user.viewLink) {
@@ -3253,7 +3263,7 @@ async function refreshStrava() {
     ? 'New Strava activities are imported automatically.'
     : 'Automatic import is off.';
   stravaAutoToggle.hidden = !isAdmin;
-  stravaAutoToggle.textContent = status.autoImport ? 'Turn off' : 'Turn on';
+  stravaAutoToggle.textContent = status.autoImport ? t('Turn off') : t('Turn on');
   return status;
 }
 
@@ -3577,8 +3587,8 @@ const helpBase = new URL('help/', location.href);
 
 async function openHelp(href) {
   const url = new URL(href, location.href);
-  helpTitle.textContent = 'Help';
-  helpContent.textContent = 'Loading…';
+  helpTitle.textContent = t('Help');
+  helpContent.textContent = t('Loading…');
   if (!helpDialog.open) helpDialog.showModal();
   try {
     // The time in the address dodges the host's caching, so an edited page shows up.
@@ -3782,8 +3792,8 @@ function fillArtShapes() {
   artShapes.replaceChildren(...shapes.map(shape => {
     const button = document.createElement('button');
     button.type = 'button';
-    button.title = shape.name;
-    button.setAttribute('aria-label', shape.name);
+    button.title = t(shape.name);
+    button.setAttribute('aria-label', t(shape.name));
     button.innerHTML = Art.icon(shape);
     button.onclick = () => {
       artShapeId = shape.id;

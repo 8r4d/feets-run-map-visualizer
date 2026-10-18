@@ -327,9 +327,11 @@ body {
 }
 
 #edit-toggle {
+  flex-shrink: 0;
   padding: 3px 10px;
   font: inherit;
   font-size: 13px;
+  white-space: nowrap;  /* Chinese would otherwise break between its characters */
 }
 
 #edit-toggle[aria-pressed="true"] {
@@ -2091,4 +2093,17 @@ body {
   font-size: 12px;
   color: #777;
   text-align: center;
+}
+
+/* Language picker (see i18n.js): in Account, and on the login screen */
+.lang-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+#auth .credits .lang-row {
+  justify-content: center;
+  margin-bottom: 6px;
 }
