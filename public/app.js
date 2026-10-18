@@ -181,6 +181,7 @@ let trackVersion = 0;    // bumped whenever the tracks on the map may have chang
 // Plan mode can hide the coloured streets (Streets mode always shows them).
 let planStreets = true;
 let pointEdit = null;    // the track whose stray points are being removed (see editPoints)
+let race = null;         // a ghost race on the map (see startRace)
 try { planStreets = localStorage.getItem('feets-plan-streets') !== 'off'; } catch {}
 const showStreets = () => streetsMode || (planMode && planStreets);
 let baseBeforeHeatmap = null;
@@ -254,6 +255,7 @@ new ResizeObserver(() => {
 
 function setMode(mode) {
   if (pointEdit && mode !== 'tracks') endPointEdit();
+  if (race && mode !== 'tracks') stopRace();
   const heat = mode === 'heatmap';
   if (heat !== heatmap) {
     if (heat) {
@@ -442,6 +444,14 @@ function trackPopup(track, latlng) {
     routeFromTrack(track);
   };
   box.append(toRoute);
+  if (!readOnly() && m && m.moving) {
+    const race = document.createElement('button');
+    race.className = 'link-button';
+    race.type = 'button';
+    race.textContent = 'Race a past run';
+    race.onclick = () => offerRaces(track, box, popup);
+    box.append(race);
+  }
   if (!readOnly()) {
     const fix = document.createElement('button');
     fix.className = 'link-button';
@@ -1589,6 +1599,7 @@ async function loadTrophies() {
 // Waits for a pause in changes: a Strava import adds tracks in batches.
 function scheduleTrophies() {
   if (!currentUser || readOnly()) return;
+  scheduleQuests();
   clearTimeout(trophyTimer);
   trophyTimer = setTimeout(() => {
     trophyCheck = trophyCheck.then(checkTrophies).catch(err => console.error('Achievements:', err));
@@ -2932,6 +2943,8 @@ async function signedIn(user) {
 
 function signedOut() {
   currentUser = null;
+  questState = null;
+  questsBox.hidden = true;
   setHome(null);
   clearTimeout(scanTimer);
   document.body.classList.remove('public-view');
@@ -3709,6 +3722,347 @@ function drawArtHandles(layer, outlineLine) {
   };
   move.on('dragend', done);
   turn.on('dragend', done);
+}
+
+// --- Ghost races ---
+// Two activities on the same route, played back together against the clock
+// (sped up), so you can see where one pulled ahead. Others that follow
+// mostly the same route from about the same start are offered from an
+// activity's popup. Times come from the GPX files (Store.trackPoints).
+const RACE_NEAR = 40;          // metres: a point this close to the other line is on the same route
+const RACE_SAME = 0.8;         // share of each line that must be on the other
+const RACE_START = 250;        // metres apart the two starts can be
+const RACE_SPEEDS = [30, 60, 120, 240];
+
+// Points every `step` metres along an activity's (simplified) line.
+function alongLine(track, step = 40) {
+  const out = [];
+  for (const seg of track.segments) {
+    for (let i = 1; i < seg.length; i++) {
+      const d = Planner.distance(...seg[i - 1], ...seg[i]);
+      const n = Math.max(1, Math.ceil(d / step));
+      for (let k = 0; k < n; k++) out.push([seg[i - 1][0] + (seg[i][0] - seg[i - 1][0]) * k / n, seg[i - 1][1] + (seg[i][1] - seg[i - 1][1]) * k / n]);
+    }
+  }
+  return out;
+}
+
+// The share of points that lie within RACE_NEAR of a line's points (a grid lookup).
+function shareNear(points, line) {
+  const cell = RACE_NEAR;
+  const key = ([la, lo]) => `${Math.floor(la * 111320 / cell)},${Math.floor(lo * 111320 * Math.cos(la * Math.PI / 180) / cell)}`;
+  const grid = new Map();
+  for (const p of line) {
+    const k = key(p);
+    if (!grid.has(k)) grid.set(k, []);
+    grid.get(k).push(p);
+  }
+  let near = 0;
+  for (const p of points) {
+    const [cy, cx] = key(p).split(',').map(Number);
+    let hit = false;
+    for (let y = cy - 1; y <= cy + 1 && !hit; y++) for (let x = cx - 1; x <= cx + 1 && !hit; x++) {
+      for (const q of grid.get(`${y},${x}`) || []) if (Planner.distance(...p, ...q) <= RACE_NEAR) { hit = true; break; }
+    }
+    if (hit) near++;
+  }
+  return points.length ? near / points.length : 0;
+}
+
+// Other timed activities that follow the same route as `track`, newest first.
+function sameRoute(track) {
+  const mine = alongLine(track);
+  if (mine.length < 2) return [];
+  return [...loaded.values()].map(e => e.track)
+    .filter(t => t.id !== track.id && t.metrics && t.metrics.moving && t.segments.length && t.segments[0].length)
+    .filter(t => Planner.distance(...t.segments[0][0], ...track.segments[0][0]) <= RACE_START)
+    .filter(t => Math.abs(t.distance - track.distance) <= track.distance * 0.25)
+    .filter(t => {
+      const theirs = alongLine(t);
+      return shareNear(mine, theirs) >= RACE_SAME && shareNear(theirs, mine) >= RACE_SAME;
+    })
+    .sort((a, b) => (b.time || '').localeCompare(a.time || ''));
+}
+
+// The popup's race chooser: a button per activity on the same route.
+function offerRaces(track, box, popup) {
+  const others = sameRoute(track);
+  box.querySelectorAll('.race-choices').forEach(el => el.remove());
+  const list = document.createElement('div');
+  list.className = 'race-choices';
+  if (!others.length) {
+    list.textContent = 'None of your other activities follow this route from the same start.';
+  } else {
+    list.append(Object.assign(document.createElement('small'), { textContent: 'Race against:' }));
+    for (const other of others.slice(0, 8)) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'link-button';
+      b.textContent = `${new Date(other.time).toLocaleDateString(undefined, { dateStyle: 'medium' })} · ${clock(other.metrics.elapsed || other.metrics.moving)}`;
+      b.onclick = () => {
+        map.closePopup(popup);
+        startRace(track, other).catch(err => alert(err.message));
+      };
+      list.append(b);
+    }
+  }
+  box.append(list);
+  if (popup.isOpen()) popup.update();
+}
+
+// A runner: the activity's points with times, seconds from its start, and
+// metres along: { track, t, lat, lon, d, finish }.
+async function raceRunner(track) {
+  const points = (await Store.trackPoints(track.id)).filter(p => p[3] != null);
+  if (points.length < 2) throw new Error(`"${track.name}" has no times to race with.`);
+  const t0 = points[0][3];
+  const r = { track, t: [], lat: [], lon: [], d: [] };
+  let along = 0;
+  points.forEach(([la, lo, , time], i) => {
+    if (i) along += Planner.distance(r.lat[i - 1], r.lon[i - 1], la, lo);
+    r.t.push(time - t0); r.lat.push(la); r.lon.push(lo); r.d.push(along);
+  });
+  r.finish = r.t[r.t.length - 1];
+  return r;
+}
+
+// Where a runner is `at` seconds in: { lat, lon, d }.
+function runnerAt(r, at) {
+  const { t } = r;
+  if (at >= r.finish) return { lat: r.lat[t.length - 1], lon: r.lon[t.length - 1], d: r.d[t.length - 1] };
+  let lo = 0, hi = t.length - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (t[mid] <= at) lo = mid; else hi = mid; }
+  const f = t[hi] > t[lo] ? (at - t[lo]) / (t[hi] - t[lo]) : 0;
+  return { lat: r.lat[lo] + (r.lat[hi] - r.lat[lo]) * f, lon: r.lon[lo] + (r.lon[hi] - r.lon[lo]) * f, d: r.d[lo] + (r.d[hi] - r.d[lo]) * f };
+}
+
+// When a runner first got `d` metres along (seconds in).
+function runnerWhen(r, d) {
+  const { d: ds, t } = r;
+  if (d >= ds[ds.length - 1]) return r.finish;
+  let lo = 0, hi = ds.length - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (ds[mid] <= d) lo = mid; else hi = mid; }
+  const f = ds[hi] > ds[lo] ? (d - ds[lo]) / (ds[hi] - ds[lo]) : 0;
+  return t[lo] + (t[hi] - t[lo]) * f;
+}
+
+const RaceControl = L.Control.extend({
+  options: { position: 'topright' },
+  onAdd() {
+    const bar = L.DomUtil.create('div', 'race-control');
+    bar.innerHTML = '<div class="race-buttons"><button type="button" class="race-play">▶</button>'
+      + '<button type="button" class="race-speed"></button><button type="button" class="race-close" title="End the race">×</button></div>'
+      + '<div class="race-clock"></div><div class="race-gap"></div>';
+    L.DomEvent.disableClickPropagation(bar);
+    L.DomEvent.disableScrollPropagation(bar);
+    const [play, speed, close] = bar.querySelectorAll('button');
+    play.onclick = () => toggleRace();
+    speed.onclick = () => {
+      race.speed = RACE_SPEEDS[(RACE_SPEEDS.indexOf(race.speed) + 1) % RACE_SPEEDS.length];
+      showRace();
+    };
+    close.onclick = () => stopRace();
+    this.bar = bar;
+    return bar;
+  },
+});
+
+// "Oct 11", or "Oct 11, 2025" for another year.
+const shortDate = track => {
+  const d = new Date(track.time);
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(d.getFullYear() === new Date().getFullYear() ? {} : { year: 'numeric' }) });
+};
+
+async function startRace(a, b) {
+  stopRace();
+  if (mapMode !== 'tracks') setMode('tracks');
+  const [first, second] = await Promise.all([raceRunner(a), raceRunner(b)]);
+  // The newer one leads the colours: orange, with the older as a grey ghost.
+  const runners = [first, second].sort((x, y) => (y.track.time || '').localeCompare(x.track.time || ''));
+  const layer = L.layerGroup().addTo(map);
+  const styles = [{ color: '#ff6d00', cls: 'race-you' }, { color: '#555', cls: 'race-ghost' }];
+  runners.forEach((r, i) => {
+    r.line = L.polyline(r.lat.map((la, k) => [la, r.lon[k]]), { color: styles[i].color, weight: 4, opacity: 0.45, interactive: false }).addTo(layer);
+    r.marker = L.marker([r.lat[0], r.lon[0]], {
+      interactive: false, keyboard: false, zIndexOffset: 1000 - i,
+      icon: L.divIcon({ className: `race-marker ${styles[i].cls}`, iconSize: [18, 18], html: '' }),
+    }).bindTooltip(shortDate(r.track), {
+      permanent: true, direction: i ? 'left' : 'right', offset: [i ? -10 : 10, 0], className: `race-label ${styles[i].cls}`,
+    }).addTo(layer);
+  });
+  // Just the race on the map: no activity's own line (an id none has).
+  const solo = soloId;
+  soloId = -1;
+  render();
+  const control = new RaceControl().addTo(map);
+  race = { runners, layer, control, at: 0, playing: false, speed: 60, solo };
+  map.fitBounds(runners[0].line.getBounds(), { padding: [40, 40] });
+  showRace();
+  toggleRace();
+}
+
+function stopRace() {
+  if (!race) return;
+  cancelAnimationFrame(race.frame);
+  race.layer.remove();
+  race.control.remove();
+  soloId = race.solo;
+  race = null;
+  render();
+}
+
+function toggleRace() {
+  if (!race) return;
+  const end = Math.max(...race.runners.map(r => r.finish));
+  if (!race.playing && race.at >= end) race.at = 0;
+  race.playing = !race.playing;
+  race.last = performance.now();
+  if (race.playing) race.frame = requestAnimationFrame(stepRace);
+  showRace();
+}
+
+function stepRace(now) {
+  if (!race || !race.playing) return;
+  race.at += Math.min(now - race.last, 100) / 1000 * race.speed;
+  race.last = now;
+  const end = Math.max(...race.runners.map(r => r.finish));
+  if (race.at >= end) {
+    race.at = end;
+    race.playing = false;
+  }
+  showRace();
+  if (race.playing) race.frame = requestAnimationFrame(stepRace);
+}
+
+// Markers, clock and who's ahead, for the race's time `at`.
+function showRace() {
+  const { runners, at, control } = race;
+  const [you, ghost] = runners;
+  const here = runners.map(r => runnerAt(r, at));
+  runners.forEach((r, i) => r.marker.setLatLng([here[i].lat, here[i].lon]));
+  const bar = control.bar;
+  bar.querySelector('.race-play').textContent = race.playing ? '❚❚' : '▶';
+  bar.querySelector('.race-speed').textContent = `${race.speed}×`;
+  bar.querySelector('.race-clock').textContent = clock(at);
+  const [a, b] = [shortDate(you.track), shortDate(ghost.track)];
+  let gap;
+  if (at >= you.finish && at >= ghost.finish) {
+    const diff = Math.round(you.finish - ghost.finish);
+    gap = diff === 0 ? `A dead heat at ${clock(you.finish)}.`
+      : `${diff < 0 ? a : b} was faster by ${clock(Math.abs(diff))}: ${clock(you.finish)} against ${clock(ghost.finish)}.`;
+  } else {
+    // Ahead by distance now, and by time: how much later the other got that far.
+    const lead = here[0].d - here[1].d;
+    const [front, back] = lead >= 0 ? [0, 1] : [1, 0];
+    const seconds = Math.round((runnerWhen(runners[back], here[front].d) - at));
+    const who = front === 0 ? a : b;
+    gap = Math.abs(lead) < 5 ? 'Neck and neck.'
+      : `${who} ahead by ${km(Math.abs(lead))}` + (at < runners[back].finish && seconds > 0 ? ` (${clock(seconds)})` : '') + '.';
+  }
+  bar.querySelector('.race-gap').textContent = gap;
+}
+
+// --- Streaks and weekly quests ---
+// See quests.js. Worked out again a little after activities or areas change,
+// with every on-foot activity (whatever the filters say). This week's quests
+// are made the first time feets is open in a new week, and saved, so every
+// device shows the same ones; finishing one gets a note.
+const questsBox = document.getElementById('quests-box');
+let questTimer = null, questRun = 0;
+let questState = null;   // { week, quests, done, completed }, as saved
+
+function scheduleQuests() {
+  clearTimeout(questTimer);
+  questTimer = setTimeout(() => updateQuests().catch(err => console.error('Quests:', err)), 2000);
+}
+
+async function updateQuests() {
+  if (!currentUser || readOnly()) return;
+  const run = ++questRun;
+  const tracks = [...loaded.values()].map(e => e.track).filter(Stats.onFoot);
+  const firsts = await Quests.firsts(tracks, areas);
+  if (run !== questRun) return;
+  // Coverage with every on-foot activity, worked out once per area per update.
+  const coverage = new Map();
+  const coverageFor = area => {
+    if (!coverage.has(area)) coverage.set(area, Coverage.compute(Coverage.prepared(area), tracks.map(t => t.segments)));
+    return coverage.get(area);
+  };
+  if (!questState) questState = await Store.quests().catch(() => null);
+  const week = Quests.weekId(new Date());
+  if (!questState || questState.week !== week) {
+    const c = map.getCenter();
+    const near = home ? [home.lat, home.lon] : lastFix ? [lastFix.lat, lastFix.lng] : [c.lat, c.lng];
+    questState = { ...Quests.make(areas, coverageFor, firsts, near), done: [], completed: questState ? questState.completed : 0 };
+    await Store.saveQuests(questState).catch(() => {});
+  }
+  const progress = questState.quests.map(q => Quests.progress(q, areas, coverageFor, firsts));
+  const finished = questState.quests.filter((q, i) => progress[i].done && !questState.done.includes(q.id));
+  if (finished.length) {
+    questState.done.push(...finished.map(q => q.id));
+    questState.completed += finished.length;
+    await Store.saveQuests(questState).catch(() => {});
+    for (const q of finished) toast(`Quest done: ${q.title}`, `${questState.completed} quests done in all.`);
+  }
+  renderQuests(Quests.streak(firsts), progress);
+}
+
+function renderQuests(streak, progress) {
+  questsBox.hidden = false;
+  const s = document.getElementById('streak');
+  const weeks = n => `${n} week${n === 1 ? '' : 's'}`;
+  s.textContent = streak.current
+    ? `🔥 New streets ${weeks(streak.current)} running (best ${weeks(streak.best)}).`
+      + (streak.counted ? '' : ` This week doesn't count yet: ${Quests.kmText(Quests.STREAK_MIN)} of new street keeps it going.`)
+    : streak.best
+      ? `No streak right now (best ${weeks(streak.best)}). ${Quests.kmText(Quests.STREAK_MIN)} of new street this week starts one.`
+      : `Cover ${Quests.kmText(Quests.STREAK_MIN)} of new street this week to start a streak.`;
+  const done = progress.filter(p => p.done).length;
+  document.getElementById('quests-summary').textContent = `${done} of ${progress.length} quests` + (streak.current ? ` · 🔥 ${streak.current}` : '');
+  document.getElementById('quest-list').replaceChildren(...questState.quests.map((q, i) => {
+    const p = progress[i];
+    const li = document.createElement('li');
+    li.className = p.done ? 'done' : '';
+    li.innerHTML = '<div class="quest-title"><strong></strong><button class="link-button" type="button">Plan it</button></div>'
+      + '<div class="bar"><span></span></div><small></small>';
+    li.querySelector('strong').textContent = (p.done ? '✓ ' : '') + q.title;
+    li.querySelector('.bar span').style.width = `${Math.min(100, p.have / Math.max(1, p.of) * 100).toFixed(1)}%`;
+    li.querySelector('small').textContent = q.kind === 'street'
+      ? (p.done ? 'Finished' : `${Quests.kmText(p.of - p.have)} to go`)
+      : `${Quests.kmText(p.have)} of ${Quests.kmText(p.of)}`;
+    const plan = li.querySelector('button');
+    plan.hidden = p.done;
+    plan.onclick = () => planQuest(q);
+    return li;
+  }));
+  document.getElementById('quests-note').textContent = `New quests every Monday. ${questState.completed} done in all.`
+    + (areas.length ? '' : ' Add a street area in Streets mode for more kinds of quest.');
+}
+
+// "Plan it": Plan mode, set up for the quest.
+let questHighlight = null;
+function planQuest(q) {
+  setMode('plan');
+  exploreUnrun.checked = true;
+  exploreUnrun.dispatchEvent(new Event('change'));
+  if (q.kind === 'area') {
+    exploreWithin.value = q.hood >= 0 ? `h:${q.areaId}:${q.hood}` : `a:${q.areaId}`;
+    exploreWithin.dispatchEvent(new Event('change'));
+    if (q.place) map.setView(q.place, 15);
+    planStatus.textContent = `Make a loop is set to stay in ${exploreWithin.selectedOptions[0].text.replace(/^[\s ·–]+/, '')}. Pick a length and Make a loop.`;
+  } else if (q.kind === 'street') {
+    const area = areas.find(a => a.id === q.areaId);
+    const lines = area ? area.data.streets.filter(s => s.name === q.name && s.cat === q.cat && s.hood === q.hood).flatMap(s => s.runs) : [];
+    if (lines.length) {
+      if (questHighlight) questHighlight.remove();
+      questHighlight = L.polyline(lines, { color: '#ff6d00', weight: 8, opacity: 0.7, interactive: false }).addTo(map);
+      setTimeout(() => { if (questHighlight) { questHighlight.remove(); questHighlight = null; } }, 8000);
+      map.fitBounds(questHighlight.getBounds(), { padding: [60, 60], maxZoom: 17 });
+    }
+    planStatus.textContent = `${q.name} is in orange. Click the map to plan a route along it, or tick Finish streets I've started and Make a loop from nearby.`;
+  } else {
+    planStatus.textContent = "Make a loop is set to go through streets you haven't covered. Pick a length and Make a loop.";
+  }
 }
 
 // --- Startup ---

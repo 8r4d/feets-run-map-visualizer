@@ -94,6 +94,10 @@ const Store = (() => {
     goals: () => json('GET', '?action=goals'),
     saveGoals: goals => json('POST', '?action=goals_save', goals),
 
+    // This week's quests (see quests.js): { week, quests, done, completed }.
+    quests: () => json('GET', '?action=quests'),
+    saveQuests: state => json('POST', '?action=quests_save', state),
+
     // Where the map opens: { lat, lon, zoom }, or null to clear it. Resolves to { home }.
     saveHome: home => json('POST', '?action=home_save', home || {}),
 
@@ -108,7 +112,7 @@ const Store = (() => {
     // Works out pace, time and elevation for some older tracks: { metrics: { id: metrics }, remaining }.
     trackMetrics: () => json('POST', '?action=track_metrics'),
     profile: async id => (await json('GET', `?action=track_profile&id=${id}`)).profile,  // [[km, metres]] or null
-    // Every point in the track's GPX: [[lat, lon, segment]].
+    // Every point in the track's GPX: [[lat, lon, segment, time (Unix seconds, or null)]].
     trackPoints: async id => (await json('GET', `?action=track_points&id=${id}`)).points,
     // Takes points (indexes into trackPoints) out of the GPX; resolves to the track worked out again.
     removePoints: (id, remove) => json('POST', `?action=track_edit&id=${id}`, { remove }),

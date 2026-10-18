@@ -1636,6 +1636,132 @@ body {
   flex: 1;
 }
 
+/* Ghost races */
+.race-control {
+  min-width: 190px;
+  padding: 6px 8px;
+  font-size: 13px;
+  background: #fff;
+  border-radius: 4px;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.4);
+}
+
+.race-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.race-buttons button {
+  min-width: 30px;
+  height: 26px;
+  font: inherit;
+  background: #f4f4f4;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.race-buttons .race-close {
+  margin-left: auto;
+}
+
+.race-clock {
+  margin-top: 4px;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.race-gap {
+  color: #555;
+}
+
+.race-marker {
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.race-marker.race-you {
+  background: #ff6d00;
+}
+
+.race-marker.race-ghost {
+  background: #555;
+  opacity: 0.75;
+}
+
+.leaflet-tooltip.race-label {
+  padding: 1px 5px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.leaflet-tooltip.race-label.race-you {
+  color: #ff6d00;
+}
+
+.leaflet-tooltip.race-label.race-ghost {
+  color: #555;
+}
+
+.race-choices {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+/* This week: streak and quests */
+#streak {
+  margin: 0;
+  font-size: 13px;
+}
+
+#quest-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+#quest-list .quest-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+}
+
+#quest-list .quest-title button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+#quest-list .bar {
+  height: 6px;
+  margin: 4px 0 2px;
+  background: #eee;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+#quest-list .bar span {
+  display: block;
+  height: 100%;
+  background: #ff6d00;
+}
+
+#quest-list .done .bar span {
+  background: #2e9e44;
+}
+
+#quest-list small {
+  color: #777;
+}
+
 /* Plan mode: GPS art */
 #art-shapes {
   display: grid;

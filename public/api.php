@@ -33,7 +33,8 @@
 //   POST api.php?action=track_metrics  works out pace, time and elevation for older tracks, a batch at a time:
 //                                      {metrics: {id: metrics}, remaining}
 //   GET  api.php?action=track_profile&id=ID  {profile: [[km, metres]] or null}
-//   GET  api.php?action=track_points&id=ID   every point in the GPX, for removing stray ones: {points: [[lat, lon, segment]]}
+//   GET  api.php?action=track_points&id=ID   every point in the GPX, for removing stray ones and for ghost
+//                                      races: {points: [[lat, lon, segment, time (Unix seconds, or null)]]}
 //   POST api.php?action=track_edit&id=ID     {remove: [point indexes, as in track_points]}: takes those points out of
 //                                      the GPX and works the track out again; returns the track, as in the list
 //
@@ -69,6 +70,8 @@
 // Goals
 //   GET  api.php?action=goals                {week, month} in km, null when not set
 //   POST api.php?action=goals_save           {week, month}, returns the goals
+//   GET  api.php?action=quests               this week's quests: {week, quests, done: [ids], completed}, see save_quests()
+//   POST api.php?action=quests_save          {week, quests, done, completed}
 //   POST api.php?action=home_save            {lat, lon, zoom}: where the map opens; {} clears it. Returns {home}
 //                                            (sent as user.home by me, login and the like; null when not set)
 //
@@ -103,6 +106,7 @@ const SCHEMA = [
       goals         TEXT         NULL,                    -- JSON: { week, month } in km, see save_goals()
       home          TEXT         NULL,                    -- JSON: { lat, lon, zoom }, where the map opens
       area_scan     TEXT         NULL,                    -- JSON: { off, last, skip }, see area_scan_claim()
+      quests        TEXT         NULL,                    -- JSON: this week's quests, see save_quests()
       created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) CHARACTER SET utf8mb4
     SQL,
@@ -319,6 +323,10 @@ function db(): PDO {
         // ...and a home for the map.
         if (!$pdo->query("SHOW COLUMNS FROM users LIKE 'home'")->fetch()) {
             $pdo->exec('ALTER TABLE users ADD COLUMN home TEXT NULL AFTER goals');
+        }
+        // ...and weekly quests.
+        if (!$pdo->query("SHOW COLUMNS FROM users LIKE 'quests'")->fetch()) {
+            $pdo->exec('ALTER TABLE users ADD COLUMN quests TEXT NULL AFTER goals');
         }
         // ...and finding areas for places you run.
         if (!$pdo->query("SHOW COLUMNS FROM users LIKE 'area_scan'")->fetch()) {
@@ -1056,12 +1064,12 @@ function track_points(int $userId, int $id): array {
     $points = [];
     $segment = -1;
     $last = null;
-    foreach (gpx_points(track_gpx($userId, $id)['gpx']) as [$seg, $lat, $lon]) {
+    foreach (gpx_points(track_gpx($userId, $id)['gpx']) as [$seg, $lat, $lon, , $time]) {
         if ($seg !== $last) {
             $segment++;
             $last = $seg;
         }
-        $points[] = [$lat, $lon, $segment];
+        $points[] = [$lat, $lon, $segment, $time];
     }
     if (count($points) < 2) {
         fail("This track's file has no track points to edit", 400);
@@ -1927,6 +1935,36 @@ function save_goals(int $userId, array $b): array {
     return $goals;
 }
 
+// --- Weekly quests ---
+// Made up in the browser each week from your coverage (see quests.js); kept
+// here so every device shows the same ones. week: the Monday they start, as
+// YYYY-MM-DD; done: the ids of those finished; completed: quests finished in
+// all, ever.
+
+const QUESTS_MAX_BYTES = 20000;
+
+function quests(int $userId): array {
+    $stmt = db()->prepare('SELECT quests FROM users WHERE id = ?');
+    $stmt->execute([$userId]);
+    $q = json_decode((string) $stmt->fetchColumn(), true) ?: [];
+    return ['week' => $q['week'] ?? null, 'quests' => $q['quests'] ?? [], 'done' => $q['done'] ?? [], 'completed' => (int) ($q['completed'] ?? 0)];
+}
+
+function save_quests(int $userId, array $b): array {
+    $week = (string) ($b['week'] ?? '');
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $week)) {
+        fail('Quests need the week they start', 400);
+    }
+    $q = ['week' => $week, 'quests' => array_values((array) ($b['quests'] ?? [])),
+          'done' => array_values(array_map('strval', (array) ($b['done'] ?? []))), 'completed' => max(0, (int) ($b['completed'] ?? 0))];
+    $json = json_encode($q);
+    if (strlen($json) > QUESTS_MAX_BYTES) {
+        fail('Too many quests', 400);
+    }
+    db()->prepare('UPDATE users SET quests = ? WHERE id = ?')->execute([$json, $userId]);
+    return $q;
+}
+
 // --- Home ---
 // Where the map opens, in place of zooming out to every track.
 
@@ -2097,6 +2135,10 @@ if ($method === 'POST' && $action === 'invite') {
     send_json(goals($userId));
 } elseif ($method === 'POST' && $action === 'goals_save') {
     send_json(save_goals($userId, read_json()));
+} elseif ($method === 'GET' && $action === 'quests') {
+    send_json(quests($userId));
+} elseif ($method === 'POST' && $action === 'quests_save') {
+    send_json(save_quests($userId, read_json()));
 } elseif ($method === 'POST' && $action === 'home_save') {
     send_json(save_home($userId, read_json()));
 } elseif ($method === 'POST' && $action === 'area_scan_claim') {

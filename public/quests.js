@@ -1,0 +1,196 @@
+// Streaks and weekly quests: small reasons to go somewhere new.
+//
+// Both rest on firsts(): going through your on-foot activities in date order,
+// the street each one covered for the first time. A week with at least
+// STREAK_MIN metres of new street keeps the streak going. Each week (from
+// Monday, as goals do) also gets three quests, made from your own gaps:
+// new street in a neighbourhood, a street to finish, and new street anywhere.
+const Quests = (() => {
+  const STREAK_MIN = 100;    // metres of new street for a week to count
+  const DAY = 86400000;
+
+  // --- What each activity covered first ---
+
+  // Map(track id -> { time, metres, ways: Map(OSM way id -> metres) }): the
+  // street each on-foot activity covered before any earlier one had. A way in
+  // two overlapping areas counts once. Yields to the browser now and then.
+  async function firsts(tracks, areas) {
+    const sorted = tracks.filter(t => t.time && Stats.onFoot(t)).sort((a, b) => a.time.localeCompare(b.time));
+    const boxes = sorted.map(t => {
+      let [s, w, n, e] = [Infinity, Infinity, -Infinity, -Infinity];
+      for (const seg of t.segments) for (const [la, lo] of seg) {
+        if (la < s) s = la; if (la > n) n = la; if (lo < w) w = lo; if (lo > e) e = lo;
+      }
+      return [s, w, n, e];
+    });
+    const out = new Map(sorted.map(t => [t.id, { time: t.time, metres: 0, ways: new Map() }]));
+    let work = 0;
+    for (const area of areas) {
+      const prep = Coverage.prepared(area);
+      const [bs, bw, bn, be] = prep.bounds;
+      const streets = area.data.streets;
+      const seen = new Uint8Array(prep.n);
+      for (const [i, t] of sorted.entries()) {
+        const [s, w, n, e] = boxes[i];
+        if (s > bn || n < bs || w > be || e < bw) continue;
+        const { visited } = Coverage.compute(prep, [t.segments]);
+        const r = out.get(t.id);
+        for (let k = 0; k < streets.length; k++) {
+          if (prep.excluded[k]) continue;
+          const a = prep.first[k], b = prep.first[k + 1];
+          let added = 0;
+          for (let j = a; j < b; j++) {
+            if (visited[j] && !seen[j]) { added++; seen[j] = 1; }
+          }
+          if (!added) continue;
+          const metres = streets[k].len * added / Math.max(1, b - a);
+          const id = streets[k].id;
+          r.ways.set(id, Math.max(r.ways.get(id) || 0, metres));
+        }
+        if (++work % 25 === 0) await new Promise(res => setTimeout(res));
+      }
+    }
+    for (const r of out.values()) for (const m of r.ways.values()) r.metres += m;
+    return out;
+  }
+
+  // --- Weeks and streaks ---
+
+  // The Monday a date's week starts on, at local midnight.
+  function weekStart(date) {
+    const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    return d;
+  }
+  const weekId = date => {
+    const d = weekStart(date);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+  // The week before or after (n weeks), safe across daylight saving changes.
+  const shiftWeek = (start, n) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + 7 * n);
+
+  // New street per week: Map(week start ms -> metres).
+  function byWeek(firstsMap) {
+    const weeks = new Map();
+    for (const r of firstsMap.values()) {
+      if (!r.metres) continue;
+      const k = weekStart(new Date(r.time)).getTime();
+      weeks.set(k, (weeks.get(k) || 0) + r.metres);
+    }
+    return weeks;
+  }
+
+  // { current, best, thisWeek (metres), counted (this week counts yet) }.
+  // A streak still running into this week isn't broken until the week ends.
+  function streak(firstsMap, now = new Date()) {
+    const weeks = byWeek(firstsMap);
+    const counts = d => (weeks.get(d.getTime()) || 0) >= STREAK_MIN;
+    const thisWeek = weekStart(now);
+    const counted = counts(thisWeek);
+    let current = 0;
+    for (let d = counted ? thisWeek : shiftWeek(thisWeek, -1); counts(d); d = shiftWeek(d, -1)) current++;
+    // The best: the longest run of counting weeks, ever.
+    const starts = [...weeks.keys()].filter(k => weeks.get(k) >= STREAK_MIN).sort((a, b) => a - b);
+    let best = 0, run = 0, prev = null;
+    for (const k of starts) {
+      run = prev !== null && shiftWeek(new Date(prev), 1).getTime() === k ? run + 1 : 1;
+      best = Math.max(best, run);
+      prev = k;
+    }
+    return { current, best: Math.max(best, current), thisWeek: weeks.get(thisWeek.getTime()) || 0, counted };
+  }
+
+  // --- Quests ---
+  // { id, kind, title, target (metres), areaId, hood (index, or -1 for the
+  // whole area), name and cat (a street), place (a [lat, lon] to show) }:
+  //   area: cover `target` metres of new street in a neighbourhood or area;
+  //   street: finish a street you've mostly covered;
+  //   any: cover `target` metres of new street anywhere.
+  const AREA_TARGET = 1000;   // metres, at most
+  const STREET_LEFT = 1500;   // metres: a street with more than this left isn't "nearly done"
+  const STREET_MIN = 100;     // metres: ... and one with less isn't worth a quest
+  const DONE = 0.9;           // as Coverage counts a street done (it allows for GPS drift)
+
+  // A rough middle of some street points.
+  function middleOf(runs) {
+    let la = 0, lo = 0, n = 0;
+    for (const run of runs) for (let i = 0; i < run.length; i += 4) { la += run[i][0]; lo += run[i][1]; n++; }
+    return n ? [la / n, lo / n] : null;
+  }
+  const away = ([a, b], [c, d]) => Planner.distance(a, b, c, d);
+
+  // This week's quests. coverageFor(area): Coverage.compute's result for the
+  // area with every on-foot activity. near: where to look first ([lat, lon]).
+  function make(areas, coverageFor, firstsMap, near, now = new Date()) {
+    const week = weekId(now);
+    const quests = [];
+    const units = [], streetsLeft = [];
+    for (const area of areas) {
+      const prep = Coverage.prepared(area);
+      const summary = Coverage.summarize(prep, coverageFor(area));
+      const { streets, hoods } = area.data;
+      const tally = t => Object.values(t).reduce((s, c) => ({ len: s.len + c.len, covered: s.covered + c.covered }), { len: 0, covered: 0 });
+      const add = (hood, name, t) => {
+        const left = t.len - t.covered;
+        if (left < AREA_TARGET / 2 || t.covered / Math.max(1, t.len) > 0.95) return;
+        const runs = streets.filter(s => hood < 0 || s.hood === hood).flatMap(s => s.runs);
+        units.push({ areaId: area.id, hood, name, left, place: middleOf(runs) });
+      };
+      if (hoods.length) summary.byHood.forEach((t, h) => add(h, hoods[h].name, tally(t)));
+      else add(-1, area.name, tally(summary.total));
+      for (const g of summary.groups) {
+        const left = g.len * DONE - g.covered;  // until it counts as done
+        if (!g.name || g.done || g.covered / g.len < 0.3 || left > STREET_LEFT || left < STREET_MIN) continue;
+        streetsLeft.push({ areaId: area.id, hood: g.hood, name: g.name, cat: g.cat, left, place: middleOf(g.ways.flatMap(w => streets[w].runs)) });
+      }
+    }
+    const nearest = list => list.filter(x => x.place).sort((a, b) => away(a.place, near) - away(b.place, near))[0];
+
+    const unit = nearest(units);
+    if (unit) {
+      const target = Math.max(200, Math.min(AREA_TARGET, Math.round(unit.left / 2 / 100) * 100));
+      quests.push({ id: `${week}:area`, kind: 'area', title: `Cover ${kmText(target)} of new streets in ${unit.name}`, target, areaId: unit.areaId, hood: unit.hood, place: unit.place });
+    }
+    const street = nearest(streetsLeft);
+    if (street) {
+      quests.push({ id: `${week}:street`, kind: 'street', title: `Finish ${street.name}`, target: Math.round(street.left), areaId: street.areaId, hood: street.hood, name: street.name, cat: street.cat, place: street.place });
+    }
+    // Anywhere: a little more than a usual recent week, rounded to half a km.
+    const weeks = byWeek(firstsMap);
+    const recent = [];
+    for (let i = 1; i <= 8; i++) recent.push(weeks.get(shiftWeek(weekStart(now), -i).getTime()) || 0);
+    const usual = recent.reduce((a, b) => a + b, 0) / recent.length;
+    const target = Math.min(10000, Math.max(1000, Math.round(usual * 1.2 / 500) * 500));
+    quests.push({ id: `${week}:any`, kind: 'any', title: `Cover ${kmText(target)} of new streets anywhere`, target });
+    return { week, quests };
+  }
+
+  const kmText = m => (m < 1000 ? `${Math.max(0, Math.round(m / 10) * 10)} m` : `${(m / 1000).toFixed(m % 1000 ? 1 : 0)} km`);
+
+  // How far along a quest is: { have, of, done } in metres. For a street,
+  // `have` is how much of it is covered now (all activities), else the new
+  // street covered since the week started.
+  function progress(quest, areas, coverageFor, firstsMap, now = new Date()) {
+    const since = weekStart(now).getTime();
+    const thisWeek = [...firstsMap.values()].filter(r => new Date(r.time).getTime() >= since);
+    if (quest.kind === 'street') {
+      const area = areas.find(a => a.id === quest.areaId);
+      if (!area) return { have: 0, of: quest.target, done: false };
+      const summary = Coverage.summarize(Coverage.prepared(area), coverageFor(area));
+      const g = summary.groups.find(x => x.name === quest.name && x.cat === quest.cat && x.hood === quest.hood);
+      if (!g) return { have: 0, of: quest.target, done: false };
+      // Out of the share that counts as done, so the bar fills when it is.
+      return { have: Math.min(g.covered, g.len * DONE), of: g.len * DONE, done: g.done };
+    }
+    let ways = null;
+    if (quest.kind === 'area') {
+      const area = areas.find(a => a.id === quest.areaId);
+      ways = new Set(area ? area.data.streets.filter(s => quest.hood < 0 || s.hood === quest.hood).map(s => s.id) : []);
+    }
+    let have = 0;
+    for (const r of thisWeek) for (const [id, m] of r.ways) if (!ways || ways.has(id)) have += m;
+    return { have, of: quest.target, done: have >= quest.target };
+  }
+
+  return { STREAK_MIN, firsts, streak, weekId, make, progress, kmText };
+})();
