@@ -5,6 +5,12 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.2.0 — 2026-10-18
+
+- French (Français), translated as far as the Chinese: the sidebar, map
+  controls, buttons, menus and login screen. Pick it under Language, or it's
+  chosen for you when your browser prefers French over English.
+
 ## 1.1.0 — 2026-10-18
 
 - Simplified Chinese (中文). feets picks it when your browser prefers Chinese,
