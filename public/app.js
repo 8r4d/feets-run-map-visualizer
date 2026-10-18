@@ -233,8 +233,8 @@ function syncLayers() {
 // the view, redrawn when the map stops moving, half a view beyond each edge
 // so a pan doesn't show its edge before the redraw.
 //
-// With "Fog grows back" on, a clearing stays clear for FOG_FRESH days after
-// the activity, then thins back to fog until it's gone after FOG_GONE days.
+// With "Fog grows back" set, a clearing stays clear for a while after the
+// activity, then thins back to fog until it's gone (see FOG_REGROW).
 // Each spot is as clear as its most recent visit: the clearings are drawn
 // light on dark into a mask, each line as light as it is fresh, keeping the
 // lighter where they cross ('lighten'), and the fog is made from the mask.
@@ -243,18 +243,22 @@ const FOG_WIDTH = 150;    // metres cleared along each activity
 const FOG_COLOR = [16, 20, 31];
 const FOG_PAD = 0.5;
 const FOG_PASSES = [[1.6, 0.2], [1.3, 0.45], [1, 1]];  // [width, strength]
-const FOG_FRESH = 182;    // days a clearing stays clear, growing back...
-const FOG_GONE = 365;     // ... until it's fog again
+// "Fog grows back": [days a clearing stays clear, days until it's fog again].
+const FOG_REGROW = { month: [7, 30], quarter: [30, 91], half: [61, 182], year: [182, 365] };
 const FOG_LEVELS = 20;    // steps of freshness
 
-let fogRegrows = false;
-try { fogRegrows = localStorage.getItem('feets-fog-regrow') === 'on'; } catch {}
+let fogRegrow = '';       // '' (never) or a FOG_REGROW key
+try {
+  const saved = localStorage.getItem('feets-fog-regrow');
+  fogRegrow = saved === 'on' ? 'quarter' : FOG_REGROW[saved] ? saved : '';  // 'on': the old checkbox, now 3 months
+} catch {}
 
 // How clear an activity leaves the fog, 0 to 1, by its age.
 function fogClearness(track, now = Date.now()) {
-  if (!fogRegrows || !track.time) return 1;
+  if (!fogRegrow || !track.time) return 1;
+  const [fresh, gone] = FOG_REGROW[fogRegrow];
   const days = (now - new Date(track.time).getTime()) / 86400000;
-  return Math.max(0, Math.min(1, (FOG_GONE - days) / (FOG_GONE - FOG_FRESH)));
+  return Math.max(0, Math.min(1, (gone - days) / (gone - fresh)));
 }
 
 const FogLayer = L.Layer.extend({
@@ -457,11 +461,11 @@ function applyFade() {
   document.getElementById('fade-value').textContent = percent + '%';
 }
 
-const fogRegrow = document.getElementById('fog-regrow');
-fogRegrow.checked = fogRegrows;
-fogRegrow.onchange = () => {
-  fogRegrows = fogRegrow.checked;
-  try { localStorage.setItem('feets-fog-regrow', fogRegrows ? 'on' : 'off'); } catch {}
+const fogRegrowSelect = document.getElementById('fog-regrow');
+fogRegrowSelect.value = fogRegrow;
+fogRegrowSelect.onchange = () => {
+  fogRegrow = fogRegrowSelect.value;
+  try { localStorage.setItem('feets-fog-regrow', fogRegrow || 'off'); } catch {}
   fogLayer.redraw();
 };
 

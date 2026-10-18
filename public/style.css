@@ -183,6 +183,12 @@ body {
   color: #555;
 }
 
+#fog-regrow {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+}
+
 #fade-control output {
   text-align: right;
   font-variant-numeric: tabular-nums;
