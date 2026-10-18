@@ -78,7 +78,8 @@ const Store = (() => {
     saveArea: area => json('POST', '?action=area_save', area),  // { osmId, name, data } → stored area
     deleteArea: id => json('POST', `?action=area_delete&id=${id}`),
     // Finding areas for places you run (see findAreas in app.js). A claim resolves to
-    // { go, skip }: go is false if another device or tab had a turn lately.
+    // { go, skip, again }: go is false if another device or tab had a turn lately;
+    // again, while the account is new, is the seconds until the next turn (else null).
     claimAreaScan: () => json('POST', '?action=area_scan_claim'),
     saveAreaScan: settings => json('POST', '?action=area_scan_save', settings),  // { on?, skip? } → { on }
     // Marks OSM ways unrunnable (or counts them again); resolves to { excluded: [way ids] }.

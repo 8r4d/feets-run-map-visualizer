@@ -2113,8 +2113,14 @@ function save_home(int $userId, array $b): array {
 // (OSM data is fetched from the browser, see osm.js). To go easy on
 // OpenStreetMap, each account gets a turn at most every AREA_SCAN_HOURS,
 // however many devices or tabs have feets open: the claim is made here.
+// A new account (AREA_SCAN_NEW_HOURS old or less) with fewer than
+// AREA_SCAN_NEW_AREAS areas gets one every AREA_SCAN_NEW_MINUTES instead,
+// so its first maps arrive while its activities are still coming in.
 
 const AREA_SCAN_HOURS = 12;
+const AREA_SCAN_NEW_HOURS = 2;
+const AREA_SCAN_NEW_AREAS = 5;
+const AREA_SCAN_NEW_MINUTES = 10;
 const AREA_SCAN_SKIPS = 500;  // places kept on the don't-try-again list
 
 function area_scan_state(int $userId): array {
@@ -2123,18 +2129,31 @@ function area_scan_state(int $userId): array {
     return json_decode((string) $stmt->fetchColumn(), true) ?: [];
 }
 
+// { go, skip, again }: again is the seconds until the next turn while the
+// account is new (for the browser to ask then), or null.
 function area_scan_claim(int $userId): array {
     db()->beginTransaction();
-    $stmt = db()->prepare('SELECT area_scan FROM users WHERE id = ? FOR UPDATE');
-    $stmt->execute([$userId]);
-    $state = json_decode((string) $stmt->fetchColumn(), true) ?: [];
-    $go = empty($state['off']) && time() - (int) ($state['last'] ?? 0) >= AREA_SCAN_HOURS * 3600;
+    $stmt = db()->prepare(
+        'SELECT area_scan, created_at > NOW() - INTERVAL ? HOUR AS new_account,
+                (SELECT COUNT(*) FROM areas WHERE areas.user_id = users.id) AS areas
+         FROM users WHERE id = ? FOR UPDATE'
+    );
+    $stmt->execute([AREA_SCAN_NEW_HOURS, $userId]);
+    $row = $stmt->fetch();
+    $state = json_decode((string) $row['area_scan'], true) ?: [];
+    $eager = $row['new_account'] && (int) $row['areas'] < AREA_SCAN_NEW_AREAS;
+    $gap = $eager ? AREA_SCAN_NEW_MINUTES * 60 : AREA_SCAN_HOURS * 3600;
+    $go = empty($state['off']) && time() - (int) ($state['last'] ?? 0) >= $gap;
     if ($go) {
         $state['last'] = time();
         db()->prepare('UPDATE users SET area_scan = ? WHERE id = ?')->execute([json_encode($state), $userId]);
     }
     db()->commit();
-    return ['go' => $go, 'skip' => $go ? ($state['skip'] ?? []) : []];
+    return [
+        'go' => $go,
+        'skip' => $go ? ($state['skip'] ?? []) : [],
+        'again' => $eager ? max(60, (int) ($state['last'] ?? 0) + $gap - time()) : null,
+    ];
 }
 
 function area_scan_save(int $userId, array $b): array {

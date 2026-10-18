@@ -3624,6 +3624,8 @@ helpDialog.addEventListener('click', e => { if (e.target === helpDialog) helpDia
 // there, so it's ready for Streets and Plan. Gently: the server hands out a
 // turn at most twice a day per account (see area_scan_claim in api.php), and
 // a turn adds one area. Places with no usable boundary aren't tried again.
+// A new account with only a few areas gets turns every few minutes for its
+// first hours: the server says when, and the next look is then.
 const SCAN_CELL = 0.01;     // degrees: places are ~1 km grid squares
 const SCAN_MIN_RUNS = 2;    // runs through a place before it's worth a map
 const SCAN_FIRST = 60000;   // ms after logging in before the first look
@@ -3648,8 +3650,8 @@ autoAreas.onchange = async () => {
 function scheduleFindAreas(delay) {
   clearTimeout(scanTimer);
   scanTimer = setTimeout(async () => {
-    await findAreas().catch(err => console.error('Finding areas:', err));
-    if (currentUser && autoAreas.checked) scheduleFindAreas(SCAN_EVERY);
+    const again = await findAreas().catch(err => console.error('Finding areas:', err));
+    if (currentUser && autoAreas.checked) scheduleFindAreas(again ? Math.min(again * 1000 + 5000, SCAN_EVERY) : SCAN_EVERY);
   }, delay);
 }
 
@@ -3677,10 +3679,11 @@ function unmappedPlaces(skip) {
 // One turn: the busiest places first, until one gets an area or SCAN_TRIES
 // have been looked up. A place whose only boundary is too big, or already one
 // of your areas (its edge just missing the spot), is skipped from now on.
+// Resolves to the seconds until the next turn, while the account is new.
 async function findAreas() {
-  if (!currentUser || readOnly() || !autoAreas.checked) return;
-  const { go, skip } = await Store.claimAreaScan();
-  if (!go) return;
+  if (!currentUser || readOnly() || !autoAreas.checked) return null;
+  const { go, skip, again } = await Store.claimAreaScan();
+  if (!go) return again;
   const tooBig = new Set();  // osm ids found too big this turn: no need to fetch them twice
   const skipped = [];
   try {
@@ -3688,13 +3691,14 @@ async function findAreas() {
       const pick = await areaFor(place, tooBig);
       if (pick) {
         await addFoundArea(place, pick);
-        return;
+        return again;
       }
       skipped.push(place.key);
     }
   } finally {
     if (skipped.length) await Store.saveAreaScan({ skip: skipped }).catch(() => {});
   }
+  return again;
 }
 
 // The boundary to add for a place, with its streets fetched: { osmId, built },
