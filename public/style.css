@@ -1914,6 +1914,12 @@ body {
   background: #f8eefa;
 }
 
+#art-mine {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 #art .panel-body {
   display: flex;
   flex-direction: column;

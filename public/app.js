@@ -3171,6 +3171,7 @@ async function signedIn(user) {
   await loadAreas();
   await loadTrophies();
   await loadSegments();
+  await loadArtShapes();
   scheduleTrophies();
   await loadRoutes();
   if (planMode) renderPlan();
@@ -3769,8 +3770,9 @@ artTheme.onchange = () => {
 // The shape picker: a button per shape in the theme, with a little drawing of it.
 const artShapes = document.getElementById('art-shapes');
 function fillArtShapes() {
-  const shapes = Art.SHAPES.filter(s => s.theme === artTheme.value);
-  if (!shapes.some(s => s.id === artShapeId)) artShapeId = shapes[0].id;
+  const shapes = allArtShapes().filter(s => s.theme === artTheme.value);
+  if (shapes.length && !shapes.some(s => s.id === artShapeId)) artShapeId = shapes[0].id;
+  showArtMine();
   artShapes.replaceChildren(...shapes.map(shape => {
     const button = document.createElement('button');
     button.type = 'button';
@@ -3781,11 +3783,89 @@ function fillArtShapes() {
       artShapeId = shape.id;
       try { localStorage.setItem('feets-art-shape', shape.id); } catch {}
       for (const b of artShapes.children) b.setAttribute('aria-pressed', String(b === button));
+      showArtMine();
     };
     button.setAttribute('aria-pressed', String(shape.id === artShapeId));
     return button;
   }));
 }
+
+// Your own shapes ("my shapes"): traced from an SVG in the browser (see
+// Art.trace) and kept on the server as just the traced line. View-only
+// accounts see their owner's, but can't add or delete any.
+let artMine = [];  // Art shapes, with dbId
+const allArtShapes = () => [...Art.SHAPES, ...artMine];
+const artUpload = document.getElementById('art-upload');
+const artDelete = document.getElementById('art-delete');
+const artFile = document.getElementById('art-file');
+
+function showArtMine() {
+  const mine = artTheme.value === 'mine';
+  document.getElementById('art-mine').hidden = !mine;
+  document.getElementById('art-mine-hint').hidden = artMine.length > 0;
+  artUpload.hidden = readOnly();
+  artDelete.hidden = readOnly() || !mine || !artMine.some(s => s.id === artShapeId);
+}
+
+const toArtShape = s => Object.assign(Art.makeShape({ id: `mine-${s.id}`, name: s.name, theme: 'mine', points: s.points }), { dbId: s.id });
+
+async function loadArtShapes() {
+  try {
+    artMine = (await Store.artShapes()).map(toArtShape);
+  } catch {
+    artMine = [];
+  }
+  fillArtShapes();
+}
+
+artUpload.onclick = () => artFile.click();
+artFile.onchange = async () => {
+  const file = artFile.files[0];
+  artFile.value = '';
+  if (!file) return;
+  if (file.size > 2e6) {
+    planStatus.textContent = 'That SVG is too big: keep it under 2 MB.';
+    return;
+  }
+  let traced;
+  try {
+    traced = await Art.trace(await file.text());
+  } catch (err) {
+    planStatus.textContent = `Couldn't use ${file.name}: ${err.message}.`;
+    return;
+  }
+  const guess = file.name.replace(/\.svg$/i, '').replace(/[-_]+/g, ' ').trim() || 'My shape';
+  const name = prompt('Name this shape:', guess);
+  if (name === null || !name.trim()) return;
+  try {
+    const saved = toArtShape(await Store.saveArtShape({ name: name.trim(), points: traced.points }));
+    artMine.push(saved);
+    artShapeId = saved.id;
+    try { localStorage.setItem('feets-art-shape', saved.id); } catch {}
+  } catch (err) {
+    planStatus.textContent = `Couldn't save the shape: ${err.message}`;
+    return;
+  }
+  fillArtShapes();
+  planStatus.textContent = `Added ${name.trim()}`
+    + (traced.pieces > 1 ? `: its ${traced.pieces} pieces are joined by short spokes, there and back` : '')
+    + (traced.dropped ? `${traced.pieces > 1 ? ', and' : ':'} ${traced.dropped} small bit${traced.dropped > 1 ? 's were' : ' was'} left out` : '')
+    + '. Only its outline is used, so the detail inside is left out.';
+};
+
+artDelete.onclick = async () => {
+  const shape = artMine.find(s => s.id === artShapeId);
+  if (!shape || !confirm(`Delete the shape "${shape.name}"? Routes made from it are kept.`)) return;
+  try {
+    await Store.deleteArtShape(shape.dbId);
+  } catch (err) {
+    planStatus.textContent = `Couldn't delete the shape: ${err.message}`;
+    return;
+  }
+  artMine = artMine.filter(s => s !== shape);
+  fillArtShapes();
+};
+
 fillArtShapes();
 
 // The art route as drawn, so stepping between fits doesn't ask about losing
@@ -3848,7 +3928,11 @@ const mayReplaceForArt = () => (artFits && artFits.shown === artSignature()) || 
 // Everything the art needs for the chosen shape, area and length, or null
 // (with a message) if it can't be had.
 function artSetup() {
-  const shape = Art.SHAPES.find(s => s.id === artShapeId) || Art.SHAPES[0];
+  if (artTheme.value === 'mine' && !artMine.length) {
+    planStatus.textContent = 'Upload an SVG first, or pick another set of shapes.';
+    return null;
+  }
+  const shape = allArtShapes().find(s => s.id === artShapeId) || Art.SHAPES[0];
   const length = Number(artKm.value);
   if (!(length > 0)) return null;
   if (!artArea.value) {

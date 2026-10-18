@@ -75,6 +75,9 @@
 //   POST api.php?action=segment_save         {name, points, distance}, returns the segment
 //   POST api.php?action=segment_rename&id=ID {name}
 //   POST api.php?action=segment_delete&id=ID
+//   GET  api.php?action=art_shapes           your own GPS art shapes (see Art.trace): [{id, name, points, createdAt}]
+//   POST api.php?action=art_shape_save       {name, points: [[x, y], ...] in a unit box}, returns the shape
+//   POST api.php?action=art_shape_delete&id=ID
 //   POST api.php?action=segment_efforts&id=ID  {efforts: {track id: [[start, seconds], ...]}}: what the
 //                                            browser found, kept so each activity is only checked once
 //   GET  api.php?action=quests               this week's quests: {week, quests, done: [ids], completed}, see save_quests()
@@ -215,6 +218,16 @@ const SCHEMA = [
       name        VARCHAR(255) NOT NULL,
       distance_m  DOUBLE       NOT NULL DEFAULT 0,
       points      MEDIUMTEXT   NOT NULL,  -- JSON: [[lat, lon], ...]
+      created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX (user_id)
+    ) CHARACTER SET utf8mb4
+    SQL,
+    <<<SQL
+    CREATE TABLE IF NOT EXISTS art_shapes (  -- your own GPS art shapes, traced from SVG files in the browser (art.js)
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      user_id     INT          NOT NULL,
+      name        VARCHAR(255) NOT NULL,
+      points      TEXT         NOT NULL,  -- JSON: [[x, y], ...], y up, in a unit box
       created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
       INDEX (user_id)
     ) CHARACTER SET utf8mb4
@@ -2160,6 +2173,52 @@ function add_achievements(int $userId, array $b): array {
     return list_achievements($userId);
 }
 
+// --- Your own GPS art shapes ---
+// Only the traced line is stored, never the SVG.
+
+const ART_SHAPE_POINTS = 400;
+
+function art_shapes(int $userId, ?int $onlyId = null): array {
+    $stmt = db()->prepare('SELECT * FROM art_shapes WHERE user_id = ?' . ($onlyId ? ' AND id = ?' : '') . ' ORDER BY created_at, id');
+    $stmt->execute($onlyId ? [$userId, $onlyId] : [$userId]);
+    return array_map(fn($r) => [
+        'id' => (int) $r['id'],
+        'name' => $r['name'],
+        'points' => json_decode($r['points'], true),
+        'createdAt' => $r['created_at'],
+    ], $stmt->fetchAll());
+}
+
+function save_art_shape(int $userId, array $b): array {
+    $name = mb_substr(trim((string) ($b['name'] ?? '')), 0, 255);
+    if ($name === '') {
+        fail('Give the shape a name', 400);
+    }
+    $points = $b['points'] ?? null;
+    if (!is_array($points) || count($points) < 3 || count($points) > ART_SHAPE_POINTS) {
+        fail('A shape needs 3 to ' . ART_SHAPE_POINTS . ' points', 400);
+    }
+    $clean = [];
+    foreach ($points as $p) {
+        if (!is_array($p) || !is_numeric($p[0] ?? null) || !is_numeric($p[1] ?? null)) {
+            fail('Each point of a shape is [x, y]', 400);
+        }
+        $clean[] = [round(max(-1, min(2, (float) $p[0])), 4), round(max(-1, min(2, (float) $p[1])), 4)];
+    }
+    db()->prepare('INSERT INTO art_shapes (user_id, name, points) VALUES (?, ?, ?)')
+        ->execute([$userId, $name, json_encode($clean)]);
+    return art_shapes($userId, (int) db()->lastInsertId())[0];
+}
+
+function delete_art_shape(int $userId, int $id): array {
+    $stmt = db()->prepare('DELETE FROM art_shapes WHERE id = ? AND user_id = ?');
+    $stmt->execute([$id, $userId]);
+    if (!$stmt->rowCount()) {
+        fail('Shape not found', 404);
+    }
+    return ['ok' => true];
+}
+
 // --- Routing ---
 
 $method = $_SERVER['REQUEST_METHOD'];
@@ -2199,7 +2258,7 @@ if (!empty($user['read_only'])) {
     if ($method === 'GET' && $action === 'strava_status') {
         send_json(['configured' => false, 'connected' => false, 'athlete' => null, 'autoImport' => false]);
     }
-    $readable = !empty($user['view_link']) ? ['routes'] : ['', 'areas', 'achievements', 'routes', 'goals', 'track_profile'];
+    $readable = !empty($user['view_link']) ? ['routes'] : ['', 'areas', 'achievements', 'routes', 'goals', 'track_profile', 'art_shapes'];
     if ($method !== 'GET' || !in_array($action, $readable, true) || isset($_GET['gpx'])) {
         fail('This is a view-only account', 403);
     }
@@ -2255,6 +2314,12 @@ if ($method === 'POST' && $action === 'invite') {
     send_json(rename_segment($userId, $id, read_json()));
 } elseif ($method === 'POST' && $action === 'segment_delete' && $id) {
     send_json(delete_segment($userId, $id));
+} elseif ($method === 'GET' && $action === 'art_shapes') {
+    send_json(art_shapes($userId));
+} elseif ($method === 'POST' && $action === 'art_shape_save') {
+    send_json(save_art_shape($userId, read_json()));
+} elseif ($method === 'POST' && $action === 'art_shape_delete' && $id) {
+    send_json(delete_art_shape($userId, $id));
 } elseif ($method === 'POST' && $action === 'segment_efforts' && $id) {
     send_json(save_segment_efforts($userId, $id, read_json()));
 } elseif ($method === 'GET' && $action === 'quests') {

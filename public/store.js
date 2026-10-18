@@ -97,6 +97,11 @@ const Store = (() => {
     deleteSegment: id => json('POST', `?action=segment_delete&id=${id}`),
     saveSegmentEfforts: (id, efforts) => json('POST', `?action=segment_efforts&id=${id}`, { efforts }),
 
+    // Your own GPS art shapes, traced from SVGs (see Art.trace): { id, name, points, createdAt }.
+    artShapes: () => json('GET', '?action=art_shapes'),
+    saveArtShape: shape => json('POST', '?action=art_shape_save', shape),  // { name, points } → stored shape
+    deleteArtShape: id => json('POST', `?action=art_shape_delete&id=${id}`),
+
     // Distance goals in km: { week, month }, null when not set.
     goals: () => json('GET', '?action=goals'),
     saveGoals: goals => json('POST', '?action=goals_save', goals),

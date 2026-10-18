@@ -198,19 +198,122 @@ const Art = (() => {
     const loops = contours(f, x0, y0, cols, rows, GRID)
       .map(loop => simplify(loop, GRID * 0.3))
       .sort((a, b) => Math.abs(loopArea(b)) - Math.abs(loopArea(a)));
-    let path = loops[0];
-    for (const hole of loops.slice(1)) {
-      if (Math.abs(loopArea(hole)) < GRID * GRID * 20) continue;  // a speck where strokes cross
+    return joinLoops(loops[0], loops.slice(1).filter(hole => Math.abs(loopArea(hole)) >= GRID * GRID * 20));  // not specks where strokes cross
+  }
+
+  // One line through a loop and others: each reached by a spoke from the
+  // nearest point of the line so far, once round it, and back.
+  function joinLoops(path, others) {
+    for (const loop of others) {
       let best = [0, 0, Infinity];
-      path.forEach((p, i) => hole.forEach((q, j) => {
+      path.forEach((p, i) => loop.forEach((q, j) => {
         const d = Math.hypot(p[0] - q[0], p[1] - q[1]);
         if (d < best[2]) best = [i, j, d];
       }));
       const [i, j] = best;
-      const ring = [...hole.slice(j, -1), ...hole.slice(0, j), hole[j]];
+      const ring = [...loop.slice(j, -1), ...loop.slice(0, j), loop[j]];
       path = [...path.slice(0, i + 1), ...ring, ...path.slice(i)];
     }
     return path;
+  }
+
+  // --- Your own shapes, from SVG files ---
+  // An SVG is drawn into a small image and its silhouette traced: everything
+  // the drawing encloses counts as inside, so an outline drawing and a filled
+  // one come out the same, and all the detail within is left out, as it
+  // couldn't be run anyway. Pieces apart from the biggest are reached by
+  // spokes (as a letter's holes are); specks are dropped. The outline is
+  // simplified until it has at most TRACE_POINTS points. Nothing of the SVG
+  // is kept but that line, so its scripts and links never run.
+  const TRACE_SIZE = 240;    // pixels along the image's longer side
+  const TRACE_POINTS = 160;
+  const TRACE_PIECE = 0.03;  // pieces smaller than this share of the biggest are dropped
+  const TRACE_PIECES = 6;
+
+  async function trace(svgText) {
+    const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml');
+    const svg = doc.documentElement;
+    if (doc.querySelector('parsererror') || svg.localName !== 'svg') throw new Error("That file isn't an SVG drawing");
+    let box = (svg.getAttribute('viewBox') || '').trim().split(/[\s,]+/).map(Number);
+    if (box.length !== 4 || !box.every(Number.isFinite) || box[2] <= 0 || box[3] <= 0) {
+      const w = parseFloat(svg.getAttribute('width')), h = parseFloat(svg.getAttribute('height'));
+      if (!(w > 0 && h > 0)) throw new Error('The SVG has no size (no viewBox, width or height)');
+      box = [0, 0, w, h];
+      svg.setAttribute('viewBox', box.join(' '));
+    }
+    const k = TRACE_SIZE / Math.max(box[2], box[3]);
+    const w = Math.max(1, Math.round(box[2] * k)), h = Math.max(1, Math.round(box[3] * k));
+    svg.setAttribute('width', w);
+    svg.setAttribute('height', h);
+    svg.setAttribute('preserveAspectRatio', 'none');
+
+    const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(doc)], { type: 'image/svg+xml' }));
+    const img = new Image();
+    try {
+      img.src = url;
+      await img.decode();
+    } catch {
+      throw new Error("The SVG couldn't be drawn");
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+    // A clear pixel all round, so every outline closes.
+    const W = w + 4, H = h + 4;
+    const canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(img, 2, 2, w, h);
+    const alpha = ctx.getImageData(0, 0, W, H).data;
+
+    // Inside: everything not reached from the edge without crossing ink.
+    const inside = new Uint8Array(W * H).fill(1);
+    const queue = [0];
+    inside[0] = 0;
+    while (queue.length) {
+      const p = queue.pop();
+      const x = p % W, y = (p - x) / W;
+      for (const q of [x > 0 && p - 1, x < W - 1 && p + 1, y > 0 && p - W, y < H - 1 && p + W]) {
+        if (q === false || !inside[q] || alpha[q * 4 + 3] >= 64) continue;
+        inside[q] = 0;
+        queue.push(q);
+      }
+    }
+    if (!inside.some(Boolean)) throw new Error('There was nothing to trace in that SVG');
+
+    // Softened a little (each pixel with its neighbours), so the outline
+    // runs between pixels rather than in steps; negative inside.
+    const f = (x, y) => {
+      let sum = 0, n = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const xx = x + dx, yy = y + dy;
+        if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue;
+        sum += inside[yy * W + xx];
+        n++;
+      }
+      return 0.5 - sum / n;
+    };
+    const loops = contours(f, 0, 0, W - 1, H - 1, 1)
+      .map(loop => loop.map(([x, y]) => [x, H - y]))  // y up
+      .sort((a, b) => Math.abs(loopArea(b)) - Math.abs(loopArea(a)));
+    if (!loops.length) throw new Error('There was nothing to trace in that SVG');
+    const biggest = Math.abs(loopArea(loops[0]));
+    const pieces = loops.slice(1, TRACE_PIECES).filter(loop => Math.abs(loopArea(loop)) >= biggest * TRACE_PIECE);
+    const line = joinLoops(loops[0], pieces);
+
+    let points = line;
+    for (let tolerance = 0.75; ; tolerance *= 1.4) {
+      points = simplify(line, tolerance);
+      if (points.length <= TRACE_POINTS) break;
+    }
+    const xs = points.map(p => p[0]), ys = points.map(p => p[1]);
+    const x0 = Math.min(...xs), y0 = Math.min(...ys);
+    const size = Math.max(Math.max(...xs) - x0, Math.max(...ys) - y0) || 1;
+    return {
+      points: points.map(([x, y]) => [Math.round((x - x0) / size * 1e4) / 1e4, Math.round((y - y0) / size * 1e4) / 1e4]),
+      pieces: pieces.length + 1,
+      dropped: loops.length - 1 - pieces.length,
+    };
   }
 
   // theme: which set of the picker it's in (everyday if not given).
@@ -292,7 +395,8 @@ const Art = (() => {
   // Scaled into a unit box (the longer side 1), centred, with each point's
   // distance along the line. closed: whether it ends where it starts.
   // Worked out the first time a shape is used: letters take a moment each.
-  const SHAPES = LIBRARY.map(({ id, name, theme = 'everyday', points }) => {
+  // makeShape does the same for one of your own: { id, name, theme, points }.
+  function makeShape({ id, name, theme = 'everyday', points }) {
     const shape = { id, name, theme };
     let done = null;
     const get = () => done || (done = finish(typeof points === 'function' ? points() : points));
@@ -300,7 +404,8 @@ const Art = (() => {
       Object.defineProperty(shape, key, { get: () => get()[key], enumerable: true });
     }
     return shape;
-  });
+  }
+  const SHAPES = LIBRARY.map(makeShape);
 
   function finish(points) {
     const xs = points.map(p => p[0]), ys = points.map(p => p[1]);
@@ -581,5 +686,5 @@ const Art = (() => {
     return `<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
   }
 
-  return { SHAPES, prepare, fit, routeInput, fidelity, onStreets, icon, outline, sizeFor, kmFor };
+  return { SHAPES, makeShape, trace, prepare, fit, routeInput, fidelity, onStreets, icon, outline, sizeFor, kmFor };
 })();
