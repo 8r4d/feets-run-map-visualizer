@@ -1446,7 +1446,7 @@ body {
   top: 64px;  /* under the layers button */
   right: 10px;
   bottom: calc(10px + var(--mode-bar-height, 0px));
-  z-index: 1000;  /* above the map */
+  z-index: 900;  /* above the map, below its buttons (1000), so the layers menu opens over it */
   width: min(300px, 40%);
   overflow-y: auto;
   pointer-events: none;  /* the map still pans through the gaps... */

@@ -5,6 +5,14 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.13.0 — 2026-10-19
+
+- Each map mode keeps its own base map: pick the topographic map in Questing
+  and the dark one in Tracks, say, and each mode goes back to its own. The
+  heatmap still starts on the dark map, the others on the street map.
+- In Questing, the layers button's menu opens over the level and quests
+  column instead of under it.
+
 ## 1.12.0 — 2026-10-19
 
 - The map modes have clearer names: Tracks, Heatmap, Questing (was Fog),

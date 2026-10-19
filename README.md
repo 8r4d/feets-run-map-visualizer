@@ -232,7 +232,8 @@ it. There's nothing to `npm install`.
   - click its name to zoom to it
   - click ↓ to download the original GPX file
   - click × to delete it
-- Use the layer control in the top right to switch between the OpenStreetMap and OpenTopoMap base maps.
+- Use the layer control in the top right to switch between the OpenStreetMap, OpenTopoMap and dark
+  base maps. Each mode remembers its own (the heatmap starts on the dark one), in this browser.
 - **Filters:** search by name, pick a year or an activity type, or combine them.
   - Filters decide what appears in the list and on the map, in both Tracks and Heatmap mode.
   - **Show all** and **Hide all** apply to whatever currently matches.

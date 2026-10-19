@@ -38,7 +38,14 @@ const baseLayers = {
   }),
 };
 let baseLayer = baseLayers['OpenStreetMap'].addTo(map);
-map.on('baselayerchange', e => { baseLayer = e.layer; });
+// Each mode keeps the base map last picked in it (see baseFor in setMode).
+let switchingBase = false;  // true while setMode changes it, so that isn't taken as a pick
+map.on('baselayerchange', e => {
+  baseLayer = e.layer;
+  if (!switchingBase && mapMode && !publicView()) {
+    try { localStorage.setItem('feets-base-' + mapMode, e.name); } catch {}
+  }
+});
 L.control.layers(baseLayers).addTo(map);
 L.control.scale({ metric: !Units.miles, imperial: Units.miles }).addTo(map);
 
@@ -254,7 +261,6 @@ let race = null;         // a ghost race on the map (see startRace)
 let segmentPick = null;  // making a segment (see startSegmentPick)
 try { planStreets = localStorage.getItem('feets-plan-streets') !== 'off'; } catch {}
 const showStreets = () => streetsMode || (planMode && planStreets);
-let baseBeforeHeatmap = null;
 
 // Opacity per line, scaled to how many tracks are shown: where all of them
 // overlap, the stacked lines reach ~90% opacity (1 - (1 - a)^n = 0.9).
@@ -544,19 +550,22 @@ new ResizeObserver(() => {
   document.documentElement.style.setProperty('--mode-bar-height', modeBar.offsetHeight + 'px');
 }).observe(modeBar);
 
+// The base map a mode opens on: the one last picked in it, else the dark
+// map for the heatmap and the street map for the rest.
+function baseFor(mode) {
+  let name = null;
+  try { name = localStorage.getItem('feets-base-' + mode); } catch {}
+  return baseLayers[name] ? name : mode === 'heatmap' ? 'Dark' : 'OpenStreetMap';
+}
+
 function setMode(mode) {
   if (pointEdit && mode !== 'tracks') endPointEdit();
   if (race && mode !== 'tracks') stopRace();
   if (segmentPick && mode !== 'tracks') stopSegmentPick();
   const heat = mode === 'heatmap';
-  if (heat !== heatmap) {
-    if (heat) {
-      baseBeforeHeatmap = baseLayer;
-      setBaseLayer(baseLayers['Dark']);
-    } else if (baseBeforeHeatmap) {
-      setBaseLayer(baseBeforeHeatmap);
-    }
-  }
+  switchingBase = true;
+  setBaseLayer(baseLayers[baseFor(mode)]);
+  switchingBase = false;
   heatmap = heat;
   fogMode = mode === 'fog';
   streetsMode = mode === 'streets';

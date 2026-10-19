@@ -90,6 +90,49 @@ test('Questing: the modes\' new names, and the game in a column over the map', {
   assert.equal((await where()).shown, false);
 });
 
+test('each mode keeps its own base map, and the layers menu opens over the Questing column', { skip }, async () => {
+  const base = () => page.eval(`[...document.querySelectorAll('.leaflet-control-layers-base input')]
+    .find(i => i.checked).nextSibling.textContent.trim()`);
+  const mode = m => page.eval(`document.querySelector('#mode [data-mode=${m}]').click()`);
+  const pick = name => page.eval(`[...document.querySelectorAll('.leaflet-control-layers-base label')]
+    .find(l => l.textContent.trim() === ${JSON.stringify(name)}).querySelector('input').click()`);
+  await mode('tracks');
+  assert.equal(await base(), 'OpenStreetMap');
+  await mode('heatmap');
+  assert.equal(await base(), 'Dark', 'the heatmap starts on the dark map');
+  await mode('fog');
+  assert.equal(await base(), 'OpenStreetMap');
+  await pick('OpenTopoMap');
+  await mode('tracks');
+  await pick('Dark');
+  await mode('fog');
+  assert.equal(await base(), 'OpenTopoMap', 'Questing kept its pick');
+  await mode('tracks');
+  assert.equal(await base(), 'Dark', 'and Tracks its own');
+  await page.reload();
+  await page.waitFor(`document.querySelector('.leaflet-control-layers-base input:checked')`);
+  assert.equal(await base(), 'Dark', 'remembered');
+  await mode('heatmap');
+  assert.equal(await base(), 'Dark');
+
+  // Questing: open the layers menu; it's on top where it overlaps the column.
+  await mode('fog');
+  await page.eval(`document.querySelector('.leaflet-control-layers').classList.add('leaflet-control-layers-expanded')`);
+  const onTop = await page.eval(`(() => {
+    const menu = document.querySelector('.leaflet-control-layers-list').getBoundingClientRect();
+    const hud = document.getElementById('quest-hud').getBoundingClientRect();
+    const x = Math.max(menu.left, hud.left) + 5, y = Math.max(menu.top, hud.top) + 5;
+    const overlap = x < Math.min(menu.right, hud.right) && y < Math.min(menu.bottom, hud.bottom);
+    return { overlap, top: document.elementFromPoint(x, y)?.closest('.leaflet-control-layers') !== null };
+  })()`);
+  assert.ok(onTop.overlap, 'they do overlap');
+  assert.ok(onTop.top, 'and the menu is the one on top');
+  await page.eval(`document.querySelector('.leaflet-control-layers').classList.remove('leaflet-control-layers-expanded')`);
+  await pick('OpenStreetMap');
+  await mode('tracks');
+  await pick('OpenStreetMap');
+});
+
 test('XP: old activities earn none, a new run does', { skip }, async () => {
   await page.eval(`document.querySelector('#mode [data-mode=fog]').click()`);
   const xp = () => page.eval(`({ shown: !document.getElementById('xp-box').hidden,
