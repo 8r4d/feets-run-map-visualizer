@@ -1374,6 +1374,7 @@ let severalAreas = null;
 let severalCoverage = null;
 let streetsChoice = '';  // what Streets shows: an area's id, or 'm:ID,ID,…' for several
 let streetLayer = null;
+let streetLines = new Map();  // the active area's street index -> its lines on the map
 let highlightLayer = null;
 let coverageTimer = null;
 
@@ -1575,9 +1576,9 @@ function setActiveArea(id) {
 }
 
 // Recomputing redraws every street, so wait for a pause in changes.
-function scheduleCoverage() {
+function scheduleCoverage(delay = 200) {
   clearTimeout(coverageTimer);
-  coverageTimer = setTimeout(updateCoverage, 200);
+  coverageTimer = setTimeout(updateCoverage, delay);
 }
 
 function updateCoverage() {
@@ -1586,6 +1587,9 @@ function updateCoverage() {
     if (streetsMode) renderCoverage();
     return;
   }
+  // Kept until the area's off-limits streets change (see Coverage.prepared).
+  if (activeArea) activeArea.prep = Coverage.prepared(activeArea.area);
+  if (severalAreas) for (const m of severalAreas) m.prep = Coverage.prepared(m.area);
   const shown = [...loaded.values()].filter(e => onMap(e.track));
   if (severalAreas) {
     const segments = shown.map(e => e.track.segments);
@@ -1609,6 +1613,7 @@ function drawStreets() {
     ? severalAreas.map((m, i) => ({ ...m, fraction: severalCoverage.results[i].fraction }))
     : [{ ...activeArea, fraction: coverage.result.fraction }];
   const picked = severalAreas ? null : pickedHoods();
+  streetLines = new Map();
   const drawn = new Set();  // with several: the street pieces drawn so far
   for (const { area, prep, fraction } of sets) {
     const { data } = area;
@@ -1643,7 +1648,11 @@ function drawStreets() {
           drawn.add(key);
         }
         const line = L.polyline(run, style).bindTooltip(tip, { sticky: true });
-        if (!severalAreas) line.on('click', e => { if (!planMode) streetPopup(w, e.latlng); });  // plan mode: map click adds a point
+        if (!severalAreas) {
+          line.on('click', e => { if (!planMode) streetPopup(w, e.latlng); });  // plan mode: map click adds a point
+          if (!streetLines.has(w)) streetLines.set(w, []);
+          streetLines.get(w).push(line);
+        }
         line.addTo(streetLayer);
       }
     });
@@ -1771,7 +1780,10 @@ function renderUnrunnable() {
       const again = document.createElement('button');
       again.className = 'link-button again';
       again.textContent = t('Count again');
-      again.onclick = () => setUnrunnable(m.ways[0], false);
+      again.onclick = () => {
+        li.remove();  // the list catches up after the recount
+        setUnrunnable(m.ways[0], false);
+      };
       li.append(again);
     }
     return li;
@@ -1782,7 +1794,7 @@ function renderUnrunnable() {
 // unrunnable or count it again.
 function streetPopup(w, latlng) {
   const s = activeArea.area.data.streets[w];
-  const unrunnable = activeArea.prep.excluded[w];
+  const unrunnable = (activeArea.area.excluded || []).includes(s.id);  // up to date before the recount
   const box = document.createElement('div');
   box.className = 'street-popup';
   const title = document.createElement('strong');
@@ -1808,24 +1820,75 @@ function streetPopup(w, latlng) {
 // an unnamed path or trail just where it is.
 // A street is marked in every area that has it (the same OSM ways), so an
 // area and its sub-areas agree.
-async function setUnrunnable(w, unrunnable) {
+// It greys out (or comes back) on the map at once. The saving, the recount
+// and the trophy check wait for a pause, so marking a few dozen paths in a
+// row (all of a zoo, say) stays quick: they're saved together, one request
+// per area.
+const UNRUNNABLE_PAUSE = 1500;  // ms
+const unrunnableSaves = new Map();  // area id -> { area, on: Set of way ids, off: Set }
+let unrunnableTimer = null;
+
+function setUnrunnable(w, unrunnable) {
   const { area } = activeArea;
   const s = area.data.streets[w];
   const ways = new Set(s.name
     ? area.data.streets.filter(o => o.name === s.name && o.cat === s.cat).map(o => o.id)
     : [s.id]);
-  try {
-    for (const a of areas) {
-      const here = a === area ? [...ways] : a.data.streets.filter(o => ways.has(o.id)).map(o => o.id);
-      if (here.length) a.excluded = (await Store.excludeWays(a.id, here, unrunnable)).excluded;
+  for (const a of areas) {
+    const here = a === area ? [...ways] : a.data.streets.filter(o => ways.has(o.id)).map(o => o.id);
+    if (!here.length) continue;
+    const excluded = new Set(a.excluded || []);
+    for (const id of here) unrunnable ? excluded.add(id) : excluded.delete(id);
+    a.excluded = [...excluded];
+    if (!unrunnableSaves.has(a.id)) unrunnableSaves.set(a.id, { area: a, on: new Set(), off: new Set() });
+    const save = unrunnableSaves.get(a.id);
+    for (const id of here) {
+      (unrunnable ? save.on : save.off).add(id);
+      (unrunnable ? save.off : save.on).delete(id);
     }
-    map.closePopup();
-    setActiveArea(area.id);  // re-index without (or with) those streets, then recount
+  }
+  map.closePopup();
+  // On the map now; the totals and lists once the recount runs.
+  area.data.streets.forEach((o, k) => {
+    if (!ways.has(o.id) || !streetLines.has(k)) return;
+    for (const line of streetLines.get(k)) {
+      line.setStyle(unrunnable
+        ? { color: STREET_COLORS.unrunnable, weight: 3, opacity: 0.8, dashArray: '2 6' }
+        : { color: streetColor(coverage ? coverage.result.fraction[k] : 0), weight: o.cat === 'road' ? 4 : 3, opacity: 0.9, dashArray: o.cat === 'trail' ? '4 5' : null });
+    }
+  });
+  clearTimeout(unrunnableTimer);
+  unrunnableTimer = setTimeout(saveUnrunnable, UNRUNNABLE_PAUSE);
+  scheduleCoverage(UNRUNNABLE_PAUSE);  // re-indexes the area without (or with) them, then recounts
+}
+
+// Sends the off-limits changes made since the last save, every area at once.
+// If one fails, the areas are loaded again, so the map shows what was saved.
+async function saveUnrunnable() {
+  const saves = [...unrunnableSaves.values()];
+  unrunnableSaves.clear();
+  try {
+    await Promise.all(saves.flatMap(({ area, on, off }) => [
+      on.size && Store.excludeWays(area.id, [...on], true),
+      off.size && Store.excludeWays(area.id, [...off], false),
+    ].filter(Boolean)));
     scheduleTrophies();
   } catch (err) {
-    alert(err.message);
+    alert(`Couldn't save the off-limits streets: ${err.message}`);
+    const showing = streetsChoice;
+    await loadAreas();
+    setActiveArea(showing);
   }
 }
+
+// Changes still to be saved when leaving: send them, and ask to stay a moment.
+window.addEventListener('beforeunload', e => {
+  if (!unrunnableSaves.size) return;
+  clearTimeout(unrunnableTimer);
+  saveUnrunnable();
+  e.preventDefault();
+  e.returnValue = '';
+});
 
 // Unfinished streets, nearest first: to you, if "Show my location" put a dot
 // on the map that's still in view, otherwise to the middle of the map.
@@ -1861,6 +1924,7 @@ function renderTodo() {
       + '<button class="link-button skip" type="button" title="Mark off-limits">Skip</button>';
     li.querySelector('.skip').onclick = e => {
       e.stopPropagation();
+      li.remove();  // the list catches up after the recount
       setUnrunnable(g.ways[0], true);
     };
     li.querySelector('.swatch').style.background = streetColor(share);

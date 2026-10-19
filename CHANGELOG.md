@@ -5,6 +5,13 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.5.1 — 2026-10-18
+
+- Marking streets off-limits is quick, even a few dozen in a row (all the
+  paths in a zoo, say): each one greys out at once, and they're saved together
+  once you pause, with one request per area instead of one per street per
+  area. The totals, lists and trophies catch up after the pause too.
+
 ## 1.5.0 — 2026-10-18
 
 - Streets: tick neighbourhoods under "By neighbourhood" to count only those.
