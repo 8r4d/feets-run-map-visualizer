@@ -5,6 +5,16 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.5.0 — 2026-10-18
+
+- Streets: tick neighbourhoods under "By neighbourhood" to count only those.
+  The coverage bars and "Still to cover" list then cover just the ticked ones,
+  and the streets outside them are dimmed on the map. Each area remembers its
+  ticks; "Count all" clears them.
+- Plan: "Stay in" can keep a loop inside several neighbourhoods. Pick the area,
+  then tick its neighbourhoods under it. Ticking none keeps the whole area.
+  GPS art still picks one area or neighbourhood.
+
 ## 1.4.0 — 2026-10-18
 
 - Admin: "All accounts and links" in Account lists every account (admin,

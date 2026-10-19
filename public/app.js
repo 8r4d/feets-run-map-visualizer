@@ -1383,6 +1383,29 @@ function hoodName(index) {
   return index >= 0 && activeArea ? activeArea.area.data.hoods[index].name : '';
 }
 
+// The neighbourhoods ticked under "By neighbourhood", per area id: the
+// coverage, the to-do list and the map count only those. None ticked counts
+// the whole area.
+let hoodPicks = {};
+try { hoodPicks = JSON.parse(localStorage.getItem('feets-hood-picks')) || {}; } catch {}
+
+// The active area's ticked neighbourhoods as a Set of indices, or null for all.
+function pickedHoods() {
+  if (!activeArea) return null;
+  const count = activeArea.area.data.hoods.length;
+  const picked = (hoodPicks[activeArea.area.id] || []).filter(i => i < count);
+  return picked.length ? new Set(picked) : null;
+}
+
+function setPickedHoods(indices) {
+  const id = activeArea.area.id;
+  if (indices.length) hoodPicks[id] = indices;
+  else delete hoodPicks[id];
+  try { localStorage.setItem('feets-hood-picks', JSON.stringify(hoodPicks)); } catch {}
+  if (coverage && showStreets()) drawStreets();
+  renderCoverage();
+}
+
 async function loadAreas() {
   try {
     areas = await Store.areas();
@@ -1467,20 +1490,21 @@ function fillAreaSelect() {
   const label = (a, depth) => `${'\u2013 '.repeat(depth)}${a.name}`;
   areaSelect.replaceChildren(new Option(areas.length ? 'Choose an area…' : 'No areas yet: add one', ''),
     ...nested.map(([a, depth]) => new Option(label(a, depth), String(a.id))));
-  // Plan's "Stay within": each area, and the neighbourhoods inside it. The
-  // saved choice wins: the menu was empty when the page first set it.
-  let within = exploreWithin.value;
+  // Plan's "Stay within": each area, with its neighbourhoods to tick below
+  // (see setWithin). The saved choice wins: the menu was empty when the page
+  // first set it.
+  exploreWithin.replaceChildren(new Option(t('anywhere'), ''),
+    ...nested.map(([a, depth]) => new Option(label(a, depth), `a:${a.id}`)));
+  let within = withinValue;
   try { within = localStorage.getItem('feets-explore-within') ?? within; } catch {}
-  exploreWithin.replaceChildren(new Option('anywhere', ''), ...nested.flatMap(([a, depth]) => [
+  exploreHoods.querySelector('.explore-hoods-list').dataset.area = '';  // names may have changed
+  setWithin(within, false);
+  // GPS art's area: each area and each neighbourhood in it; somewhere has to be picked.
+  const artValue = artArea.value || (() => { try { return localStorage.getItem('feets-art-area'); } catch { return null; } })();
+  artArea.replaceChildren(...nested.flatMap(([a, depth]) => [
     new Option(label(a, depth), `a:${a.id}`),
     ...a.data.hoods.map((h, i) => new Option(`\u00a0\u00a0\u00a0· ${h.name}`, `h:${a.id}:${i}`)),
   ]));
-  exploreWithin.value = within;
-  if (exploreWithin.selectedIndex < 0) exploreWithin.value = '';
-  summarizeExplore();
-  // GPS art's area: the same choices, but somewhere has to be picked.
-  const artValue = artArea.value || (() => { try { return localStorage.getItem('feets-art-area'); } catch { return null; } })();
-  artArea.replaceChildren(...[...exploreWithin.options].filter(o => o.value).map(o => new Option(o.text, o.value)));
   if (artValue) artArea.value = artValue;
   if (artArea.selectedIndex < 0 && artArea.options.length) artArea.selectedIndex = 0;
 }
@@ -1531,16 +1555,18 @@ function drawStreets() {
   for (const line of data.boundary) {
     L.polyline(line, { renderer: streetRenderer, color: '#333', weight: 2.5, dashArray: '8 6', interactive: false }).addTo(streetLayer);
   }
+  const picked = pickedHoods();
   data.streets.forEach((s, w) => {
     const f = coverage.result.fraction[w];
     const unrunnable = activeArea.prep.excluded[w];
+    const faded = picked && !picked.has(s.hood);  // outside the ticked neighbourhoods
     const style = unrunnable
-      ? { renderer: streetRenderer, color: STREET_COLORS.unrunnable, weight: 3, opacity: 0.8, dashArray: '2 6' }
+      ? { renderer: streetRenderer, color: STREET_COLORS.unrunnable, weight: 3, opacity: faded ? 0.3 : 0.8, dashArray: '2 6' }
       : {
         renderer: streetRenderer,
         color: streetColor(f),
         weight: s.cat === 'road' ? 4 : 3,
-        opacity: 0.9,
+        opacity: faded ? 0.25 : 0.9,
         dashArray: s.cat === 'trail' ? '4 5' : null,
       };
     const tip = `${s.name || `Unnamed ${CAT_NAMES[s.cat]}`} · ${unrunnable ? 'off-limits' : Math.round(f * 100) + '%'}`;
@@ -1576,6 +1602,29 @@ function renderCoverage() {
   }
   const { summary, tracks } = coverage;
   const cats = ['road', 'path', 'trail'].filter(c => summary.total[c].len > 0);
+  const hoods = activeArea.area.data.hoods;
+  const picked = pickedHoods();
+  // With neighbourhoods ticked, the bars add up just those.
+  let total = summary.total;
+  if (picked) {
+    total = {};
+    for (const c of cats) {
+      total[c] = { len: 0, covered: 0, streets: 0, done: 0 };
+      for (const i of picked) for (const k in total[c]) total[c][k] += summary.byHood[i][c][k];
+    }
+  }
+  const pickNote = document.createElement('div');
+  pickNote.className = 'hood-pick-note';
+  if (picked) {
+    const names = [...picked].sort((a, b) => a - b).map(i => hoods[i].name);
+    pickNote.textContent = t('Counting only {names}.', { names: names.join(', ') }) + ' ';
+    const all = document.createElement('button');
+    all.type = 'button';
+    all.className = 'link-button';
+    all.textContent = t('Count all');
+    all.onclick = () => setPickedHoods([]);
+    pickNote.append(all);
+  }
   const legend = document.createElement('div');
   legend.className = 'legend';
   legend.innerHTML = `<span style="--c:${STREET_COLORS.done}">done</span><span style="--c:${STREET_COLORS.started}">started</span>`
@@ -1586,21 +1635,23 @@ function renderCoverage() {
   note.textContent = `Counting the ${tracks} ${tracks === 1 ? 'track' : 'tracks'} on the map. ` +
     'Use the filters below to count only some, e.g. one activity type.' +
     (readOnly() ? '' : ' Click a street to mark it off-limits.');
-  box.replaceChildren(...cats.map(c => progressRow(CAT_LABELS[c], summary.total[c])), legend, note);
+  box.replaceChildren(...(picked ? [pickNote] : []),
+    ...cats.filter(c => total[c].len > 0).map(c => progressRow(CAT_LABELS[c], total[c])), legend, note);
 
-  const hoods = activeArea.area.data.hoods;
   hoodBox.hidden = !hoods.length;
+  hoodBox.querySelector('.count').textContent = picked ? t('({n} ticked)', { n: picked.size }) : '';
   const head = '<tr><th></th>' + cats.map(c => `<th>${CAT_LABELS[c]}</th>`).join('') + '</tr>';
   const rows = hoods.map((h, i) => {
     const cells = cats.map(c => {
       const t = summary.byHood[i][c];
       return `<td>${t.len ? Math.round((t.covered / t.len) * 100) + '%' : '–'}</td>`;
     });
-    return `<tr><th></th>${cells.join('')}</tr>`;
+    return `<tr><th><label><input type="checkbox" data-hood="${i}"${picked && picked.has(i) ? ' checked' : ''}> <span></span></label></th>${cells.join('')}</tr>`;
   });
   const table = hoodBox.querySelector('table');
   table.innerHTML = head + rows.join('');
-  table.querySelectorAll('tr + tr th').forEach((th, i) => { th.textContent = hoods[i].name; });
+  table.querySelectorAll('tr + tr th span').forEach((span, i) => { span.textContent = hoods[i].name; });
+  table.onchange = () => setPickedHoods([...table.querySelectorAll('input:checked')].map(c => Number(c.dataset.hood)));
   renderUnrunnable();
   renderTodo();
 }
@@ -1701,7 +1752,8 @@ function renderTodo() {
     ? 'Nearest to you first'
     : 'Nearest to the middle of the map first. Tap ⌖ on the map to sort from where you are.';
   const { data } = activeArea.area;
-  const unfinished = coverage.summary.groups.filter(g => !g.done);
+  const picked = pickedHoods();
+  const unfinished = coverage.summary.groups.filter(g => !g.done && (!picked || picked.has(g.hood)));
   todo.hidden = !unfinished.length;
   todo.querySelector('.count').textContent = `(${unfinished.length})`;
   if (!todo.open) return;  // sorting by distance can wait until it's opened
@@ -2782,11 +2834,72 @@ async function routeHeights(g, points, budget) {
   return heights;
 }
 
-// Stay within: '' for anywhere, 'a:ID' for an area, 'h:ID:N' for neighbourhood
-// N of an area. Filled in, and the saved choice set, with the areas (see fillAreaSelect).
-exploreWithin.onchange = () => {
-  try { localStorage.setItem('feets-explore-within', exploreWithin.value); } catch {}
-};
+// Stay within: '' for anywhere, 'a:ID' for an area, 'h:ID:N,M,…' for some of
+// its neighbourhoods. The menu picks the area and the ticks under it the
+// neighbourhoods; none ticked is the whole area. Filled in, and the saved
+// choice set, with the areas (see fillAreaSelect).
+let withinValue = '';
+const exploreHoods = document.getElementById('explore-hoods');
+
+// A Stay within value's area and neighbourhoods (null for all of it), or null
+// for anywhere or an area that's gone.
+function parseWithin(value) {
+  const [kind, id, list] = (value || '').split(':');
+  const area = areas.find(a => String(a.id) === id);
+  if (!area || (kind !== 'a' && kind !== 'h')) return null;
+  const count = area.data.hoods.length;
+  const hoods = kind === 'h'
+    ? [...new Set((list || '').split(',').filter(Boolean).map(Number))].filter(i => Number.isInteger(i) && i >= 0 && i < count).sort((a, b) => a - b)
+    : [];
+  return { area, hoods: hoods.length ? hoods : null };
+}
+
+// Where a Stay within value is, for messages: the area, or its neighbourhoods.
+function withinName(value) {
+  const w = parseWithin(value);
+  if (!w) return '';
+  if (!w.hoods) return w.area.name;
+  const names = w.hoods.map(i => w.area.data.hoods[i].name);
+  return names.length <= 3 ? names.join(', ') : t('{n} neighbourhoods of {area}', { n: names.length, area: w.area.name });
+}
+
+// Sets Stay within, and (unless just filling the menu in) remembers it.
+function setWithin(value, save = true) {
+  const w = parseWithin(value);
+  withinValue = !w ? '' : w.hoods ? `h:${w.area.id}:${w.hoods.join(',')}` : `a:${w.area.id}`;
+  if (save) try { localStorage.setItem('feets-explore-within', withinValue); } catch {}
+  exploreWithin.value = w ? `a:${w.area.id}` : '';
+  if (exploreWithin.selectedIndex < 0) exploreWithin.value = '';
+  // The area's neighbourhoods, to tick.
+  const hoods = w ? w.area.data.hoods : [];
+  exploreHoods.hidden = !hoods.length;
+  exploreHoods.querySelector('summary').textContent = w && w.hoods
+    ? t('Only {n} of its {total} neighbourhoods', { n: w.hoods.length, total: hoods.length })
+    : t('All its neighbourhoods');
+  // Rebuilt for another area; just re-ticked for the same one, so a click
+  // keeps its place.
+  const list = exploreHoods.querySelector('.explore-hoods-list');
+  const listFor = w ? String(w.area.id) : '';
+  if (list.dataset.area !== listFor || list.children.length !== hoods.length) {
+    list.dataset.area = listFor;
+    list.replaceChildren(...hoods.map((h, i) => {
+      const row = document.createElement('label');
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.value = i;
+      row.append(box, ` ${h.name}`);
+      return row;
+    }));
+  }
+  list.querySelectorAll('input').forEach(box => { box.checked = !!(w.hoods && w.hoods.includes(Number(box.value))); });
+  summarizeExplore();
+}
+
+exploreWithin.onchange = () => setWithin(exploreWithin.value);
+exploreHoods.addEventListener('change', () => {
+  const ticked = [...exploreHoods.querySelectorAll('input:checked')].map(c => c.value);
+  setWithin(ticked.length ? `h:${withinValue.split(':')[1]}:${ticked.join(',')}` : `a:${withinValue.split(':')[1]}`);
+});
 
 // The Options box: remembers whether it was left open, and while closed its
 // heading lists the options that aren't at their usual settings.
@@ -2808,7 +2921,7 @@ function summarizeExplore() {
     exploreStreets.value !== 'any' && text(exploreStreets),
     exploreHills.value !== 'any' && text(exploreHills),
     exploreEnd.value !== 'start' && 'finish at last point',
-    exploreWithin.value && `in ${text(exploreWithin)}`,
+    withinValue && `in ${withinName(withinValue)}`,
   ].filter(Boolean);
   document.getElementById('explore-summary').textContent = parts.length ? `· ${parts.join(', ')}` : '';
 }
@@ -2847,15 +2960,16 @@ function withHandles(waypoints, legs) {
 // or the choice changes.
 // (Also used by GPS art, with its own choice of area.)
 const withinCache = new WeakMap();  // graph -> Map(value -> mask)
-function withinMask(g, value = exploreWithin.value) {
+const SCRAP = 0.1;  // a piece under this share of the biggest is a scrap
+function withinMask(g, value = withinValue) {
   if (!value) return null;
   if (!withinCache.has(g)) withinCache.set(g, new Map());
   const cached = withinCache.get(g).get(value);
   if (cached) return cached;
-  const [kind, id, h] = value.split(':');
-  const area = areas.find(a => String(a.id) === id);
-  if (!area) return null;
-  const inside = kind === 'h' ? (la, lo) => OSM.inHood(area, Number(h), la, lo) : (la, lo) => OSM.inArea(area, la, lo);
+  const w = parseWithin(value);
+  if (!w) return null;
+  const { area, hoods } = w;
+  const inside = hoods ? (la, lo) => hoods.some(h => OSM.inHood(area, h, la, lo)) : (la, lo) => OSM.inArea(area, la, lo);
   const allowed = new Uint8Array(g.lat.length);
   for (let i = 0; i < allowed.length; i++) allowed[i] = inside(g.lat[i], g.lon[i]) ? 1 : 0;
   // Only the biggest connected piece: streets along the edge can leave scraps
@@ -2881,10 +2995,13 @@ function withinMask(g, value = exploreWithin.value) {
     }
     sizes.push(size);
   }
-  const biggest = sizes.indexOf(Math.max(...sizes));
-  for (let i = 0; i < allowed.length; i++) allowed[i] = allowed[i] && piece[i] === biggest ? 1 : 0;
-  const name = kind === 'h' ? area.data.hoods[Number(h)].name : area.name;
-  const mask = { allowed, name };
+  // Several neighbourhoods apart from each other: each of them that's more
+  // than a scrap, so a loop can start in any (and stays in the one it starts in).
+  const most = Math.max(...sizes), biggest = sizes.indexOf(most);
+  const several = hoods && hoods.length > 1;
+  const keep = sizes.map((size, k) => k === biggest || (several && size >= most * SCRAP));
+  for (let i = 0; i < allowed.length; i++) allowed[i] = allowed[i] && keep[piece[i]] ? 1 : 0;
+  const mask = { allowed, name: withinName(value) };
   withinCache.get(g).set(value, mask);
   return mask;
 }
@@ -4812,10 +4929,9 @@ function planQuest(q) {
   exploreUnrun.checked = true;
   exploreUnrun.dispatchEvent(new Event('change'));
   if (q.kind === 'area') {
-    exploreWithin.value = q.hood >= 0 ? `h:${q.areaId}:${q.hood}` : `a:${q.areaId}`;
-    exploreWithin.dispatchEvent(new Event('change'));
+    setWithin(q.hood >= 0 ? `h:${q.areaId}:${q.hood}` : `a:${q.areaId}`);
     if (q.place) map.setView(q.place, 15);
-    planStatus.textContent = `Make a loop is set to stay in ${exploreWithin.selectedOptions[0].text.replace(/^[\s ·–]+/, '')}. Pick a length and Make a loop.`;
+    planStatus.textContent = `Make a loop is set to stay in ${withinName(withinValue)}. Pick a length and Make a loop.`;
   } else if (q.kind === 'street') {
     const area = areas.find(a => a.id === q.areaId);
     const lines = area ? area.data.streets.filter(s => s.name === q.name && s.cat === q.cat && s.hood === q.hood).flatMap(s => s.runs) : [];
