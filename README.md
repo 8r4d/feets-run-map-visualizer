@@ -43,8 +43,11 @@ routes to anyone who has it, with no login: for a running club, say.
   Nothing else: no tracks, heatmap, street areas, trophies or route editing.
   The server sends a view link nothing but the routes.
 - **One route:** in **Plan**, click **Link** next to a saved route to get a
-  link that opens straight to that route. It uses your newest view link, or
-  offers to make one.
+  link that opens straight to that route, with a 7-day view link of its own.
+  The admin can instead leave the days blank to reuse their newest view link
+  that never expires.
+- **How long:** a link works for 7 days. Only the admin can choose a different
+  number of days, or keep a link working until it's turned off.
 - **Turning it off:** each link is listed under **Account** with **Turn off**.
   Anyone using it then sees the login screen.
 - The link holds the access, so anyone it's forwarded to can use it too.

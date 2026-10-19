@@ -16,7 +16,8 @@
 //   POST api.php?action=recover        {setupPassword, username, password}  locked-out admin
 //   GET  api.php?action=view_links     the user's view links: [{code, label, createdAt, expiresAt}]
 //                                      expiresAt: Unix ms, or null for a link that never expires
-//   POST api.php?action=view_link_create  {label, days}, returns {code}. days: 1-365, or 0 for no expiry
+//   POST api.php?action=view_link_create  {label, days}, returns {code, days}. days: 1-365, or 0 for no
+//                                         expiry; only the admin's is used, others get VIEW_LINK_DAYS
 //   POST api.php?action=view_link_delete  {code}
 //   GET  api.php?action=admin_overview    admin only: {users: [{id, username, kind (admin, member or viewer),
 //                                         owner, createdAt, tracks, signedIn, self}], viewLinks: [{code, label,
@@ -28,7 +29,8 @@
 //
 // View links: any request with ?view=CODE is answered as a view-only account
 // of the link's owner that can only list saved routes, with no login, until
-// the owner turns the link off or it expires.
+// the owner turns the link off or it expires. The admin's links last as long
+// as they choose; everyone else's last VIEW_LINK_DAYS.
 //
 // Tracks (must be logged in; each user only sees their own)
 //   GET  api.php                       list tracks
@@ -99,6 +101,7 @@
 const SESSION_COOKIE = 'feets_session';
 const SESSION_DAYS = 30;
 const INVITE_DAYS = 7;
+const VIEW_LINK_DAYS = 7;  // how long a view link lasts, except the admin's: theirs can be set
 const RESET_HOURS = 48;
 
 // Columns every user lookup returns (users table aliased as u).
@@ -613,20 +616,20 @@ function list_view_links(int $userId): array {
     }, $stmt->fetchAll());
 }
 
-function create_view_link(int $userId, array $b): array {
+function create_view_link(array $user, array $b): array {
     $label = mb_substr(trim((string) ($b['label'] ?? '')), 0, 100);
     if ($label === '') {
         fail('Give the link a name, like who it is for', 400);
     }
-    $days = (int) ($b['days'] ?? 0);
+    $days = $user['is_admin'] ? (int) ($b['days'] ?? 0) : VIEW_LINK_DAYS;
     if ($days < 0 || $days > 365) {
         fail('A link can last up to 365 days', 400);
     }
     $code = bin2hex(random_bytes(12));
     db()->prepare('INSERT INTO view_links (code, owner, label, expires_at)
                    VALUES (?, ?, ?, IF(? > 0, NOW() + INTERVAL ? DAY, NULL))')
-        ->execute([$code, $userId, $label, $days, $days]);
-    return ['code' => $code];
+        ->execute([$code, (int) $user['id'], $label, $days, $days]);
+    return ['code' => $code, 'days' => $days];
 }
 
 // Only the link's owner can turn it off; anyone else's request changes nothing.
@@ -2400,7 +2403,7 @@ if ($method === 'POST' && $action === 'invite') {
 } elseif ($method === 'GET' && $action === 'view_links') {
     send_json(list_view_links($userId));
 } elseif ($method === 'POST' && $action === 'view_link_create') {
-    send_json(create_view_link($userId, read_json()));
+    send_json(create_view_link($user, read_json()));
 } elseif ($method === 'POST' && $action === 'view_link_delete') {
     send_json(delete_view_link($userId, read_json()));
 } elseif ($method === 'POST' && $action === 'change_password') {

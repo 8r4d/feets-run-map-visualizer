@@ -3946,9 +3946,15 @@ const viewUrl = (code, routeId) => `${location.origin}${location.pathname}?view=
 // A link's expiry time, e.g. "Oct 24, 2026, 3:15 PM".
 const whenText = ms => new Date(ms).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
+// Only the admin picks how long a view link works; everyone else's lasts
+// VIEW_LINK_DAYS (the server holds them to it too).
+const VIEW_LINK_DAYS = 7;
+const picksExpiry = () => Boolean(currentUser && currentUser.isAdmin);
+
 // Asks how long a link should work: a number of days, 0 for until it's
-// turned off, or null if cancelled.
+// turned off, or null if cancelled. Not asked unless picksExpiry().
 function askExpiry() {
+  if (!picksExpiry()) return VIEW_LINK_DAYS;
   const answer = prompt('Stop the link working after how many days? Leave blank to keep it until you turn it off.', '');
   if (answer === null) return null;
   if (!answer.trim()) return 0;
@@ -3962,14 +3968,14 @@ function askExpiry() {
 // { code, days }, or null.
 async function createViewLink(label = null, days = null) {
   label ??= prompt("Name this link, e.g. who it's for. Anyone with it can see your map, tracks and routes "
-    + 'without logging in, until you turn it off or it expires.', 'Club');
+    + 'without logging in, ' + (picksExpiry() ? 'until you turn it off or it expires.' : `for ${VIEW_LINK_DAYS} days or until you turn it off.`), 'Club');
   if (!label || !label.trim()) return null;
   days ??= askExpiry();
   if (days === null) return null;
   try {
-    const code = await Store.createViewLink(label.trim(), days);
+    const link = await Store.createViewLink(label.trim(), days);
     loadViewLinks();
-    return { code, days };
+    return link;
   } catch (err) {
     alert(err.message);
     return null;

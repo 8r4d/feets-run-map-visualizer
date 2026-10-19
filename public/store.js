@@ -49,7 +49,7 @@ const Store = (() => {
     // View links: show your map to people without an account.
     viewLinks: () => json('GET', '?action=view_links'),  // [{ code, label, createdAt, expiresAt }]
     // days: how long the link works, or 0 until it's turned off.
-    createViewLink: async (label, days = 0) => (await json('POST', '?action=view_link_create', { label, days })).code,
+    createViewLink: (label, days = 0) => json('POST', '?action=view_link_create', { label, days }),  // {code, days}
     deleteViewLink: code => json('POST', '?action=view_link_delete', { code }),
 
     // Passwords. resetPassword and recover log in and resolve to { username, isAdmin }.

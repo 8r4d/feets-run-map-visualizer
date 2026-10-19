@@ -5,6 +5,13 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.7.0 — 2026-10-19
+
+- Sharing: view links and route links last 7 days for everyone but the admin,
+  so they're no longer asked how long. The server holds them to it. The admin
+  still picks the days, or keeps a link working until it's turned off. Links
+  made before this keep the expiry they were given.
+
 ## 1.6.0 — 2026-10-19
 
 - Dark mode: the ☾ button beside the title turns the page dark, and ☀ turns
