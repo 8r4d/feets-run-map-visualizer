@@ -99,11 +99,14 @@
 //   POST api.php?action=achievement_add      {achievements: [{code, title, detail}]}; already-earned codes are ignored
 //
 // Experience points (worked out in the browser by xp.js; the server keeps the ledger, see add_xp)
-//   GET  api.php?action=xp                   {since, total, recent, refs}: since (Unix ms) is when the account's
-//                                            XP started counting, set on the first call; recent: the last few
-//                                            events; refs: every ref in the ledger, so they aren't sent again
-//   POST api.php?action=xp_add               {events: [{kind, ref, track?, points, detail}]}; refs already in the
-//                                            ledger are ignored. Returns what GET does, plus added: [refs]
+//   GET  api.php?action=xp                   {since, total, recent, refs, idle}: since (Unix ms) is when the
+//                                            account's XP started counting, set on the first call; recent: the
+//                                            last few events; refs: every ref in the ledger, so they aren't sent
+//                                            again; idle: {ref: points} of the idle days kept
+//   POST api.php?action=xp_add               {events: [{kind, ref, track?, points, detail}], retract?: [refs]}; refs
+//                                            already in the ledger are ignored. Losses (idle, missed) have points
+//                                            from -1000 to 0; retract takes back idle days that weren't idle after
+//                                            all. Returns what GET does, plus added: [refs]
 
 const SESSION_COOKIE = 'feets_session';
 const SESSION_DAYS = 30;
@@ -184,7 +187,7 @@ const SCHEMA = [
     CREATE TABLE IF NOT EXISTS xp_events (  -- experience points earned, one row per thing that earned them
       user_id   INT          NOT NULL,
       ref       VARCHAR(150) NOT NULL,  -- what earned them, e.g. activity:123 or quest:2026-10-19:any
-      kind      VARCHAR(20)  NOT NULL,  -- activity, streets, best, segment, streak, quest, trophy
+      kind      VARCHAR(20)  NOT NULL,  -- activity, streets, best, segment, streak, quest, trophy; losses: idle, missed
       track_id  INT          NULL,      -- the activity it came from, if any: deleting it takes the points away
       points    INT          NOT NULL,
       detail    VARCHAR(255) NULL,
@@ -2396,6 +2399,7 @@ function list_achievements(int $userId): array {
 // stops an import of years of old activities levelling someone up at once.
 
 const XP_KINDS = ['activity', 'streets', 'best', 'segment', 'streak', 'quest', 'trophy'];
+const XP_LOSSES = ['idle', 'missed'];  // these have points of 0 or less
 
 // xp_since is set the first time this is asked: a day back from then, so a
 // run from earlier that day, before feets was opened, still counts.
@@ -2410,10 +2414,17 @@ function xp(int $userId, array $added = []): array {
                              WHERE user_id = ? ORDER BY earned_at DESC, ref DESC LIMIT 15');
     $recent->execute([$userId]);
     $events = array_map(fn($e) => ['points' => (int) $e['points']] + $e, $recent->fetchAll());
-    $refs = db()->prepare('SELECT ref FROM xp_events WHERE user_id = ?');
+    $refs = db()->prepare('SELECT ref, kind, points FROM xp_events WHERE user_id = ?');
     $refs->execute([$userId]);
+    $all = $refs->fetchAll();
+    $idle = [];  // ref -> points, for taking idle days back
+    foreach ($all as $e) {
+        if ($e['kind'] === 'idle') {
+            $idle[$e['ref']] = (int) $e['points'];
+        }
+    }
     return ['since' => (int) $row['since'] * 1000, 'total' => (int) $row['total'], 'recent' => $events,
-            'refs' => $refs->fetchAll(PDO::FETCH_COLUMN), 'added' => $added];
+            'refs' => array_column($all, 'ref'), 'idle' => (object) $idle, 'added' => $added];
 }
 
 function add_xp(int $userId, array $b): array {
@@ -2424,7 +2435,9 @@ function add_xp(int $userId, array $b): array {
         $ref = mb_substr(trim((string) ($e['ref'] ?? '')), 0, 150);
         $kind = (string) ($e['kind'] ?? '');
         $points = (int) ($e['points'] ?? 0);
-        if ($ref === '' || !in_array($kind, XP_KINDS, true) || $points < 1 || $points > 1000) {
+        $gain = in_array($kind, XP_KINDS, true) && $points >= 1 && $points <= 1000;
+        $loss = in_array($kind, XP_LOSSES, true) && $points <= 0 && $points >= -1000;
+        if ($ref === '' || (!$gain && !$loss)) {
             continue;
         }
         $track = isset($e['track']) ? (int) $e['track'] : null;
@@ -2439,6 +2452,10 @@ function add_xp(int $userId, array $b): array {
         if ($insert->rowCount()) {
             $added[] = $ref;
         }
+    }
+    $retract = db()->prepare("DELETE FROM xp_events WHERE user_id = ? AND ref = ? AND kind = 'idle'");
+    foreach (array_slice((array) ($b['retract'] ?? []), 0, 500) as $ref) {
+        $retract->execute([$userId, (string) $ref]);
     }
     return xp($userId, $added);
 }

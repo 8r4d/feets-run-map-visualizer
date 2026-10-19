@@ -195,3 +195,22 @@ test('XP is private: view-only accounts and view links get none', async () => {
   assert.equal((await client.call('xp')).status, 403);
   assert.equal((await client.call('xp_add', { events: [] })).status, 403);
 });
+
+test('XP losses: kept as 0 or less, and only idle days can be taken back', async () => {
+  const { client } = await member();
+  await client.call('xp');
+  let r = await client.call('xp_add', { events: [
+    { kind: 'quest', ref: 'quest:w:any', points: 50 },
+    { kind: 'idle', ref: 'idle:2026-10-08', points: -5, detail: '8 days without an activity' },
+    { kind: 'missed', ref: 'missed:w:street', points: -20 },
+    { kind: 'idle', ref: 'idle:2026-10-09', points: 0 },
+    { kind: 'idle', ref: 'idle:bad', points: 10 },          // a loss can't be a gain
+    { kind: 'quest', ref: 'quest:w:neg', points: -10 },     // nor a gain a loss
+  ] });
+  assert.deepEqual(r.body.added, ['quest:w:any', 'idle:2026-10-08', 'missed:w:street', 'idle:2026-10-09']);
+  assert.equal(r.body.total, 25);
+  assert.deepEqual({ ...r.body.idle }, { 'idle:2026-10-08': -5, 'idle:2026-10-09': 0 });
+  r = await client.call('xp_add', { events: [], retract: ['idle:2026-10-08', 'missed:w:street', 'quest:w:any'] });
+  assert.equal(r.body.total, 30, 'the idle day comes back; the missed quest and the quest stay');
+  assert.ok(!r.body.refs.includes('idle:2026-10-08'));
+});

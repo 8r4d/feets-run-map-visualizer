@@ -61,7 +61,37 @@ test('add GPX, FIT and TCX files', { skip }, async () => {
   assert.deepEqual(kept, ['stanley-park.gpx', 'trail-run.gpx', 'walk.gpx']);
 });
 
+test('Questing: the modes\' new names, and the game in a column over the map', { skip }, async () => {
+  assert.deepEqual(await page.eval(`[...document.querySelectorAll('#mode button')].map(b => b.innerText)`),
+    ['Tracks', 'Heatmap', 'Questing', 'Road Fill', 'Planning']);
+  const where = () => page.eval(`({ hud: !document.getElementById('quest-hud').hidden,
+    inHud: document.getElementById('quest-hud').contains(document.getElementById('xp-box')),
+    shown: !document.getElementById('questing-panel').hidden,
+    boxes: [...document.querySelectorAll('#questing-panel > details')].map(d => d.id) })`);
+  assert.equal((await where()).shown, false, 'not in Tracks mode');
+  await page.eval(`document.querySelector('#mode [data-mode=fog]').click()`);
+  const q = await where();
+  assert.ok(q.shown && q.hud && q.inHud, JSON.stringify(q));
+  assert.deepEqual(q.boxes, ['xp-box', 'quests-box', 'trophies-box']);
+  assert.ok(await page.eval(`!document.getElementById('sidebar').contains(document.getElementById('trophies-box'))`), 'gone from the sidebar');
+  // On a phone there's no room beside the map: the panel under it has them.
+  await page.send('Emulation.setDeviceMetricsOverride', { width: 400, height: 800, deviceScaleFactor: 2, mobile: true });
+  await page.waitFor(`document.getElementById('quest-hud').hidden`, { what: 'the column to go on a phone' });
+  assert.ok(await page.eval(`document.getElementById('sidebar').contains(document.getElementById('xp-box'))`), 'in the panel on a phone');
+  assert.deepEqual(await page.eval(`[...document.querySelectorAll('#mode button')].map(b => b.innerText)`),
+    ['Tracks', 'Heat', 'Quest', 'Roads', 'Plan'], 'shorter names on a phone');
+  const fits = await page.eval(`document.getElementById('mode').getBoundingClientRect().right
+    <= document.querySelector('.leaflet-control-layers').getBoundingClientRect().left`);
+  assert.ok(fits, 'clear of the layers button');
+  await snap('questing-phone');
+  await page.send('Emulation.clearDeviceMetricsOverride');
+  await page.waitFor(`!document.getElementById('quest-hud').hidden`, { what: 'the column back' });
+  await page.eval(`document.querySelector('#mode [data-mode=tracks]').click()`);
+  assert.equal((await where()).shown, false);
+});
+
 test('XP: old activities earn none, a new run does', { skip }, async () => {
+  await page.eval(`document.querySelector('#mode [data-mode=fog]').click()`);
   const xp = () => page.eval(`({ shown: !document.getElementById('xp-box').hidden,
     level: document.getElementById('xp-level').textContent, progress: document.getElementById('xp-progress').textContent })`);
   await page.waitFor(`!document.getElementById('xp-box').hidden`, { what: 'the XP box' });
@@ -85,6 +115,7 @@ test('XP: old activities earn none, a new run does', { skip }, async () => {
     .then(id => fetch('api.php?action=delete&id=' + id, { method: 'POST', body: '{}' }))`);
   await page.reload();
   await page.waitFor(`/^0 of 200 XP/.test(document.getElementById('xp-progress').textContent)`, { what: 'the XP to go' });
+  await page.eval(`document.querySelector('#mode [data-mode=tracks]').click()`);
 });
 
 test('miles', { skip }, async () => {

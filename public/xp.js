@@ -16,10 +16,18 @@
 //   a trophy (not when a check earns more than TROPHY_BATCH at once, which is
 //   an import, not a run)
 // Deleting an activity takes away what it earned (api.php does that).
+//
+// XP can be lost too, gently (see losses below): a quest not done by the end
+// of its week, and every day after IDLE_GRACE days without an activity, a
+// little more each day. Losses never take you below the start of your level
+// (floor), so a holiday can't undo months of progress.
 const Xp = (() => {
   const DAY = 86400000;
   const ADD_WINDOW = 7 * DAY;
-  const POINTS = { quest: 50, streak: 25, trophy: 15, segment: 20, best: 40 };
+  const POINTS = { quest: 50, streak: 25, trophy: 15, segment: 20, best: 40, missed: -20 };
+  const IDLE_GRACE = 7;       // days without an activity before XP starts slipping
+  const IDLE_STEP = 5;        // XP lost on the first day after that, then 5 more each day...
+  const IDLE_MAX = 50;        // ...up to this much a day
   const TROPHY_BATCH = 3;
   const BEST_NAMES = { 1000: '1K', 5000: '5K', 10000: '10K', 21097: 'half marathon', 42195: 'marathon' };
 
@@ -117,6 +125,52 @@ const Xp = (() => {
     return out;
   }
 
+  // A local day as YYYY-MM-DD, and the start of the day after one.
+  const dayId = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const midnight = ms => { const d = new Date(ms); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); };
+  const nextDay = d => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+
+  // Days without an activity: an event for each finished day (not today)
+  // more than IDLE_GRACE days after the last activity that earned XP (or
+  // after XP started). [{ kind: 'idle', ref, points (negative), detail }], in
+  // date order. An activity that turns up late can make some of these days
+  // not idle after all; app.js takes those back (see the ledger's retract).
+  function idleEvents({ since, tracks, now = Date.now() }) {
+    const active = new Set(tracks.filter(t => t.time && counts(t, since)).map(t => dayId(new Date(timeOf(t)))));
+    const out = [];
+    const today = dayId(new Date(now));
+    let idle = 0;
+    for (let d = midnight(since); dayId(d) !== today && d.getTime() < now; d = nextDay(d)) {
+      const id = dayId(d);
+      idle = active.has(id) ? 0 : idle + 1;
+      if (idle > IDLE_GRACE) {
+        const points = -Math.min(IDLE_MAX, IDLE_STEP * (idle - IDLE_GRACE));
+        out.push({ kind: 'idle', ref: `idle:${id}`, points, detail: `${idle} days without an activity` });
+      }
+    }
+    return out;
+  }
+
+  // XP lost for quests not done by the end of their week.
+  const missedEvents = (quests, title) => quests.map(q => ({ kind: 'missed', ref: `missed:${q.id}`, points: POINTS.missed, detail: `Missed quest: ${title(q)}` }));
+
+  // Losses (negative points) made no bigger than keeps the total at or above
+  // the start of its level, once the gains with them are counted. A loss
+  // that would go below becomes smaller, or 0: it's still kept, so it isn't
+  // counted again later.
+  function floor(total, events) {
+    const gains = events.filter(e => e.points > 0).reduce((sum, e) => sum + e.points, 0);
+    const after = total + gains;
+    const bottom = after - level(after).into;
+    let running = after;
+    return events.map(e => {
+      if (e.points >= 0) return e;
+      const points = Math.min(0, Math.max(e.points, bottom - running));
+      running += points;
+      return { ...e, points };
+    });
+  }
+
   // XP for quests just finished: Quests' quest objects.
   const questEvents = (quests, title) => quests.map(q => ({ kind: 'quest', ref: `quest:${q.id}`, points: POINTS.quest, detail: `Quest: ${title(q)}` }));
 
@@ -134,5 +188,6 @@ const Xp = (() => {
     return { level: lvl, into: left, need: toNext(lvl) };
   }
 
-  return { events, questEvents, trophyEvents, level, counts, activityPoints, POINTS, ADD_WINDOW, TROPHY_BATCH };
+  return { events, questEvents, trophyEvents, idleEvents, missedEvents, floor, level, counts, activityPoints,
+    POINTS, ADD_WINDOW, TROPHY_BATCH, IDLE_GRACE };
 })();

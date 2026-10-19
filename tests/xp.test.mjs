@@ -14,6 +14,7 @@ const onFoot = t => t.sport !== 'Ride';
 const weekId = d => d.toISOString().slice(0, 10);  // good enough here: one id per day
 const events = (tracks, extra = {}) => [...Xp.events({ since, tracks, onFoot, weekId, streakMin: 100, ...extra })];
 const kinds = list => list.map(e => e.kind);
+const plain = v => JSON.parse(JSON.stringify(v));  // objects made in the script's own context, as ordinary ones
 
 test('only activities recorded after XP started, and added within a week, count', () => {
   const old = run({ at: since - 10 * DAY });
@@ -89,4 +90,47 @@ test('levels: 200 XP to level 2, then 50 more each level', () => {
   assert.deepEqual({ ...Xp.level(450) }, { level: 3, into: 0, need: 300 });
   assert.equal(Xp.level(9199).level, 16);
   assert.equal(Xp.level(9200).level, 17, 'level n takes 150(n-1) + 25n(n-1) XP in all');
+});
+
+// --- Losing XP ---
+const localDay = (y, m, d) => new Date(y, m - 1, d).getTime();
+
+test('idle days: a week free, then a little more each day, up to 50', () => {
+  const start = localDay(2026, 10, 1);
+  const got = Xp.idleEvents({ since: start, tracks: [], now: localDay(2026, 10, 30) + 3600000 });
+  // Oct 1–7 are the free week (days 1–7); Oct 8 is the 8th idle day.
+  assert.equal(got[0].ref, 'idle:2026-10-08');
+  assert.deepEqual(plain(got.slice(0, 4).map(e => e.points)), [-5, -10, -15, -20]);
+  assert.equal(got.at(-1).ref, 'idle:2026-10-29', 'not today: it isn\'t over');
+  assert.ok(got.every(e => e.points >= -50));
+  assert.equal(got.at(-1).points, -50);
+});
+
+test('idle days: an activity starts the week again', () => {
+  const start = localDay(2026, 10, 1);
+  const ran = run({ at: localDay(2026, 10, 10) + 8 * 3600000, added: localDay(2026, 10, 10) + 9 * 3600000 });
+  const got = Xp.idleEvents({ since: start, tracks: [ran], now: localDay(2026, 10, 20) + 3600000 });
+  assert.deepEqual(plain(got.map(e => e.ref)), ['idle:2026-10-08', 'idle:2026-10-09', 'idle:2026-10-18', 'idle:2026-10-19']);
+  assert.deepEqual(plain(got.slice(2).map(e => e.points)), [-5, -10], 'and the slide starts small again');
+});
+
+test('idle days: old imported runs don\'t count as being active', () => {
+  const start = localDay(2026, 10, 1);
+  const backdated = run({ at: localDay(2026, 10, 5), added: localDay(2026, 10, 20) });
+  assert.equal(Xp.idleEvents({ since: start, tracks: [backdated], now: localDay(2026, 10, 12) }).length, 4);
+});
+
+test('losses never take you below the start of your level', () => {
+  // 450 is the start of level 3; 470 is 20 into it.
+  const lose = (...points) => points.map((p, i) => ({ kind: 'idle', ref: `idle:${i}`, points: p }));
+  assert.deepEqual(plain(Xp.floor(470, lose(-5, -10, -15)).map(e => e.points)), [-5, -10, -5]);
+  assert.deepEqual(plain(Xp.floor(450, lose(-25)).map(e => e.points)), [0], 'kept as 0, so it isn\'t counted again');
+  const withGain = [{ kind: 'activity', ref: 'activity:1', points: 40 }, ...lose(-50)];
+  assert.deepEqual(plain(Xp.floor(470, withGain).map(e => e.points)), [40, -50], 'gains in the same batch count first');
+  assert.equal(Xp.level(470 + 40 - 50).level, 3);
+});
+
+test('missed quests cost 20 each', () => {
+  const got = Xp.missedEvents([{ id: '2026-10-12:any' }, { id: '2026-10-12:street' }], q => q.id);
+  assert.deepEqual(plain(got.map(e => [e.ref, e.points])), [['missed:2026-10-12:any', -20], ['missed:2026-10-12:street', -20]]);
 });

@@ -521,6 +521,25 @@ function placePanels() {
   modeBar.hidden = !any;
 }
 wideScreen.addEventListener('change', placePanels);
+
+// --- Questing ---
+// Fog of war, with your level, this week's quests and trophies (the
+// questing panel) shown only in this mode: in a column over the right of the
+// map, or in the sidebar on a phone, where there's no room beside the map.
+const questingPanel = document.getElementById('questing-panel');
+const questHud = document.getElementById('quest-hud');
+const questHome = document.createComment('questing-panel');
+questingPanel.before(questHome);
+const notPhone = matchMedia('(min-width: 641px)');
+function placeQuesting() {
+  questingPanel.hidden = !fogMode || publicView();
+  const hud = notPhone.matches && !questingPanel.hidden;
+  if (hud && questingPanel.parentElement !== questHud) questHud.append(questingPanel);
+  if (!hud && questingPanel.parentElement === questHud) questHome.after(questingPanel);
+  questHud.hidden = !hud;
+  document.body.classList.toggle('questing-hud', hud);
+}
+notPhone.addEventListener('change', placeQuesting);
 new ResizeObserver(() => {
   document.documentElement.style.setProperty('--mode-bar-height', modeBar.offsetHeight + 'px');
 }).observe(modeBar);
@@ -546,6 +565,7 @@ function setMode(mode) {
   document.getElementById('streets-panel').hidden = !streetsMode;
   document.getElementById('plan-panel').hidden = !planMode;
   placePanels();
+  placeQuesting();
   map.getContainer().classList.toggle('planning', planMode);
   for (const button of document.querySelectorAll('#mode button')) {
     button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
@@ -2390,7 +2410,7 @@ function lineMetres(points) {
 // A click's nearest street point, or null (with a message) if there isn't one.
 function snapClick(latlng) {
   if (!areas.length) {
-    planStatus.textContent = 'Add an area in Streets mode first: routes follow its streets.';
+    planStatus.textContent = 'Add an area in Road Fill first: routes follow its streets.';
     return null;
   }
   const g = planGraph();
@@ -2789,7 +2809,7 @@ function renderPlan() {
   if (publicView()) {
     stats.textContent = n > 1 ? km(lineMetres(routePoints(plan))) + climb : routes.length ? 'Pick a route below.' : 'No routes shared yet.';
   } else if (n < 2) {
-    stats.textContent = !areas.length ? 'Add an area in Streets mode first: routes follow its streets.'
+    stats.textContent = !areas.length ? 'Add an area in Road Fill first: routes follow its streets.'
       : n ? 'Now click where to go next.' : 'Click the map to start a route. Each click adds a point, '
         + 'routed along the streets of your areas. Drag a point to move it, click it to remove it. '
         + 'Click the line to make a part of it straight.';
@@ -3267,7 +3287,7 @@ document.getElementById('plan-explore').onsubmit = async e => {
   if (!(target > 0)) return;
   try { localStorage.setItem(EXPLORE_KEY, exploreKm.value); } catch {}
   if (!areas.length) {
-    planStatus.textContent = 'Add an area in Streets mode first: routes follow its streets.';
+    planStatus.textContent = 'Add an area in Road Fill first: routes follow its streets.';
     return;
   }
   // Finishing elsewhere: from the route's first point to its last.
@@ -4241,7 +4261,7 @@ async function addFoundArea(place, { osmId, built }) {
   fillAreaSelect();
   setActiveArea(showing || saved.id);
   scheduleTrophies();
-  toast(`New street map: ${saved.name}`, `Added because you've been there ${place.runs} times. See it in Streets mode.`);
+  toast(`New street map: ${saved.name}`, `Added because you've been there ${place.runs} times. See it in Road Fill.`);
 }
 
 // --- GPS art ---
@@ -4459,7 +4479,7 @@ function artSetup() {
   const length = Number(artKm.value);
   if (!(length > 0)) return null;
   if (!artArea.value) {
-    planStatus.textContent = 'Add an area in Streets mode first: the art is drawn on its streets.';
+    planStatus.textContent = 'Add an area in Road Fill first: the art is drawn on its streets.';
     return null;
   }
   const g = planGraph();
@@ -5114,6 +5134,11 @@ async function updateQuests() {
     return home ? [home.lat, home.lon] : lastFix ? [lastFix.lat, lastFix.lng] : [c.lat, c.lng];
   };
   if (!questState || questState.week !== week) {
+    // Last week's quests not done cost a little XP (if XP was counting then).
+    const old = questState;
+    if (old && xpState && old.week >= Quests.weekId(new Date(xpState.since))) {
+      xpPending.push(...Xp.missedEvents(old.quests.filter(q => !old.done.includes(q.id)), Quests.title));
+    }
     questState = { ...Quests.make(areas, coverageFor, firsts, near()), done: [], completed: questState ? questState.completed : 0 };
     await Store.saveQuests(questState).catch(() => {});
   }
@@ -5157,9 +5182,10 @@ async function awardStreakTrophies(firsts) {
 
 // --- Experience points ---
 // Xp (xp.js) says what's earned XP, from activities recorded from the day XP
-// started (xpState.since); the server keeps the ledger. Checked after quests
-// and segments update, since they work out what Xp needs, and when quests or
-// trophies are won. Private: only the account itself sees it.
+// started (xpState.since), and what's lost it (quests missed, days without an
+// activity); the server keeps the ledger. Checked after quests and segments
+// update, since they work out what Xp needs, and when quests or trophies are
+// won. Private: only the account itself sees it.
 const xpBox = document.getElementById('xp-box');
 let xpState = null;     // { since, total, recent, refs }, as from Store.xp()
 let xpFirsts = null;    // the last Quests.firsts, for the new streets each activity covered
@@ -5182,29 +5208,42 @@ function awardXp(extra = []) {
   xpCheck = xpCheck.then(async () => {
     if (!xpState || readOnly()) return;
     const known = new Set(xpState.refs);
-    const events = [...Xp.events({
+    const tracks = [...loaded.values()].map(e => e.track);
+    const idle = Xp.idleEvents({ since: xpState.since, tracks });
+    // Idle days kept before an activity from then turned up: take them back.
+    const idleNow = new Set(idle.map(e => e.ref));
+    const retract = xpState.refs.filter(ref => ref.startsWith('idle:') && !idleNow.has(ref));
+    const fresh = [...Xp.events({
       since: xpState.since,
-      tracks: [...loaded.values()].map(e => e.track),
+      tracks,
       onFoot: Stats.onFoot,
       firsts: xpFirsts,
       segments,
       weekId: Quests.weekId,
       streakMin: Quests.STREAK_MIN,
-    }), ...xpPending].filter(e => !known.has(e.ref));
+    }), ...xpPending, ...idle].filter(e => !known.has(e.ref));
     xpPending = [];
-    if (!events.length) return;
+    if (!fresh.length && !retract.length) return;
+    const events = Xp.floor(xpState.total + lostTo(retract), fresh);  // the total once they're taken back
     const before = Xp.level(xpState.total).level;
-    xpState = await Store.addXp(events);
+    xpState = await Store.addXp(events, retract);
     renderXp();
     const added = events.filter(e => xpState.added.includes(e.ref));
-    if (!added.length) return;
-    const points = added.reduce((sum, e) => sum + e.points, 0);
+    const sum = list => list.reduce((total, e) => total + e.points, 0);
+    const more = list => (list.length > 1 ? ` and ${list.length - 1} more` : '');
+    const gains = added.filter(e => e.points > 0), losses = added.filter(e => e.points < 0);
     const now = Xp.level(xpState.total).level;
-    if (now > before) toast(`⬆️ Level ${now}`, `+${points} XP: ${added[0].detail}${added.length > 1 ? ` and ${added.length - 1} more` : ''}`);
-    else toast(`+${points} XP`, added.length > 1 ? `${added[0].detail} and ${added.length - 1} more` : added[0].detail);
+    if (gains.length) {
+      if (now > before) toast(`⬆️ Level ${now}`, `+${sum(gains)} XP: ${gains[0].detail}${more(gains)}`);
+      else toast(`+${sum(gains)} XP`, `${gains[0].detail}${more(gains)}`);
+    }
+    if (losses.length) toast(`−${-sum(losses)} XP`, `${losses[losses.length - 1].detail}${more(losses)}`);
   }).catch(err => console.error('XP:', err));
   return xpCheck;
 }
+
+// What some idle days in the ledger took away.
+const lostTo = refs => -refs.reduce((sum, ref) => sum + (xpState.idle[ref] || 0), 0);
 
 function renderXp() {
   xpBox.hidden = !xpState;
@@ -5217,13 +5256,14 @@ function renderXp() {
   document.getElementById('xp-recent').replaceChildren(...xpState.recent.map(e => {
     const li = document.createElement('li');
     li.innerHTML = '<span></span><strong></strong>';
+    li.className = e.points < 0 ? 'lost' : '';
     li.querySelector('span').textContent = e.detail || e.kind;
-    li.querySelector('strong').textContent = `+${e.points}`;
+    li.querySelector('strong').textContent = e.points < 0 ? `−${-e.points}` : `+${e.points}`;
     return li;
   }));
   const since = new Date(xpState.since).toLocaleDateString(undefined, { dateStyle: 'medium' });
   document.getElementById('xp-note').textContent = xpState.recent.length
-    ? `Counting since ${since}.`
+    ? `Counting since ${since}. A missed quest, or a week without an activity, costs a little, but never a level.`
     : `XP counts from ${since}: activities you record from then on, the new streets and bests in them, `
       + 'quests and trophies. Older activities you add don\'t earn any.';
 }
@@ -5257,7 +5297,7 @@ function renderQuests(streak, progress) {
     return li;
   }));
   document.getElementById('quests-note').textContent = `New quests every Monday. ${questState.completed} done in all.`
-    + (areas.length ? '' : ' Add a street area in Streets mode for more kinds of quest.');
+    + (areas.length ? '' : ' Add a street area in Road Fill for more kinds of quest.');
 }
 
 // "Plan it": Plan mode, set up for the quest.

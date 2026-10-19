@@ -5,6 +5,21 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.12.0 — 2026-10-19
+
+- The map modes have clearer names: Tracks, Heatmap, Questing (was Fog),
+  Road Fill (was Streets) and Planning (was Plan). On a phone they're
+  shortened (Tracks, Heat, Quest, Roads, Plan) to fit beside the layers button.
+- Questing mode is the game side of feets: your level, this week's quests and
+  your trophies have moved there from the sidebar, into a column on the right
+  of the map (on a phone, the panel under it), over the fog of war. XP notes
+  still pop up in every mode.
+- XP can slip a little: a quest not done by the end of its week costs 20, and
+  after 7 days without an activity each day costs a bit more than the last
+  (5, 10, 15… up to 50 a day). Losses never take you below the start of your
+  level, so you can't lose a level, and your next activity starts the week
+  again.
+
 ## 1.11.0 — 2026-10-19
 
 - Levels and experience points (XP), at the top of the panel. Private, and

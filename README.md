@@ -42,7 +42,7 @@ routes to anyone who has it, with no login: for a running club, say.
   newest one open. They can switch between routes and download each as GPX.
   Nothing else: no tracks, heatmap, street areas, trophies or route editing.
   The server sends a view link nothing but the routes.
-- **One route:** in **Plan**, click **Link** next to a saved route to get a
+- **One route:** in **Planning**, click **Link** next to a saved route to get a
   link that opens straight to that route, with a 7-day view link of its own.
   The admin can instead leave the days blank to reuse their newest view link
   that never expires.
@@ -58,11 +58,11 @@ When you change any JS or CSS file, raise the `?v=` number on its link in
 
 ## Street coverage
 
-**Streets** mode shows how much of an area's roads, paths and trails your
+**Road Fill** shows how much of an area's roads, paths and trails your
 tracks cover, for "run every street" projects. On a screen at least 1300 px
-wide its panel sits in a bar under the map, as Plan mode's does.
+wide its panel sits in a bar under the map, as Planning's does.
 
-1. Switch to **Streets** and zoom the map to the neighbourhood.
+1. Switch to **Road Fill** and zoom the map to the neighbourhood.
 2. Click **Add area** and pick one. Areas come from OpenStreetMap's boundaries.
    In Edmonton, for example, Riverbend is a district and Brander Gardens is a
    neighbourhood inside it. feets fetches the area's streets, which takes from
@@ -290,22 +290,22 @@ load quickly. The original GPX is kept for the ↓ download.
 
 ## Planning routes
 
-**Plan** mode draws routes along the streets of your areas, with no outside
+**Planning** draws routes along the streets of your areas, with no outside
 routing service.
 
-On a screen at least 1300 px wide, Plan mode's controls move to a bar under
+On a screen at least 1300 px wide, Planning's controls move to a bar under
 the map: the route, its elevation, the buttons and your saved routes side by
 side. Narrower windows and phones keep them in the sidebar.
 
-1. Switch to **Plan**. The active area's streets are coloured as in Streets
-   mode, so you can aim for the red ones. Untick **Show street coverage** for
+1. Switch to **Planning**. The active area's streets are coloured as in Road
+   Fill, so you can aim for the red ones. Untick **Show street coverage** for
    a plain map; routes still follow the streets.
 2. Click the map to add points. Each one is routed along the streets from the
    last. Drag a point to move it, click it to remove it. **Back to start**
    closes the loop, and **Reverse** turns the route round. Arrows along the line show which way it goes, every
    200 m (further apart when zoomed out).
 3. The panel shows the distance, the climb, and how much of it is on streets
-   you haven't run yet (counting the tracks on the map, as in Streets mode),
+   you haven't run yet (counting the tracks on the map, as in Road Fill),
    with an elevation chart below.
 4. **Save** keeps the route under a name (a route you opened is saved over);
    **Download GPX** gives a file for a watch, or to import into Strava as a
@@ -322,7 +322,7 @@ for a loop over as many streets you haven't run as fit.
   next, until nothing more fits. Getting between them, it prefers streets you
   haven't run and avoids ones it already used. It tries a few ways and keeps
   the one with the most new street.
-- **"Unrun"** means not covered by the tracks on the map, as in Streets mode,
+- **"Unrun"** means not covered by the tracks on the map, as in Road Fill,
   and leaves out streets marked unrunnable.
 - The loop is never longer than the length you set, and is often a little
   shorter. The result is an ordinary route: drag or remove points, then save
@@ -396,7 +396,7 @@ each month. Click **Set goals** to choose them; they're saved with your account.
 
 ## Trophies
 
-The **Trophies** box collects milestones as you go: an area at 25, 50 and 75%,
+The **Trophies** box (in **Questing** mode) collects milestones as you go: an area at 25, 50 and 75%,
 an area or neighbourhood complete, kilometres of unique streets covered,
 neighbourhoods finished, total distance, and your first 10K, half marathon and
 marathon.
@@ -419,7 +419,7 @@ marathon.
 
 ## Levels and XP
 
-The **Level** box at the top of the panel shows experience points: a
+The **Level** box, in **Questing** mode, shows experience points: a
 motivational extra, private to each account (view-only accounts and view
 links don't get it). It only counts from here on, so importing years of old
 activities doesn't level anyone up:
@@ -436,7 +436,15 @@ activities doesn't level anyone up:
   (20), a week that keeps the new-streets streak going (25), a quest done (50)
   and a trophy (15, unless one check earns more than 3, which means an
   import).
+- **Losing XP:** a quest not done by the end of its week costs 20, and after
+  7 days without an activity each day costs more than the last (5, 10, 15…,
+  up to 50 a day; `idle` rows in the ledger). Losses never go below the start
+  of the current level, so nobody loses a level. An idle day that an activity
+  turns up for later (a watch synced late) is taken back.
 - **Levels:** level 2 takes 200 XP, and each level after takes 50 more.
+- **Where it shows:** in **Questing** mode (fog of war), with the week's quests
+  and the trophies: a column over the right of the map, or the panel under it
+  on a phone (`placeQuesting` in `app.js`).
 - **How it's kept:** `xp.js` works out what's been earned; `api.php` keeps a
   ledger (`xp_events`) with one row per thing, so nothing counts twice and
   every device shows the same. Deleting an activity deletes its rows. The

@@ -691,10 +691,18 @@ body {
 /* Phones: map on top with two thirds of the screen, the panel underneath.
    #panel-toggle sits between them (column-reverse puts it after the map). */
 /* Phones: small enough to clear the layers button on the right. */
+#mode .short {
+  display: none;
+}
+
 @media (max-width: 640px) {
   #mode {
     left: 50px;
   }
+
+  /* The full names don't fit beside the layers button. */
+  #mode .long { display: none; }
+  #mode .short { display: inline; }
 
   #mode button {
     padding: 5px 7px;
@@ -1424,6 +1432,39 @@ body {
   color: var(--muted);
 }
 
+/* Questing mode's panel: the level, quests and trophies. In the sidebar on a
+   phone; otherwise in #quest-hud, a column over the right of the map, under
+   the layers button and above the bar under the map (see placeQuesting). */
+#questing-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#quest-hud {
+  position: absolute;
+  top: 64px;  /* under the layers button */
+  right: 10px;
+  bottom: calc(10px + var(--mode-bar-height, 0px));
+  z-index: 1000;  /* above the map */
+  width: min(300px, 40%);
+  overflow-y: auto;
+  pointer-events: none;  /* the map still pans through the gaps... */
+}
+
+#quest-hud #questing-panel {
+  pointer-events: auto;  /* ...but not through the boxes */
+}
+
+#quest-hud .panel {
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.3);
+}
+
+/* Toasts sit left of the column, not over it. */
+.questing-hud #toasts {
+  right: calc(20px + min(300px, 40%));
+}
+
 /* Experience points: the level, with a bar in the heading, and what earned the last few */
 #xp-level {
   margin-left: -4px;  /* "Level 3", not "Level  3" */
@@ -1475,6 +1516,10 @@ body {
 #xp-recent li strong {
   color: var(--art);
   font-variant-numeric: tabular-nums;
+}
+
+#xp-recent li.lost strong {
+  color: var(--danger);
 }
 
 #xp-note {
