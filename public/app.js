@@ -37,6 +37,34 @@ L.control.scale().addTo(map);
 // phone panel folds away (below) or the sidebar's contents change.
 new ResizeObserver(() => map.invalidateSize()).observe(map.getContainer());
 
+// --- Light / dark ---
+// Follows the system until the toggle by the title picks one. Picking the
+// system's own theme forgets the choice, so it follows the system again.
+// index.html's <head> sets it first, so the page doesn't flash.
+const themeToggle = document.getElementById('theme-toggle');
+const systemDark = matchMedia('(prefers-color-scheme: dark)');
+function setTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  const dark = theme === 'dark';
+  themeToggle.textContent = dark ? '☀' : '☾';
+  themeToggle.title = dark ? t('Light mode') : t('Dark mode');
+  themeToggle.setAttribute('aria-pressed', String(dark));
+}
+themeToggle.onclick = () => {
+  const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  try {
+    if (theme === (systemDark.matches ? 'dark' : 'light')) localStorage.removeItem('feets-theme');
+    else localStorage.setItem('feets-theme', theme);
+  } catch {}
+  setTheme(theme);
+};
+systemDark.addEventListener('change', () => {
+  let picked = null;
+  try { picked = localStorage.getItem('feets-theme'); } catch {}
+  if (!picked) setTheme(systemDark.matches ? 'dark' : 'light');
+});
+setTheme(document.documentElement.dataset.theme);
+
 // Phones: fold the panel under the map away for a full-screen map. Remembered per browser.
 const panelToggle = document.getElementById('panel-toggle');
 function setPanelCollapsed(collapsed) {
@@ -751,11 +779,11 @@ const statKm = m => (m / 1000).toFixed(m < 100000 ? 1 : 0) + ' km';
 // A small calendar per month, each day shaded by the distance covered: the
 // filters' year, or else the last 12 months. Hovering or tapping a day says
 // what was done; clicking one with activities zooms the map to them.
-const CAL_BINS = [  // km below `to` get `color`: one blue, light to dark (checked with the dataviz validator)
-  { to: 5, color: '#86b6ef', label: '<5' },
-  { to: 10, color: '#3987e5', label: '5–10' },
-  { to: 20, color: '#1c5cab', label: '10–20' },
-  { to: Infinity, color: '#0d366b', label: '20+' },
+const CAL_BINS = [  // km below `to` get `color`: one blue, light to dark, reversed in the dark theme (--cal-N in style.css)
+  { to: 5, color: 'var(--cal-1)', label: '<5' },
+  { to: 10, color: 'var(--cal-2)', label: '5–10' },
+  { to: 20, color: 'var(--cal-3)', label: '10–20' },
+  { to: Infinity, color: 'var(--cal-4)', label: '20+' },
 ];
 const dayKey = d => `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 const calColor = metres => CAL_BINS.find(b => metres / 1000 < b.to).color;

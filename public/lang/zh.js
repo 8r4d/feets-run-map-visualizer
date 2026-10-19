@@ -314,4 +314,6 @@ I18n.add('zh', {
   'This will log you out on your other devices.': '这会让你在其他设备上退出登录。',
   'Save and log in': '保存并登录',
   'Change your password': '修改你的密码',
+  'Dark mode': '深色模式',
+  'Light mode': '浅色模式',
 });

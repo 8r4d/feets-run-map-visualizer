@@ -5,6 +5,13 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.6.0 — 2026-10-19
+
+- Dark mode: the ☾ button beside the title turns the page dark, and ☀ turns
+  it light again. Until you press it, feets follows your system's setting.
+  Your choice is remembered in this browser. The map itself stays as picked
+  under the layers button; choose "Dark" there for a dark map too.
+
 ## 1.5.2 — 2026-10-19
 
 - Quests: a "Finish …" quest whose street you've since marked off-limits is

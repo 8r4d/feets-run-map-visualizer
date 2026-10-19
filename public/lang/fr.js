@@ -314,4 +314,6 @@ I18n.add('fr', {
   'This will log you out on your other devices.': "Cela vous déconnectera de vos autres appareils.",
   'Save and log in': "Enregistrer et se connecter",
   'Change your password': "Changez votre mot de passe",
+  'Dark mode': "Mode sombre",
+  'Light mode': "Mode clair",
 });

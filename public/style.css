@@ -2,11 +2,67 @@
 
 [hidden] { display: none !important; }
 
+/* Colours. Light by default; dark when <html data-theme="dark">, set by the
+   script in index.html's <head> and the toggle beside the title (app.js).
+   Things drawn on the map (markers, arrows) keep their own colours. */
+:root {
+  color-scheme: light;
+  --text: #222;
+  --text-2: #444;
+  --text-3: #555;
+  --muted: #777;
+  --bg: #fafafa;
+  --surface: #fff;
+  --surface-2: #f4f4f4;
+  --border: #e3e3e3;
+  --border-strong: #ccc;
+  --track: #eee;
+  --link: #1a73e8;
+  --danger: #c00;
+  --danger-surface: #fff8f8;
+  --danger-border: #f0b4b4;
+  --info-surface: #eef5ff;
+  --art: #8e24aa;
+  --art-surface: #f8eefa;
+  /* Calendar heatmap, light to strong (see CAL_BINS in app.js) */
+  --cal-1: #86b6ef;
+  --cal-2: #3987e5;
+  --cal-3: #1c5cab;
+  --cal-4: #0d366b;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --text: #e6e6e6;
+  --text-2: #cfcfcf;
+  --text-3: #b0b0b0;
+  --muted: #8e8e8e;
+  --bg: #181a1b;
+  --surface: #232527;
+  --surface-2: #2e3134;
+  --border: #3a3d40;
+  --border-strong: #4d5155;
+  --track: #34373a;
+  --link: #7ab0ff;
+  --danger: #ff6b6b;
+  --danger-surface: #3a2224;
+  --danger-border: #7a3a3a;
+  --info-surface: #1d2c42;
+  --art: #c77dd6;
+  --art-surface: #3a2440;
+  /* Reversed, so more running still stands out more against the dark */
+  --cal-1: #1c5cab;
+  --cal-2: #3987e5;
+  --cal-3: #86b6ef;
+  --cal-4: #d3e5fb;
+}
+
 html, body {
   margin: 0;
   height: 100%;
   font: 14px/1.4 system-ui, -apple-system, sans-serif;
-  color: #222;
+  color: var(--text);
+  background: var(--bg);
 }
 
 body {
@@ -18,8 +74,8 @@ body {
   flex-shrink: 0;
   padding: 16px;
   overflow-y: auto;
-  border-right: 1px solid #ddd;
-  background: #fafafa;
+  border-right: 1px solid var(--border);
+  background: var(--bg);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -34,6 +90,86 @@ body {
   margin: 0;
   font-size: 20px;
 }
+
+/* The title, with the light/dark toggle at its right */
+#sidebar-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+#theme-toggle {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--text-3);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+#theme-toggle:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+/* Leaflet's controls, popups and tooltips in the dark theme. The layers
+   button is a dark icon, so it's inverted. */
+[data-theme="dark"] .leaflet-bar a,
+[data-theme="dark"] .leaflet-control-layers,
+[data-theme="dark"] .leaflet-popup-content-wrapper,
+[data-theme="dark"] .leaflet-popup-tip,
+[data-theme="dark"] .leaflet-tooltip {
+  color: var(--text);
+  background: var(--surface);
+  border-color: var(--border-strong);
+}
+
+[data-theme="dark"] .leaflet-bar a:hover,
+[data-theme="dark"] .leaflet-bar a:focus {
+  background: var(--surface-2);
+}
+
+[data-theme="dark"] .leaflet-bar a.leaflet-disabled {
+  color: var(--muted);
+  background: var(--surface-2);
+}
+
+[data-theme="dark"] .leaflet-control-layers-toggle {
+  filter: invert(1);
+}
+
+[data-theme="dark"] .leaflet-control-layers-separator {
+  border-top-color: var(--border);
+}
+
+[data-theme="dark"] .leaflet-container .leaflet-control-attribution,
+[data-theme="dark"] .leaflet-control-scale-line {
+  color: var(--text-3);
+  background: rgba(35, 37, 39, 0.8);
+}
+
+[data-theme="dark"] .leaflet-control-scale-line {
+  border-color: var(--text-3);
+}
+
+[data-theme="dark"] .leaflet-control-attribution a,
+[data-theme="dark"] .leaflet-popup-content a {
+  color: var(--link);
+}
+
+[data-theme="dark"] .leaflet-container a.leaflet-popup-close-button {
+  color: var(--muted);
+}
+
+[data-theme="dark"] .leaflet-tooltip-top::before { border-top-color: var(--surface); }
+[data-theme="dark"] .leaflet-tooltip-bottom::before { border-bottom-color: var(--surface); }
+[data-theme="dark"] .leaflet-tooltip-left::before { border-left-color: var(--surface); }
+[data-theme="dark"] .leaflet-tooltip-right::before { border-right-color: var(--surface); }
 
 #map-area {
   position: relative;
@@ -56,8 +192,8 @@ body {
   max-height: 40vh;
   overflow-y: auto;
   padding: 10px 16px;
-  border-top: 1px solid #ddd;
-  background: #fafafa;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
 }
 
 #mode-bar #plan-panel {
@@ -172,7 +308,7 @@ body {
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: #555;
+  color: var(--text-3);
 }
 
 #fog-options {
@@ -189,7 +325,7 @@ body {
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: #555;
+  color: var(--text-3);
 }
 
 #fog-width-row output {
@@ -203,7 +339,7 @@ body {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: #555;
+  color: var(--text-3);
 }
 
 #fog-regrow {
@@ -226,19 +362,19 @@ body {
   display: block;
   padding: 20px;
   text-align: center;
-  border: 2px dashed #bbb;
+  border: 2px dashed var(--border-strong);
   border-radius: 8px;
   cursor: pointer;
-  color: #555;
+  color: var(--text-3);
 }
 
 #dropzone.over {
   border-color: #2a7ae2;
-  background: #eef5ff;
+  background: var(--info-surface);
 }
 
 #summary {
-  color: #666;
+  color: var(--text-3);
   font-size: 13px;
 }
 
@@ -258,8 +394,8 @@ body {
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
-  background: #fff;
-  border: 1px solid #e3e3e3;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 6px;
 }
 
@@ -282,7 +418,7 @@ body {
 }
 
 #track-list .name small {
-  color: #777;
+  color: var(--muted);
 }
 
 #track-list button.delete,
@@ -292,14 +428,14 @@ body {
 #track-list button.solo {
   border: none;
   background: none;
-  color: #999;
+  color: var(--muted);
   cursor: pointer;
   font-size: 16px;
   padding: 0 2px;
 }
 
 #track-list button.delete:hover {
-  color: #c00;
+  color: var(--danger);
 }
 
 /* Delete, plan-a-route, fix-points and download buttons only show in edit mode. */
@@ -311,12 +447,12 @@ body {
 }
 
 #track-list.editing li {
-  border-color: #f0b4b4;
-  background: #fff8f8;
+  border-color: var(--danger-border);
+  background: var(--danger-surface);
 }
 
 #track-list.editing button.delete {
-  color: #c00;
+  color: var(--danger);
   font-size: 18px;
 }
 
@@ -347,7 +483,7 @@ body {
 #track-list button.edit-points:hover,
 #track-list button.solo:hover,
 #track-list button.solo[aria-pressed="true"] {
-  color: #2a7ae2;
+  color: var(--link);
 }
 
 #filters {
@@ -392,18 +528,18 @@ body {
   padding: 6px 11px;
   font: inherit;
   font-size: 13px;
-  color: #444;
-  background: #fff;
+  color: var(--text-2);
+  background: var(--surface);
   border: none;
   cursor: pointer;
 }
 
 #mode button:hover:not([aria-pressed="true"]) {
-  background: #f4f4f4;
+  background: var(--surface-2);
 }
 
 #mode button + button {
-  border-left: 1px solid #ccc;
+  border-left: 1px solid var(--border-strong);
 }
 
 #mode button[aria-pressed="true"] {
@@ -416,7 +552,7 @@ body {
   flex-direction: column;
   gap: 6px;
   font-size: 13px;
-  color: #555;
+  color: var(--text-3);
 }
 
 #strava-connected {
@@ -454,7 +590,7 @@ body {
 .link-button {
   padding: 0;
   font: inherit;
-  color: #777;
+  color: var(--muted);
   text-decoration: underline;
   background: none;
   border: none;
@@ -468,7 +604,7 @@ body {
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: #555;
+  color: var(--text-3);
 }
 
 #view-expiry {
@@ -492,7 +628,7 @@ body {
   width: 100%;
   max-width: 340px;
   padding: 24px;
-  background: #fff;
+  background: var(--surface);
   border-radius: 10px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
   display: flex;
@@ -507,7 +643,7 @@ body {
 
 #auth-form p {
   margin: 0;
-  color: #555;
+  color: var(--text-3);
 }
 
 #auth-form p:empty {
@@ -517,7 +653,7 @@ body {
 #auth-form input {
   padding: 8px 10px;
   font: inherit;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
 }
 
@@ -537,14 +673,14 @@ body {
 }
 
 #auth-error {
-  color: #c00 !important;
+  color: var(--danger) !important;
 }
 
 #auth-form .link-button {
   align-self: center;
   padding: 0;
   font-weight: normal;
-  color: #555;
+  color: var(--text-3);
   background: none;
 }
 
@@ -575,9 +711,9 @@ body {
     width: 100%;
     padding: 8px;
     border: none;
-    border-top: 1px solid #ddd;
-    background: #f0f0f0;
-    color: #444;
+    border-top: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text-2);
     font: inherit;
     font-size: 13px;
     cursor: pointer;
@@ -610,7 +746,7 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #555;
+  color: var(--text-3);
 }
 
 .public-view #plan-streets-toggle {
@@ -618,6 +754,8 @@ body {
 }
 
 #name-dialog {
+  color: var(--text);
+  background: var(--surface);
   width: min(340px, calc(100vw - 32px));
   padding: 24px;
   border: none;
@@ -643,7 +781,7 @@ body {
 #name-dialog input {
   padding: 8px 10px;
   font: inherit;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
 }
 
@@ -671,7 +809,7 @@ body {
 }
 
 #plan-status {
-  color: #555;
+  color: var(--text-3);
 }
 
 #route-sort {
@@ -718,7 +856,7 @@ body {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  color: #222;
+  color: var(--text);
   text-decoration: none;
   text-align: left;
 }
@@ -732,7 +870,7 @@ body {
 }
 
 #route-list small {
-  color: #777;
+  color: var(--muted);
   white-space: nowrap;
 }
 
@@ -784,7 +922,7 @@ body {
 .trace-control {
   display: flex;
   align-items: center;
-  background: #fff;
+  background: var(--surface);
 }
 
 .trace-control button {
@@ -793,14 +931,14 @@ body {
   padding: 0 6px;
   font: inherit;
   font-size: 14px;
-  background: #fff;
+  background: var(--surface);
   border: none;
-  border-right: 1px solid #ccc;
+  border-right: 1px solid var(--border-strong);
   cursor: pointer;
 }
 
 .trace-control button:hover {
-  background: #f4f4f4;
+  background: var(--surface-2);
 }
 
 .trace-control .trace-play {
@@ -869,7 +1007,7 @@ body {
 }
 
 #area-status {
-  color: #555;
+  color: var(--text-3);
 }
 
 #area-tools {
@@ -889,13 +1027,13 @@ body {
 
 .progress small {
   grid-column: 2 / 4;
-  color: #666;
+  color: var(--text-3);
 }
 
 .progress .bar {
   height: 8px;
   overflow: hidden;
-  background: #eee;
+  background: var(--track);
   border-radius: 4px;
 }
 
@@ -914,7 +1052,7 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 12px;
-  color: #555;
+  color: var(--text-3);
   font-size: 12px;
 }
 
@@ -925,26 +1063,26 @@ body {
   height: 4px;
   margin-right: 5px;
   vertical-align: middle;
-  background: var(--c, #555);
+  background: var(--c, var(--text-3));
   border-radius: 2px;
 }
 
 .legend span.dashed::before {
-  background: repeating-linear-gradient(90deg, #555 0 4px, transparent 4px 7px);
+  background: repeating-linear-gradient(90deg, var(--text-3) 0 4px, transparent 4px 7px);
 }
 
 .legend span.dotted::before {
-  background: repeating-linear-gradient(90deg, #8a8a8a 0 2px, transparent 2px 6px);
+  background: repeating-linear-gradient(90deg, var(--muted) 0 2px, transparent 2px 6px);
 }
 
 .coverage-note {
   display: block;
-  color: #777;
+  color: var(--muted);
 }
 
 #hood-coverage summary {
   cursor: pointer;
-  color: #333;
+  color: var(--text-2);
 }
 
 #hood-coverage table {
@@ -976,25 +1114,25 @@ body {
 }
 
 #hood-coverage .count {
-  color: #777;
+  color: var(--muted);
   font-size: 12px;
 }
 
 #hood-coverage .hint {
   display: block;
-  color: #777;
+  color: var(--muted);
 }
 
 .hood-pick-note {
   margin-bottom: 4px;
   font-size: 12px;
-  color: #555;
+  color: var(--text-3);
 }
 
 /* Lists to tick under a menu: Streets' areas, Stay in's neighbourhoods or areas */
 .tick-box {
   font-size: 12px;
-  color: #666;
+  color: var(--text-3);
 }
 
 .tick-box summary {
@@ -1046,12 +1184,12 @@ body {
 #unrunnable .count,
 #routes .count {
   font-weight: normal;
-  color: #777;
+  color: var(--muted);
 }
 
 #todo .hint {
   margin-top: -6px;
-  color: #777;
+  color: var(--muted);
 }
 
 #todo-list {
@@ -1069,8 +1207,8 @@ body {
   align-items: center;
   gap: 8px;
   padding: 5px 8px;
-  background: #fff;
-  border: 1px solid #e3e3e3;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 6px;
   cursor: pointer;
 }
@@ -1093,7 +1231,7 @@ body {
 }
 
 #todo-list small {
-  color: #777;
+  color: var(--muted);
 }
 
 /* View-only accounts: hide everything that would change data or settings.
@@ -1161,7 +1299,7 @@ body {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  color: #222;
+  color: var(--text);
   text-decoration: none;
   text-align: left;
 }
@@ -1172,7 +1310,7 @@ body {
 
 #unrunnable li small {
   margin-right: auto;
-  color: #777;
+  color: var(--muted);
   white-space: nowrap;
 }
 
@@ -1196,8 +1334,8 @@ body {
 
 /* Collapsible "Account" and "Add tracks" boxes */
 .panel {
-  background: #fff;
-  border: 1px solid #e3e3e3;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 8px;
 }
 
@@ -1218,7 +1356,7 @@ body {
 
 .panel summary::before {
   content: '▸';
-  color: #888;
+  color: var(--muted);
   transition: transform 0.15s;
 }
 
@@ -1234,7 +1372,7 @@ body {
   text-overflow: ellipsis;
   font-size: 12px;
   font-weight: normal;
-  color: #777;
+  color: var(--muted);
 }
 
 .panel[open] #import-summary {
@@ -1255,7 +1393,7 @@ body {
   text-overflow: ellipsis;
   font-size: 12px;
   font-weight: normal;
-  color: #777;
+  color: var(--muted);
 }
 
 #stats-list {
@@ -1267,7 +1405,7 @@ body {
 }
 
 #stats-list dt {
-  color: #777;
+  color: var(--muted);
 }
 
 #stats-list dd {
@@ -1278,18 +1416,18 @@ body {
 
 #stats-list dd small {
   display: block;
-  color: #777;
+  color: var(--muted);
 }
 
 #stats-box .hint {
-  color: #777;
+  color: var(--muted);
 }
 
 /* Trophies */
 #trophy-count {
   font-size: 12px;
   font-weight: normal;
-  color: #777;
+  color: var(--muted);
 }
 
 #trophy-list {
@@ -1314,20 +1452,20 @@ body {
   display: block;
   margin-top: 4px;
   padding-bottom: 2px;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--border);
   font-size: 12px;
   font-weight: 600;
-  color: #555;
+  color: var(--text-3);
 }
 
 #trophy-list small {
   grid-column: 1 / -1;
-  color: #777;
+  color: var(--muted);
 }
 
 #trophy-list time,
 .trophy-empty {
-  color: #777;
+  color: var(--muted);
   font-size: 12px;
 }
 
@@ -1346,8 +1484,8 @@ body {
   display: flex;
   flex-direction: column;
   padding: 10px 14px;
-  background: #fff;
-  border: 1px solid #e3e3e3;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-left: 4px solid #2e9e44;
   border-radius: 8px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
@@ -1356,7 +1494,7 @@ body {
 }
 
 .toast small {
-  color: #666;
+  color: var(--text-3);
 }
 
 @keyframes toast-in {
@@ -1400,7 +1538,7 @@ body {
   align-items: baseline;
   gap: 2px 12px;
   padding: 5px 0;
-  border-top: 1px solid #eee;
+  border-top: 1px solid var(--border);
 }
 
 .row-list li:first-child {
@@ -1415,7 +1553,7 @@ body {
 
 .row-text small {
   display: block;
-  color: #777;
+  color: var(--muted);
 }
 
 .row-actions {
@@ -1430,7 +1568,7 @@ body {
 }
 
 #settings-box .row-list .row-actions button.danger {
-  color: #c00;
+  color: var(--danger);
 }
 
 #admin-accounts summary {
@@ -1443,7 +1581,7 @@ body {
   margin: 10px 0 2px;
   font-size: 12px;
   font-weight: 600;
-  color: #777;
+  color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -1474,11 +1612,11 @@ body {
 #goals-summary {
   font-size: 12px;
   font-weight: normal;
-  color: #777;
+  color: var(--muted);
 }
 
 #goals-box .hint {
-  color: #777;
+  color: var(--muted);
 }
 
 .progress.goal .bar span {
@@ -1494,7 +1632,7 @@ body {
   align-items: flex-end;
   gap: 8px;
   margin: 2px 0 8px calc(3.4em + 8px);  /* lines up with the bar above */
-  color: #666;
+  color: var(--text-3);
   white-space: nowrap;
 }
 
@@ -1507,7 +1645,7 @@ body {
 
 .goal-history span {
   width: 7px;
-  background: #ccc;
+  background: var(--border-strong);
   border-radius: 1px;
 }
 
@@ -1546,7 +1684,7 @@ body {
 }
 
 .track-popup > small {
-  color: #666;
+  color: var(--text-3);
 }
 
 .track-popup > .link-button {
@@ -1562,7 +1700,7 @@ body {
 }
 
 .track-popup dt {
-  color: #777;
+  color: var(--muted);
 }
 
 .track-popup dd {
@@ -1578,13 +1716,13 @@ body {
   max-width: 220px;
   padding: 8px 10px;
   font-size: 13px;
-  background: #fff;
+  background: var(--surface);
   border-radius: 4px;
   box-shadow: 0 1px 5px rgba(0, 0, 0, 0.4);
 }
 
 .point-edit .count {
-  color: #c00;
+  color: var(--danger);
 }
 
 .point-edit .count:empty {
@@ -1612,26 +1750,26 @@ body {
 
 .elevation .line {
   fill: none;
-  stroke: #1a73e8;
+  stroke: var(--link);
   stroke-width: 1.5;
 }
 
 .elevation .axis {
-  stroke: #bbb;
+  stroke: var(--border-strong);
 }
 
 .elevation .cursor {
-  stroke: #444;
+  stroke: var(--text-2);
   stroke-dasharray: 2 2;
 }
 
 .elevation text {
   font-size: 9px;
-  fill: #666;
+  fill: var(--text-3);
 }
 
 .elevation .readout {
-  fill: #222;
+  fill: var(--text);
   font-weight: 600;
 }
 
@@ -1650,7 +1788,7 @@ body {
   display: block;
   margin-bottom: 2px;
   font-size: 11px;
-  color: #777;
+  color: var(--muted);
 }
 
 .calendar-grid {
@@ -1667,12 +1805,12 @@ body {
 }
 
 .calendar-grid span {
-  background: #ebebe8;
+  background: var(--track);
 }
 
 .calendar-grid span.future {
   background: none;
-  box-shadow: inset 0 0 0 1px #ebebe8;
+  box-shadow: inset 0 0 0 1px var(--track);
 }
 
 .calendar-grid span.active {
@@ -1680,13 +1818,13 @@ body {
 }
 
 .calendar-grid span:hover {
-  outline: 1.5px solid #222;
+  outline: 1.5px solid var(--text);
   outline-offset: 1px;
 }
 
 .calendar-readout {
   min-height: 1.4em;
-  color: #555;
+  color: var(--text-3);
 }
 
 .calendar-legend {
@@ -1695,7 +1833,7 @@ body {
   align-items: center;
   gap: 4px;
   font-size: 11px;
-  color: #777;
+  color: var(--muted);
 }
 
 .calendar-legend span {
@@ -1707,7 +1845,7 @@ body {
 
 .calendar-legend span.none {
   margin-left: 0;
-  background: #ebebe8;
+  background: var(--track);
 }
 
 @media (max-width: 640px) {
@@ -1737,14 +1875,14 @@ body {
 #plan-explore #explore-level-row {
   flex-basis: 100%;
   font-size: 12px;
-  color: #666;
+  color: var(--text-3);
 }
 
 /* The options fold away under the length and the button. */
 #explore-options {
   flex-basis: 100%;
   font-size: 12px;
-  color: #666;
+  color: var(--text-3);
 }
 
 #explore-options summary {
@@ -1752,7 +1890,7 @@ body {
 }
 
 #explore-summary {
-  color: #999;
+  color: var(--muted);
 }
 
 .explore-options-body {
@@ -1768,7 +1906,7 @@ body {
 #plan-explore .explore-select-row {
   flex-basis: 100%;
   font-size: 12px;
-  color: #666;
+  color: var(--text-3);
 }
 
 /* Finishing started streets goes with "unrun", so it sits under it */
@@ -1814,7 +1952,7 @@ body {
   min-width: 190px;
   padding: 6px 8px;
   font-size: 13px;
-  background: #fff;
+  background: var(--surface);
   border-radius: 4px;
   box-shadow: 0 1px 5px rgba(0, 0, 0, 0.4);
 }
@@ -1828,8 +1966,8 @@ body {
   min-width: 30px;
   height: 26px;
   font: inherit;
-  background: #f4f4f4;
-  border: 1px solid #ccc;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
   border-radius: 4px;
   cursor: pointer;
 }
@@ -1845,7 +1983,7 @@ body {
 }
 
 .race-gap {
-  color: #555;
+  color: var(--text-3);
 }
 
 .race-marker {
@@ -1874,7 +2012,7 @@ body {
 }
 
 .leaflet-tooltip.race-label.race-ghost {
-  color: #555;
+  color: var(--text-3);
 }
 
 .race-choices {
@@ -1897,7 +2035,7 @@ body {
 
 #segment-list > li {
   padding: 6px 8px;
-  border: 1px solid #e3e3e3;
+  border: 1px solid var(--border);
   border-radius: 6px;
 }
 
@@ -1919,7 +2057,7 @@ body {
 }
 
 #segment-list small {
-  color: #777;
+  color: var(--muted);
 }
 
 .segment-board {
@@ -1942,7 +2080,7 @@ body {
 }
 
 .segment-board .pace {
-  color: #777;
+  color: var(--muted);
   text-align: right;
 }
 
@@ -1984,7 +2122,7 @@ body {
 #quest-list .bar {
   height: 6px;
   margin: 4px 0 2px;
-  background: #eee;
+  background: var(--track);
   border-radius: 3px;
   overflow: hidden;
 }
@@ -2000,7 +2138,7 @@ body {
 }
 
 #quest-list small {
-  color: #777;
+  color: var(--muted);
 }
 
 /* Plan mode: GPS art */
@@ -2014,17 +2152,17 @@ body {
   display: grid;
   place-items: center;
   padding: 4px 0;
-  color: #555;
-  background: #fff;
-  border: 1px solid #ccc;
+  color: var(--text-3);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
   cursor: pointer;
 }
 
 #art-shapes button[aria-pressed="true"] {
-  color: #8e24aa;
-  border-color: #8e24aa;
-  background: #f8eefa;
+  color: var(--art);
+  border-color: var(--art);
+  background: var(--art-surface);
 }
 
 #art-mine {
@@ -2084,10 +2222,12 @@ body {
 }
 
 #help a {
-  color: #1a73e8;
+  color: var(--link);
 }
 
 #help-dialog {
+  color: var(--text);
+  background: var(--surface);
   display: none;
   width: min(640px, calc(100vw - 32px));
   max-height: min(80vh, 720px);
@@ -2112,7 +2252,7 @@ body {
   align-items: center;
   gap: 12px;
   padding: 16px 20px 12px;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--border);
 }
 
 .help-head h2 {
@@ -2125,7 +2265,7 @@ body {
   padding: 4px 20px 20px;
   font-size: 14px;
   line-height: 1.5;
-  color: #333;
+  color: var(--text-2);
 }
 
 #help-content h3 {
@@ -2149,15 +2289,15 @@ body {
 }
 
 #help-content a {
-  color: #1a73e8;
+  color: var(--link);
 }
 
 #help-content kbd {
   padding: 0 4px;
   font: inherit;
   font-size: 12px;
-  background: #f3f3f3;
-  border: 1px solid #ddd;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
   border-radius: 3px;
 }
 
@@ -2167,7 +2307,7 @@ body {
 
 #help-content .tip {
   padding: 8px 12px;
-  background: #f1f6fe;
+  background: var(--info-surface);
   border-left: 3px solid #2a7ae2;
   border-radius: 4px;
 }
@@ -2185,24 +2325,24 @@ body {
 #version {
   font-size: 12px;
   font-weight: normal;
-  color: #777;
+  color: var(--muted);
 }
 
 #about small {
-  color: #777;
+  color: var(--muted);
 }
 
 #about a,
 #auth .credits a {
-  color: #1a73e8;
+  color: var(--link);
 }
 
 #auth .credits {
   margin: 4px 0 0;
   padding-top: 10px;
-  border-top: 1px solid #eee;
+  border-top: 1px solid var(--border);
   font-size: 12px;
-  color: #777;
+  color: var(--muted);
   text-align: center;
 }
 
@@ -2257,7 +2397,7 @@ body {
 }
 
 #welcome a[data-help] {
-  color: #1a73e8;
+  color: var(--link);
 }
 
 .no-tracks #trophies-box,
