@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>feets</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=84">
+  <link rel="stylesheet" href="style.css?v=85">
 </head>
 <body>
   <aside id="sidebar">
@@ -193,12 +193,12 @@
                 <option value="last">at my last point</option>
               </select>
             </label>
-            <label class="explore-select-row" title="Keep the whole loop inside one of your areas or neighbourhoods">
+            <label class="explore-select-row" title="Keep the whole loop inside one or more of your areas or neighbourhoods">
               Stay in <select id="explore-within"><option value="">anywhere</option></select>
             </label>
-            <details id="explore-hoods" hidden>
+            <details id="explore-within-ticks" hidden>
               <summary></summary>
-              <div class="explore-hoods-list"></div>
+              <div class="explore-within-list"></div>
             </details>
           </div>
         </details>
@@ -407,8 +407,8 @@
 
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="i18n.js?v=2"></script>
-  <script src="lang/fr.js?v=4"></script>
-  <script src="lang/zh.js?v=3"></script>
+  <script src="lang/fr.js?v=5"></script>
+  <script src="lang/zh.js?v=4"></script>
   <script src="gpx.js?v=18"></script>
   <script src="store.js?v=37"></script>
   <script src="osm.js?v=20"></script>
@@ -420,6 +420,6 @@
   <script src="stats.js?v=29"></script>
   <script src="elevation.js?v=3"></script>
   <script src="achievements.js?v=24"></script>
-  <script src="app.js?v=94"></script>
+  <script src="app.js?v=95"></script>
 </body>
 </html>

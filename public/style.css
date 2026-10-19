@@ -990,29 +990,29 @@ body {
   color: #555;
 }
 
-/* Stay in's neighbourhoods, ticked under its menu */
-#plan-explore #explore-hoods {
+/* Stay in's neighbourhoods or areas, ticked under its menu */
+#plan-explore #explore-within-ticks {
   flex-basis: 100%;
   padding-left: 4.2em;
   font-size: 12px;
   color: #666;
 }
 
-#plan-explore #explore-hoods summary {
+#plan-explore #explore-within-ticks summary {
   cursor: pointer;
 }
 
-#plan-explore .explore-hoods-list {
+#plan-explore .explore-within-list {
   max-height: 140px;
   overflow-y: auto;
   margin-top: 2px;
 }
 
-#plan-explore .explore-hoods-list label {
+#plan-explore .explore-within-list label {
   display: block;
 }
 
-#plan-explore .explore-hoods-list input {
+#plan-explore .explore-within-list input {
   width: auto;
   margin: 0 4px 0 0;
   vertical-align: -2px;

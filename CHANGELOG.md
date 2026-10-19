@@ -13,7 +13,10 @@ About box (`public/index.html`); keep it and this file in step.
   ticks; "Count all" clears them.
 - Plan: "Stay in" can keep a loop inside several neighbourhoods. Pick the area,
   then tick its neighbourhoods under it. Ticking none keeps the whole area.
-  GPS art still picks one area or neighbourhood.
+- Plan: "Stay in" can also keep a loop inside several areas, e.g. two
+  districts: pick "several areas…" and tick them. A loop stays inside the one
+  it starts in when they don't touch. GPS art still picks one area or
+  neighbourhood.
 
 ## 1.4.0 — 2026-10-18
 

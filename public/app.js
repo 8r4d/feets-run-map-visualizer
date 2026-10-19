@@ -1493,11 +1493,13 @@ function fillAreaSelect() {
   // Plan's "Stay within": each area, with its neighbourhoods to tick below
   // (see setWithin). The saved choice wins: the menu was empty when the page
   // first set it.
+  withinAreas = nested.map(([a, depth]) => [a, label(a, depth)]);
   exploreWithin.replaceChildren(new Option(t('anywhere'), ''),
-    ...nested.map(([a, depth]) => new Option(label(a, depth), `a:${a.id}`)));
+    ...withinAreas.map(([a, text]) => new Option(text, `a:${a.id}`)),
+    ...(areas.length > 1 ? [new Option(t('several areas…'), 'm')] : []));
   let within = withinValue;
   try { within = localStorage.getItem('feets-explore-within') ?? within; } catch {}
-  exploreHoods.querySelector('.explore-hoods-list').dataset.area = '';  // names may have changed
+  withinTicks.querySelector('.explore-within-list').dataset.for = '';  // names may have changed
   setWithin(within, false);
   // GPS art's area: each area and each neighbourhood in it; somewhere has to be picked.
   const artValue = artArea.value || (() => { try { return localStorage.getItem('feets-art-area'); } catch { return null; } })();
@@ -2835,70 +2837,90 @@ async function routeHeights(g, points, budget) {
 }
 
 // Stay within: '' for anywhere, 'a:ID' for an area, 'h:ID:N,M,…' for some of
-// its neighbourhoods. The menu picks the area and the ticks under it the
-// neighbourhoods; none ticked is the whole area. Filled in, and the saved
+// its neighbourhoods, 'm:ID,ID,…' for any of several areas. The menu picks
+// the area, or "several areas", and the ticks under it the neighbourhoods
+// (none ticked is the whole area) or the areas. Filled in, and the saved
 // choice set, with the areas (see fillAreaSelect).
 let withinValue = '';
-const exploreHoods = document.getElementById('explore-hoods');
+let withinAreas = [];  // [area, its label in the menu], in menu order
+const withinTicks = document.getElementById('explore-within-ticks');
 
-// A Stay within value's area and neighbourhoods (null for all of it), or null
-// for anywhere or an area that's gone.
+// A Stay within value's areas, and the neighbourhoods of a single one (null
+// for all of it); null for anywhere or an area that's gone. Several areas
+// with none ticked yet is { several: true, areas: [] }.
 function parseWithin(value) {
   const [kind, id, list] = (value || '').split(':');
+  const numbers = text => [...new Set((text || '').split(',').filter(Boolean).map(Number))];
+  if (kind === 'm') {
+    const ids = numbers(id).map(String);
+    return { several: true, areas: areas.filter(a => ids.includes(String(a.id))), hoods: null };
+  }
   const area = areas.find(a => String(a.id) === id);
   if (!area || (kind !== 'a' && kind !== 'h')) return null;
   const count = area.data.hoods.length;
-  const hoods = kind === 'h'
-    ? [...new Set((list || '').split(',').filter(Boolean).map(Number))].filter(i => Number.isInteger(i) && i >= 0 && i < count).sort((a, b) => a - b)
-    : [];
-  return { area, hoods: hoods.length ? hoods : null };
+  const hoods = kind === 'h' ? numbers(list).filter(i => Number.isInteger(i) && i >= 0 && i < count).sort((a, b) => a - b) : [];
+  return { several: false, areas: [area], hoods: hoods.length ? hoods : null };
 }
 
-// Where a Stay within value is, for messages: the area, or its neighbourhoods.
+// Where a Stay within value is, for messages: the areas, or the neighbourhoods.
 function withinName(value) {
   const w = parseWithin(value);
-  if (!w) return '';
-  if (!w.hoods) return w.area.name;
-  const names = w.hoods.map(i => w.area.data.hoods[i].name);
-  return names.length <= 3 ? names.join(', ') : t('{n} neighbourhoods of {area}', { n: names.length, area: w.area.name });
+  if (!w || !w.areas.length) return '';
+  const [area] = w.areas;
+  const names = w.hoods ? w.hoods.map(i => area.data.hoods[i].name) : w.areas.map(a => a.name);
+  if (names.length <= 3) return names.join(', ');
+  return w.hoods ? t('{n} neighbourhoods of {area}', { n: names.length, area: area.name }) : t('{n} areas', { n: names.length });
 }
 
 // Sets Stay within, and (unless just filling the menu in) remembers it.
 function setWithin(value, save = true) {
   const w = parseWithin(value);
-  withinValue = !w ? '' : w.hoods ? `h:${w.area.id}:${w.hoods.join(',')}` : `a:${w.area.id}`;
+  withinValue = !w ? ''
+    : w.several ? `m:${w.areas.map(a => a.id).join(',')}`
+    : w.hoods ? `h:${w.areas[0].id}:${w.hoods.join(',')}` : `a:${w.areas[0].id}`;
   if (save) try { localStorage.setItem('feets-explore-within', withinValue); } catch {}
-  exploreWithin.value = w ? `a:${w.area.id}` : '';
+  exploreWithin.value = !w ? '' : w.several ? 'm' : `a:${w.areas[0].id}`;
   if (exploreWithin.selectedIndex < 0) exploreWithin.value = '';
-  // The area's neighbourhoods, to tick.
-  const hoods = w ? w.area.data.hoods : [];
-  exploreHoods.hidden = !hoods.length;
-  exploreHoods.querySelector('summary').textContent = w && w.hoods
-    ? t('Only {n} of its {total} neighbourhoods', { n: w.hoods.length, total: hoods.length })
+  // To tick: every area, or the one area's neighbourhoods.
+  const choices = !w ? []
+    : w.several ? withinAreas.map(([a, label]) => [a.id, label])
+    : w.areas[0].data.hoods.map((h, i) => [i, h.name]);
+  const ticked = (!w ? [] : w.several ? w.areas.map(a => a.id) : w.hoods || []).map(String);
+  withinTicks.hidden = !choices.length;
+  withinTicks.querySelector('summary').textContent = !w ? ''
+    : w.several ? (ticked.length > 1 ? t('{n} areas ticked', { n: ticked.length }) : ticked.length ? t('1 area ticked') : t('Tick the areas to stay in'))
+    : ticked.length ? t('Only {n} of its {total} neighbourhoods', { n: ticked.length, total: choices.length })
     : t('All its neighbourhoods');
-  // Rebuilt for another area; just re-ticked for the same one, so a click
+  // Rebuilt for other choices; just re-ticked for the same ones, so a click
   // keeps its place.
-  const list = exploreHoods.querySelector('.explore-hoods-list');
-  const listFor = w ? String(w.area.id) : '';
-  if (list.dataset.area !== listFor || list.children.length !== hoods.length) {
-    list.dataset.area = listFor;
-    list.replaceChildren(...hoods.map((h, i) => {
+  const list = withinTicks.querySelector('.explore-within-list');
+  const listFor = choices.map(c => c.join('=')).join('|') + (w && w.several ? '|m' : '');
+  if (list.dataset.for !== listFor) {
+    list.dataset.for = listFor;
+    list.replaceChildren(...choices.map(([key, label]) => {
       const row = document.createElement('label');
       const box = document.createElement('input');
       box.type = 'checkbox';
-      box.value = i;
-      row.append(box, ` ${h.name}`);
+      box.value = key;
+      row.append(box, ` ${label}`);
       return row;
     }));
   }
-  list.querySelectorAll('input').forEach(box => { box.checked = !!(w.hoods && w.hoods.includes(Number(box.value))); });
+  list.querySelectorAll('input').forEach(box => { box.checked = ticked.includes(box.value); });
   summarizeExplore();
 }
 
-exploreWithin.onchange = () => setWithin(exploreWithin.value);
-exploreHoods.addEventListener('change', () => {
-  const ticked = [...exploreHoods.querySelectorAll('input:checked')].map(c => c.value);
-  setWithin(ticked.length ? `h:${withinValue.split(':')[1]}:${ticked.join(',')}` : `a:${withinValue.split(':')[1]}`);
+// "Several areas" starts with the area that was picked, if one was, and opens
+// the list to tick more.
+exploreWithin.onchange = () => {
+  if (exploreWithin.value !== 'm') return setWithin(exploreWithin.value);
+  setWithin(`m:${withinValue.startsWith('m:') ? withinValue.slice(2) : withinValue.split(':')[1] || ''}`);
+  withinTicks.open = true;
+};
+withinTicks.addEventListener('change', () => {
+  const ticked = [...withinTicks.querySelectorAll('input:checked')].map(c => c.value).join(',');
+  const [kind, id] = withinValue.split(':');
+  setWithin(kind === 'm' ? `m:${ticked}` : ticked ? `h:${id}:${ticked}` : `a:${id}`);
 });
 
 // The Options box: remembers whether it was left open, and while closed its
@@ -2921,7 +2943,7 @@ function summarizeExplore() {
     exploreStreets.value !== 'any' && text(exploreStreets),
     exploreHills.value !== 'any' && text(exploreHills),
     exploreEnd.value !== 'start' && 'finish at last point',
-    withinValue && `in ${withinName(withinValue)}`,
+    withinName(withinValue) && `in ${withinName(withinValue)}`,
   ].filter(Boolean);
   document.getElementById('explore-summary').textContent = parts.length ? `· ${parts.join(', ')}` : '';
 }
@@ -2967,9 +2989,10 @@ function withinMask(g, value = withinValue) {
   const cached = withinCache.get(g).get(value);
   if (cached) return cached;
   const w = parseWithin(value);
-  if (!w) return null;
-  const { area, hoods } = w;
-  const inside = hoods ? (la, lo) => hoods.some(h => OSM.inHood(area, h, la, lo)) : (la, lo) => OSM.inArea(area, la, lo);
+  if (!w || !w.areas.length) return null;
+  const [area] = w.areas, { hoods } = w;
+  const inside = hoods ? (la, lo) => hoods.some(h => OSM.inHood(area, h, la, lo))
+    : (la, lo) => w.areas.some(a => OSM.inArea(a, la, lo));
   const allowed = new Uint8Array(g.lat.length);
   for (let i = 0; i < allowed.length; i++) allowed[i] = inside(g.lat[i], g.lon[i]) ? 1 : 0;
   // Only the biggest connected piece: streets along the edge can leave scraps
@@ -2995,10 +3018,10 @@ function withinMask(g, value = withinValue) {
     }
     sizes.push(size);
   }
-  // Several neighbourhoods apart from each other: each of them that's more
-  // than a scrap, so a loop can start in any (and stays in the one it starts in).
+  // Several neighbourhoods or areas apart from each other: each of them that's
+  // more than a scrap, so a loop can start in any (and stays in the one it starts in).
   const most = Math.max(...sizes), biggest = sizes.indexOf(most);
-  const several = hoods && hoods.length > 1;
+  const several = (hoods || w.areas).length > 1;
   const keep = sizes.map((size, k) => k === biggest || (several && size >= most * SCRAP));
   for (let i = 0; i < allowed.length; i++) allowed[i] = allowed[i] && keep[piece[i]] ? 1 : 0;
   const mask = { allowed, name: withinName(value) };
