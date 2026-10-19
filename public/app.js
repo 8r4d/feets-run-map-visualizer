@@ -1824,7 +1824,7 @@ function streetPopup(w, latlng) {
 // and the trophy check wait for a pause, so marking a few dozen paths in a
 // row (all of a zoo, say) stays quick: they're saved together, one request
 // per area.
-const UNRUNNABLE_PAUSE = 1500;  // ms
+const UNRUNNABLE_PAUSE = 3000;  // ms
 const unrunnableSaves = new Map();  // area id -> { area, on: Set of way ids, off: Set }
 let unrunnableTimer = null;
 
