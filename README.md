@@ -122,6 +122,12 @@ feets doesn't send email, so password resets go through the admin:
 
 Every change or reset logs that account out on its other devices.
 
+**Password guessing:** within 15 minutes, a username gets 5 tries and an IP
+address 20. Past that, even the right password is refused until 15 minutes
+have passed. **Forgot password?** is only limited per IP, so someone guessing
+your username can't stop you recovering it, and using it clears that
+username's lock. The limits are at the top of `api.php`.
+
 ## Strava import (optional)
 
 Each user can connect their own Strava account and import their activities.
@@ -188,9 +194,38 @@ Open http://localhost:8000. The database has to accept connections from your
 computer for this to work. Many shared hosts only allow connections from their
 own web servers.
 
+## Tests
+
+```sh
+tests/run.sh               # everything
+tests/run.sh unit          # just the ones that need no server
+tests/run.sh api browser   # those files
+```
+
+`run.sh` starts a throwaway MariaDB and PHP's built-in server in a temp folder,
+runs the tests against a copy of `public/`, and removes it all afterwards. It
+never reads `feets-config.php` or touches a real database. It needs `php` (with
+`pdo_mysql`), `mariadb` and Node 22 or later (`brew install php mariadb node`);
+the browser tests also need Google Chrome or Chromium, and are skipped without
+it. There's nothing to `npm install`.
+
+- `tests/unit.test.mjs`: units (km and miles) and reading FIT files, in Node.
+- `tests/api.test.mjs`: accounts, the password-guessing limits, who can see and
+  change what, view links, and adding tracks.
+- `tests/browser.test.mjs`: the real page in headless Chrome: logging in,
+  adding GPX, FIT and TCX files, miles, dark mode, and opening offline.
+  `FEETS_SCREENSHOTS=some/folder tests/run.sh browser` saves pictures of the
+  page along the way.
+- `tests/fixtures/`: the FIT files were written with Garmin's FIT SDK
+  (`@garmin/fitsdk`), so the reader is checked against their encoder, not its
+  own; `walk.tcx` is written by hand in Garmin Connect's format.
+
 ## Use
 
-- Drag `.gpx` files anywhere onto the page, or click the drop zone to pick them.
+- Drag `.gpx`, `.fit` (Garmin, Coros, Wahoo, Suunto…) or `.tcx` files anywhere onto the
+  page, or click the drop zone to pick them. Gzipped ones (`.fit.gz`, as in a Strava
+  "download your data" archive) work too. FIT and TCX are turned into GPX in the browser
+  (`convert.js`), and the GPX is what's kept and downloaded.
 - In the track list:
   - tick or untick a track to show or hide it
   - click its name to zoom to it
@@ -215,6 +250,11 @@ load quickly. The original GPX is kept for the ↓ download.
 | `public/index.html`  | Page layout. Loads Leaflet from a CDN.                   |
 | `public/app.js`      | Map setup, track list UI, file upload handling, login form. |
 | `public/gpx.js`      | Parses GPX tracks, routes and waypoints in the browser, and works out distance. |
+| `public/convert.js`  | Turns FIT and TCX files (and gzipped ones) into GPX before they're uploaded. |
+| `public/units.js`    | Kilometres or miles: how distances, paces and heights are shown and typed. |
+| `public/sw.js`, `public/manifest.json` | Let browsers install feets as an app, and open it offline. See the notes below. |
+| `public/icon.svg`, `public/icon-*.png`, `public/apple-touch-icon.png` | The app icon. The PNGs are made from the SVG by `tools/make-icons.sh`. |
+| `tests/`             | The tests: see [Tests](#tests). Not uploaded.            |
 | `public/store.js`    | Calls `api.php`.                                         |
 | `public/osm.js`      | Fetches an area's boundary and streets from OpenStreetMap and prepares them. |
 | `public/coverage.js` | Works out which streets the tracks cover.                |
@@ -231,12 +271,20 @@ load quickly. The original GPX is kept for the ↓ download.
   - Passwords are stored as hashes made with PHP's `password_hash`.
   - A login lasts 30 days. It's kept in the `sessions` table, and the browser holds
     it in an HttpOnly cookie the page's JavaScript can't read.
-  - A wrong password costs about half a second, which slows down guessing. There's
-    no lockout, so use real passwords.
+  - Password guessing is limited: see [Passwords](#passwords).
 - **Use HTTPS.** Open the site over `https://` so passwords are encrypted on their
   way to the server.
 - **Large files.** Uploads larger than PHP's `post_max_size` (often 8 MB on shared
   hosting) or MySQL's `max_allowed_packet` will fail.
+- **Installing as an app.** `sw.js` keeps a copy of the page, its scripts and
+  Leaflet, so feets opens without a connection; nothing from `api.php` is kept.
+  The page always comes from the server first, so a new upload shows at once,
+  and scripts are kept by their `?v=N`, so bumping it still brings in the new
+  one. Upload `sw.js` and `manifest.json` before `index.html`, so Cloudflare
+  doesn't cache an error for them. Editing `sw.js` itself (say, its `CACHE`
+  name) makes browsers install the new one on their next visit.
+- **App icon.** `icon.svg` is the source. After changing it, run
+  `tools/make-icons.sh` to remake the PNGs (it uses Google Chrome).
 
 ## Planning routes
 

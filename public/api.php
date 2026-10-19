@@ -35,7 +35,7 @@
 // Tracks (must be logged in; each user only sees their own)
 //   GET  api.php                       list tracks
 //   GET  api.php?gpx=ID                download the original GPX file
-//   POST api.php?action=add            body: track JSON, returns {id, metrics}
+//   POST api.php?action=add            body: track JSON, returns {id, metrics, sport}
 //   POST api.php?action=update&id=ID   body: {visible, color}
 //   POST api.php?action=set_visible    body: {ids, visible}  show or hide many tracks at once
 //   POST api.php?action=delete&id=ID
@@ -104,6 +104,13 @@ const INVITE_DAYS = 7;
 const VIEW_LINK_DAYS = 7;  // how long a view link lasts, except the admin's: theirs can be set
 const RESET_HOURS = 48;
 
+// Password guessing: within LOGIN_WINDOW minutes, a username gets
+// LOGIN_MAX_PER_USER tries and an IP address LOGIN_MAX_PER_IP. Past that,
+// even the right password is refused until the window has passed.
+const LOGIN_WINDOW = 15;
+const LOGIN_MAX_PER_USER = 5;
+const LOGIN_MAX_PER_IP = 20;
+
 // Columns every user lookup returns (users table aliased as u).
 const USER_COLUMNS = 'u.id, u.username, u.is_admin, u.read_only, u.data_owner';
 
@@ -163,6 +170,16 @@ const SCHEMA = [
       user_id     INT       NOT NULL,
       created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       used_at     TIMESTAMP NULL
+    ) CHARACTER SET utf8mb4
+    SQL,
+    <<<SQL
+    CREATE TABLE IF NOT EXISTS login_attempts (  -- recent password tries, see count_login_try()
+      id        INT AUTO_INCREMENT PRIMARY KEY,
+      username  VARCHAR(32) NOT NULL,  -- lower case; '' for the setup password
+      ip        VARCHAR(45) NOT NULL,
+      tried_at  TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX (username, tried_at),
+      INDEX (ip, tried_at)
     ) CHARACTER SET utf8mb4
     SQL,
     <<<SQL
@@ -491,6 +508,42 @@ function user_json(array $user): array {
     return $json;
 }
 
+// Behind Cloudflare, REMOTE_ADDR is Cloudflare's; the visitor's is in its header.
+function client_ip(): string {
+    return substr((string) ($_SERVER['HTTP_CF_CONNECTING_IP'] ?? $_SERVER['REMOTE_ADDR'] ?? ''), 0, 45);
+}
+
+// Counts a password try against the username and this IP, and refuses it if
+// either has had too many lately. The try is saved before the password is
+// checked, so requests sent all at once still see each other. '' for the
+// setup password, which is only limited per IP, so someone guessing the
+// admin's password can't also lock them out of recovering it. Returns the
+// try's id, for login_passed().
+function count_login_try(string $username): int {
+    $pdo = db();
+    $pdo->exec('DELETE FROM login_attempts WHERE tried_at < NOW() - INTERVAL 1 DAY');
+    $name = mb_strtolower(mb_substr(trim($username), 0, 32));
+    $ip = client_ip();
+    $pdo->prepare('INSERT INTO login_attempts (username, ip) VALUES (?, ?)')->execute([$name, $ip]);
+    $id = (int) $pdo->lastInsertId();
+    $stmt = $pdo->prepare(
+        'SELECT COALESCE(SUM(username = ? AND username <> \'\'), 0) AS by_name, COALESCE(SUM(ip = ?), 0) AS by_ip
+         FROM login_attempts WHERE (username = ? OR ip = ?) AND tried_at > NOW() - INTERVAL ' . LOGIN_WINDOW . ' MINUTE'
+    );
+    $stmt->execute([$name, $ip, $name, $ip]);
+    $tries = $stmt->fetch();
+    if ($tries['by_name'] > LOGIN_MAX_PER_USER || $tries['by_ip'] > LOGIN_MAX_PER_IP) {
+        fail('Too many tries. Wait ' . LOGIN_WINDOW . ' minutes and try again.', 429);
+    }
+    return $id;
+}
+
+// The password was right: forget this try, and the username's earlier ones.
+function login_passed(int $tryId, string $username = ''): void {
+    $name = mb_strtolower(trim($username));
+    db()->prepare("DELETE FROM login_attempts WHERE id = ? OR (username = ? AND username <> '')")->execute([$tryId, $name]);
+}
+
 function credentials(array $b): array {
     $username = trim($b['username'] ?? '');
     $password = $b['password'] ?? '';
@@ -539,9 +592,11 @@ function setup(array $b): array {
     if (!needs_setup()) {
         fail('Setup has already been done', 403);
     }
+    $try = count_login_try('');
     if (!hash_equals(trim($config['app_password']), trim($b['setupPassword'] ?? ''))) {
         fail('Wrong setup password', 403);
     }
+    login_passed($try);
     [$username, $password] = credentials($b);
     $user = create_user($username, $password, true);
     // Tracks uploaded before accounts existed belong to the first account.
@@ -552,12 +607,14 @@ function setup(array $b): array {
 
 function login(array $b): array {
     $stmt = db()->prepare('SELECT ' . USER_COLUMNS . ', u.password_hash FROM users u WHERE u.username = ?');
+    $try = count_login_try((string) ($b['username'] ?? ''));
     $stmt->execute([trim($b['username'] ?? '')]);
     $user = $stmt->fetch();
     if (!$user || !password_verify($b['password'] ?? '', $user['password_hash'])) {
         usleep(random_int(400000, 800000));  // slow down password guessing
         fail('Wrong username or password', 403);
     }
+    login_passed($try, $user['username']);
     start_session((int) $user['id']);
     return user_json($user);
 }
@@ -763,11 +820,13 @@ function find_user(string $username): ?array {
 }
 
 function change_password(array $user, array $b): array {
+    $try = count_login_try($user['username']);
     $full = find_user($user['username']);
     if (!password_verify($b['current'] ?? '', $full['password_hash'])) {
         usleep(random_int(400000, 800000));
         fail('Your current password is wrong', 403);
     }
+    login_passed($try, $user['username']);
     set_password((int) $user['id'], new_password($b['password'] ?? ''));
     return user_json($user);
 }
@@ -818,11 +877,13 @@ function reset_password(array $b): array {
 // "Forgot password" for the admin: app_password from feets-config.php unlocks any account.
 function recover(array $b): array {
     global $config;
+    $try = count_login_try('');
     $user = find_user($b['username'] ?? '');
     if (!$user || !hash_equals(trim($config['app_password']), trim($b['setupPassword'] ?? ''))) {
         usleep(random_int(400000, 800000));
         fail('Wrong setup password or username', 403);
     }
+    login_passed($try, $user['username']);
     set_password((int) $user['id'], new_password($b['password'] ?? ''));
     return user_json($user);
 }
@@ -1162,6 +1223,7 @@ function send_track_list(int $userId): void {
 // Resolves to { id, metrics }.
 function add_track(int $userId, array $t): array {
     [$metrics, $profile] = gpx_metrics((string) $t['gpx']);
+    $sport = normalize_sport($t['sport'] ?? null);
     $stmt = db()->prepare(
         'INSERT INTO tracks (user_id, name, sport, simplified, file_name, color, visible, distance_m, track_time,
                              metrics, profile, geometry, gpx)
@@ -1170,7 +1232,7 @@ function add_track(int $userId, array $t): array {
     $stmt->execute([
         $userId,
         mb_substr($t['name'], 0, 255),
-        normalize_sport($t['sport'] ?? null),
+        $sport,
         mb_substr($t['fileName'], 0, 255),
         $t['color'],
         $t['visible'] ? 1 : 0,
@@ -1181,7 +1243,8 @@ function add_track(int $userId, array $t): array {
         simplify_geometry($t['segments'], $t['waypoints']),
         $t['gpx'],
     ]);
-    return ['id' => (int) db()->lastInsertId(), 'metrics' => $metrics];
+    // The sport as it's kept ("Run" for "running"), so the list shows it straight away.
+    return ['id' => (int) db()->lastInsertId(), 'metrics' => $metrics, 'sport' => $sport];
 }
 
 function set_visible(int $userId, array $b): array {
@@ -1268,9 +1331,14 @@ function edit_track(int $userId, int $id, array $b): array {
     return track_json(track_gpx($userId, $id));
 }
 
+// Deleting a track that isn't there (or isn't yours) changes nothing, and
+// still answers ok, so deleting twice isn't an error.
 function delete_track(int $userId, int $id): array {
-    db()->prepare('DELETE FROM tracks WHERE id = ? AND user_id = ?')->execute([$id, $userId]);
-    db()->prepare('DELETE FROM segment_efforts WHERE track_id = ?')->execute([$id]);
+    $stmt = db()->prepare('DELETE FROM tracks WHERE id = ? AND user_id = ?');
+    $stmt->execute([$id, $userId]);
+    if ($stmt->rowCount()) {
+        db()->prepare('DELETE FROM segment_efforts WHERE track_id = ?')->execute([$id]);
+    }
     return ['ok' => true];
 }
 

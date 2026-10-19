@@ -1,11 +1,20 @@
-// The page in the chosen language (see i18n.js), with a picker in Account
-// and on the login screen.
+// The page in the chosen language (see i18n.js) and units (units.js), with
+// pickers for both in Account and on the login screen.
+Units.applyToPage();  // first, so the unit words get translated too
 I18n.translatePage();
+if (Units.miles) {
+  document.getElementById('goal-week').previousSibling.textContent = t('Miles per week') + ' ';
+  document.getElementById('goal-month').previousSibling.textContent = t('Miles per month') + ' ';
+}
 for (const at of [document.querySelector('#settings-box .panel-body'), document.querySelector('#auth .credits')]) {
-  const label = document.createElement('label');
-  label.className = 'lang-row';
-  label.append(t('Language') + ' ', I18n.picker());
-  at.prepend(label);
+  const row = document.createElement('div');
+  row.className = 'lang-row';
+  const language = document.createElement('label');
+  language.append(t('Language') + ' ', I18n.picker());
+  const units = document.createElement('label');
+  units.append(t('Units') + ' ', Units.picker());
+  row.append(language, units);
+  at.prepend(row);
 }
 
 const COLORS = ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6', '#9a6324', '#000075', '#808000'];
@@ -31,7 +40,7 @@ const baseLayers = {
 let baseLayer = baseLayers['OpenStreetMap'].addTo(map);
 map.on('baselayerchange', e => { baseLayer = e.layer; });
 L.control.layers(baseLayers).addTo(map);
-L.control.scale().addTo(map);
+L.control.scale({ metric: !Units.miles, imperial: Units.miles }).addTo(map);
 
 // Leaflet only notices window resizes; the map also changes size when the
 // phone panel folds away (below) or the sidebar's contents change.
@@ -45,6 +54,7 @@ const themeToggle = document.getElementById('theme-toggle');
 const systemDark = matchMedia('(prefers-color-scheme: dark)');
 function setTheme(theme) {
   document.documentElement.dataset.theme = theme;
+  document.querySelector('meta[name=theme-color]').content = theme === 'dark' ? '#181a1b' : '#fafafa';
   const dark = theme === 'dark';
   themeToggle.textContent = dark ? '☀' : '☾';
   themeToggle.title = dark ? t('Light mode') : t('Dark mode');
@@ -64,6 +74,26 @@ systemDark.addEventListener('change', () => {
   if (!picked) setTheme(systemDark.matches ? 'dark' : 'light');
 });
 setTheme(document.documentElement.dataset.theme);
+
+// --- Install as an app ---
+// sw.js keeps a copy of the page and its scripts so it opens without a
+// connection, which (with manifest.json) is what lets browsers install it.
+// Where the browser offers that (Chrome, Edge, Android), the About box gets a
+// button for it; on an iPhone it's Share → Add to Home Screen.
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+const installButton = document.getElementById('install-app');
+let installPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  installPrompt = e;
+  installButton.hidden = false;
+});
+installButton.onclick = async () => {
+  installButton.hidden = true;
+  installPrompt.prompt();
+  await installPrompt.userChoice;
+  installPrompt = null;
+};
+window.addEventListener('appinstalled', () => { installButton.hidden = true; });
 
 // Phones: fold the panel under the map away for a full-screen map. Remembered per browser.
 const panelToggle = document.getElementById('panel-toggle');
@@ -158,7 +188,7 @@ map.on('locationfound', e => {
   L.circle(e.latlng, { radius: e.accuracy, color: '#2a7fff', weight: 1, fillOpacity: 0.1, interactive: false })
     .addTo(youAreHere);
   L.circleMarker(e.latlng, { radius: 7, color: '#fff', weight: 2, fillColor: '#2a7fff', fillOpacity: 1 })
-    .bindTooltip(`You are here (±${Math.round(e.accuracy)} m)`)
+    .bindTooltip(`You are here (±${Units.short(e.accuracy, 1)})`)
     .addTo(youAreHere);
   lastFix = e.latlng;
   // Keep the current zoom if it is already close in; otherwise zoom to street level.
@@ -561,7 +591,7 @@ function applyFade() {
 }
 
 const fogWidthInput = document.getElementById('fog-width');
-const showFogWidth = () => { document.getElementById('fog-width-value').textContent = `${fogWidth} m`; };
+const showFogWidth = () => { document.getElementById('fog-width-value').textContent = Units.short(fogWidth); };
 fogWidthInput.value = fogWidth;
 showFogWidth();
 fogWidthInput.oninput = () => {
@@ -619,8 +649,9 @@ function buildLayer(track) {
   return group;
 }
 
+// "5.21 km", or "3.24 mi" (see units.js).
 function formatKm(m) {
-  return (m / 1000).toFixed(m < 10000 ? 2 : 1) + ' km';
+  return Units.dist(m, 2, 10);
 }
 
 // --- Pace, time and elevation ---
@@ -641,14 +672,14 @@ function hours(seconds) {
   return h ? `${h.toLocaleString()} h ${m} min` : `${m} min`;
 }
 
-const paceText = secondsPerKm => `${clock(secondsPerKm)} /km`;
-const climbText = m => `↑ ${Math.round(m).toLocaleString()} m`;
+const paceText = secondsPerKm => Units.pace(secondsPerKm, clock);
+const climbText = m => `↑ ${Units.height(m)}`;
 
-// "5:12 /km", or "24.3 km/h" for a ride; null without times.
+// "5:12 /km", or "24.3 km/h" for a ride (in miles: /mi, mph); null without times.
 function speedText(track) {
   const moving = track.metrics && track.metrics.moving;
   if (!moving || !track.distance) return null;
-  return isRide(track) ? `${(track.distance / moving * 3.6).toFixed(1)} km/h` : paceText(moving / (track.distance / 1000));
+  return isRide(track) ? Units.speed(track.distance / moving) : paceText(moving / (track.distance / 1000));
 }
 
 const EFFORT_LABELS = { 1000: '1K', 5000: '5K', 10000: '10K', 21097: 'Half', 42195: 'Marathon' };
@@ -773,20 +804,19 @@ function render() {
 // --- Stats ---
 // Totals for the tracks matching the filters, so the Year filter sets the
 // time frame. stats.js does the sums.
-const statKm = m => (m / 1000).toFixed(m < 100000 ? 1 : 0) + ' km';
+const statKm = m => Units.dist(m, 1, 100);
 
 // --- Calendar ---
 // A small calendar per month, each day shaded by the distance covered: the
 // filters' year, or else the last 12 months. Hovering or tapping a day says
 // what was done; clicking one with activities zooms the map to them.
-const CAL_BINS = [  // km below `to` get `color`: one blue, light to dark, reversed in the dark theme (--cal-N in style.css)
-  { to: 5, color: 'var(--cal-1)', label: '<5' },
-  { to: 10, color: 'var(--cal-2)', label: '5–10' },
-  { to: 20, color: 'var(--cal-3)', label: '10–20' },
-  { to: Infinity, color: 'var(--cal-4)', label: '20+' },
-];
+// Days under `to` km (or miles) get `color`: one blue, light to dark,
+// reversed in the dark theme (--cal-N in style.css).
+const CAL_BINS = (Units.miles ? [3, 6, 12] : [5, 10, 20]).map((to, i, tos) => ({
+  to, color: `var(--cal-${i + 1})`, label: i ? `${tos[i - 1]}–${to}` : `<${to}`,
+})).concat({ to: Infinity, color: 'var(--cal-4)', label: `${Units.miles ? 12 : 20}+` });
 const dayKey = d => `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
-const calColor = metres => CAL_BINS.find(b => metres / 1000 < b.to).color;
+const calColor = metres => CAL_BINS.find(b => Units.toUnit(metres) < b.to).color;
 
 function renderCalendar(tracks) {
   const box = document.getElementById('calendar');
@@ -858,7 +888,7 @@ function renderCalendar(tracks) {
 
   const legend = document.createElement('div');
   legend.className = 'calendar-legend';
-  legend.innerHTML = '<span class="none"></span>0' + CAL_BINS.map(b => `<span style="background:${b.color}"></span>${b.label}`).join('') + ' km';
+  legend.innerHTML = '<span class="none"></span>0' + CAL_BINS.map(b => `<span style="background:${b.color}"></span>${b.label}`).join('') + ' ' + Units.unit;
   box.replaceChildren(months, readout, legend);
 }
 
@@ -884,7 +914,7 @@ function renderStats(tracks) {
     if (s.pace) row('Pace', paceText(s.pace), 'average on foot');
     if (s.climb) {
       const most = s.climb.most;
-      row('Climb', `${s.climb.metres.toLocaleString()} m`, most.metrics.climb && `most: ${most.metrics.climb.toLocaleString()} m, ${most.name}`);
+      row('Climb', Units.height(s.climb.metres), most.metrics.climb && `most: ${Units.height(most.metrics.climb)}, ${most.name}`);
     }
     if (s.fastest.length) {
       const [first, ...others] = s.fastest.map(f => `${EFFORT_LABELS[f.metres]} ${clock(f.seconds)}`
@@ -1300,16 +1330,17 @@ async function addFiles(files) {
   let added = 0;
   for (const file of files) {
     try {
-      const text = await file.text();
-      const parsed = GPX.parse(text, file.name.replace(/\.gpx$/i, ''));
+      // FIT and TCX become GPX here, and .gz files are unpacked (see convert.js).
+      const { text, name, fileName } = await Convert.read(file);
+      const parsed = GPX.parse(text, name);
       const track = {
         ...parsed,
-        fileName: file.name,
+        fileName,
         color: COLORS[(loaded.size + added) % COLORS.length],
         visible: true,
         addedAt: new Date().toISOString(),
       };
-      Object.assign(track, await Store.add({ ...track, gpx: text }));  // id and metrics
+      Object.assign(track, await Store.add({ ...track, gpx: text }));  // id, metrics and the sport as kept
       show(track);
       added++;
     } catch (err) {
@@ -1348,7 +1379,7 @@ document.addEventListener('drop', e => {
   e.preventDefault();
   dropzone.classList.remove('over');
   if (!auth.hidden || readOnly()) return;
-  const files = Array.from(e.dataTransfer.files).filter(f => /\.gpx$/i.test(f.name));
+  const files = Array.from(e.dataTransfer.files).filter(f => Convert.ACCEPT.test(f.name));
   if (files.length) addFiles(files);
 });
 
@@ -1407,7 +1438,7 @@ let highlightLayer = null;
 let coverageTimer = null;
 
 const areaKind = level => (level <= 8 ? 'district' : level === 9 ? 'community' : level === 10 ? 'neighbourhood' : 'sub-area');
-const km = m => (m < 1000 ? `${Math.round(m / 10) * 10} m` : (m / 1000).toFixed(m < 10000 ? 1 : 0) + ' km');
+const km = m => Units.short(m);  // "450 m", "3.2 km", "12 km"; in miles "350 ft", "2.1 mi"
 const streetColor = f => (Coverage.isDone(f) ? STREET_COLORS.done : f > 0.05 ? STREET_COLORS.started : STREET_COLORS.todo);
 
 function groupLabel(g) {
@@ -2279,8 +2310,10 @@ function renderGoals() {
 
 const goalsForm = document.getElementById('goals-form');
 document.getElementById('goals-edit').onclick = () => {
-  document.getElementById('goal-week').value = goals.week || '';
-  document.getElementById('goal-month').value = goals.month || '';
+  // Saved in km; shown, and typed, in the chosen units.
+  const shown = kmGoal => (kmGoal ? Math.round(Units.toUnit(kmGoal * 1000) * 10) / 10 : '');
+  document.getElementById('goal-week').value = shown(goals.week);
+  document.getElementById('goal-month').value = shown(goals.month);
   goalsForm.hidden = false;
   document.getElementById('goals-edit').hidden = true;
   document.getElementById('goal-week').focus();
@@ -2294,8 +2327,8 @@ goalsForm.onsubmit = async e => {
   e.preventDefault();
   try {
     goals = await Store.saveGoals({
-      week: Number(document.getElementById('goal-week').value) || null,
-      month: Number(document.getElementById('goal-month').value) || null,
+      week: Units.fromUnit(Number(document.getElementById('goal-week').value)) / 1000 || null,
+      month: Units.fromUnit(Number(document.getElementById('goal-month').value)) / 1000 || null,
     });
     goalsMet = {};  // a new target isn't "reaching" it
     closeGoalsForm();
@@ -2646,7 +2679,7 @@ const TraceControl = L.Control.extend({
     this.play.textContent = playing ? '❚❚' : done ? '↺' : '▶';
     this.play.title = t(playing ? 'Pause' : done ? 'Trace it again' : trace ? 'Carry on' : 'Trace the route from start to finish');
     this.speed.textContent = `${traceSpeed === 0.5 ? '½' : traceSpeed}×`;
-    this.km.textContent = trace ? `${(trace.at / 1000).toFixed(1)} / ${(trace.total / 1000).toFixed(1)} km` : '';
+    this.km.textContent = trace ? `${Units.toUnit(trace.at).toFixed(1)} / ${Units.dist(trace.total)}` : '';
     this.km.hidden = !trace;
   },
 });
@@ -2965,7 +2998,10 @@ async function renameRoute(r) {
 // edit, save or download.
 const exploreKm = document.getElementById('explore-km');
 const exploreWithin = document.getElementById('explore-within');
-try { exploreKm.value = localStorage.getItem('feets-explore-km') || exploreKm.value; } catch {}
+// Its length is in the chosen units (see units.js), and each unit remembers its own.
+const EXPLORE_KEY = Units.miles ? 'feets-explore-mi' : 'feets-explore-km';
+if (Units.miles) Object.assign(exploreKm, { value: 3, max: 40 });
+try { exploreKm.value = localStorage.getItem(EXPLORE_KEY) || exploreKm.value; } catch {}
 // Complexity, 1 (a simple loop through a stretch or two) to 5 (as many unrun streets as fit).
 const exploreLevel = document.getElementById('explore-level');
 try { exploreLevel.value = localStorage.getItem('feets-explore-level') || exploreLevel.value; } catch {}
@@ -3227,7 +3263,7 @@ document.getElementById('plan-explore').onsubmit = async e => {
   e.preventDefault();
   const target = Number(exploreKm.value);
   if (!(target > 0)) return;
-  try { localStorage.setItem('feets-explore-km', exploreKm.value); } catch {}
+  try { localStorage.setItem(EXPLORE_KEY, exploreKm.value); } catch {}
   if (!areas.length) {
     planStatus.textContent = 'Add an area in Streets mode first: routes follow its streets.';
     return;
@@ -3275,7 +3311,7 @@ document.getElementById('plan-explore').onsubmit = async e => {
     if (exploreHills.value !== 'any') {
       planStatus.textContent = 'Looking up hills…';
       try {
-        heights = await routeHeights(g, [[g.lat[start], g.lon[start]], [g.lat[end], g.lon[end]]], target * 1000);
+        heights = await routeHeights(g, [[g.lat[start], g.lon[start]], [g.lat[end], g.lon[end]]], Units.fromUnit(target));
       } catch (err) {
         hillNote = ` Hills weren't taken into account: ${err.message}.`;
       }
@@ -3285,7 +3321,7 @@ document.getElementById('plan-explore').onsubmit = async e => {
       const { visited, fraction } = trackCoverage(area);
       return unrun ? { visited, fraction } : { visited: new Uint8Array(visited.length), fraction: new Float64Array(fraction.length) };
     });
-    const found = await Planner.explore(g, start, chains, target * 1000, (i, n) => {
+    const found = await Planner.explore(g, start, chains, Units.fromUnit(target), (i, n) => {
       planStatus.textContent = `${looking} (step ${i} of ${n})`;
     }, Number(exploreLevel.value), exploreHeading.value === '' ? null : Number(exploreHeading.value), {
       allowed: within && within.allowed,
@@ -3300,15 +3336,15 @@ document.getElementById('plan-explore').onsubmit = async e => {
       const inside = within ? ` inside ${within.name}` : '';
       const shape = oneWay ? `route from ${where} to your last point` : `loop from ${where}`;
       planStatus.textContent = unrun
-        ? `No new streets${inside} fit in a ${target} km ${shape}. Try a longer one, or fewer options.`
-        : `No ${target} km ${shape} fits${inside}. Try a longer one, or fewer options.`;
+        ? `No new streets${inside} fit in a ${target} ${Units.unit} ${shape}. Try a longer one, or fewer options.`
+        : `No ${target} ${Units.unit} ${shape} fits${inside}. Try a longer one, or fewer options.`;
       return;
     }
     resetPlan();
     const handles = withHandles(found.waypoints, found.legs);
     Object.assign(plan, {
       waypoints: handles.waypoints, legs: handles.legs, straight: handles.legs.map(() => false),
-      name: `${unrun ? 'New streets' : oneWay ? 'Route' : 'Loop'}, ${target} km`,
+      name: `${unrun ? 'New streets' : oneWay ? 'Route' : 'Loop'}, ${target} ${Units.unit}`,
     });
     planChanged();
     const way = exploreHeading.value === '' ? '' : ` heading ${exploreHeading.selectedOptions[0].text}`;
@@ -4224,7 +4260,9 @@ let artShapeId = 'heart';
 // legs, straight, outline, fid, metres }], index, shown (see artSignature) }.
 let artFits = null;
 
-for (const [el, key] of [[artArea, 'feets-art-area'], [artKm, 'feets-art-km']]) {
+// The art's length box is in the chosen units too; Art itself works in km.
+if (Units.miles) Object.assign(artKm, { value: 5, max: 50 });
+for (const [el, key] of [[artArea, 'feets-art-area'], [artKm, Units.miles ? 'feets-art-mi' : 'feets-art-km']]) {
   try { if (localStorage.getItem(key)) el.value = localStorage.getItem(key); } catch {}
   el.addEventListener('change', () => { try { localStorage.setItem(key, el.value); } catch {} });
 }
@@ -4385,8 +4423,8 @@ function showArtFit(index, { fit = true, adjusted = false } = {}) {
   const r = results[index];
   const thin = thinLegs(r.legs, r.straight);
   resetPlan();
-  const length = Math.round(Art.kmFor(shape, r.placement.s) * 2) / 2;
-  Object.assign(plan, { ...thin, name: `${shape.name}, ${length} km`, artShape: r.outline, art: r.placement });
+  const length = Math.round(Units.toUnit(Art.kmFor(shape, r.placement.s) * 1000) * 2) / 2;
+  Object.assign(plan, { ...thin, name: `${shape.name}, ${length} ${Units.unit}`, artShape: r.outline, art: r.placement });
   planChanged();
   artFits.index = index;
   artFits.shown = artSignature();
@@ -4395,7 +4433,7 @@ function showArtFit(index, { fit = true, adjusted = false } = {}) {
   const which = adjusted ? 'moved by hand' : results.length > 1 ? `fit ${index + 1} of ${results.length}` : 'placed';
   const off = 1 - Art.onStreets(artFits.field, shape, r.placement);
   planStatus.textContent = `${shape.name} in ${where}, ${which}: ${km(r.metres)}, `
-    + `on average ${Math.round(r.fid.mean)} m from the shape (95% within ${Math.round(r.fid.worst)} m). `
+    + `on average ${Units.short(r.fid.mean, 1)} from the shape (95% within ${Units.short(r.fid.worst, 1)}). `
     + (off > 0.15 ? `About ${Math.round(off * 100)}% of the shape is away from the streets of ${where}: move it in, or shrink it. ` : '')
     + 'Drag ✥ to move the shape, or ⟳ to turn and resize it.';
 }
@@ -4422,22 +4460,22 @@ function artSetup() {
   const mask = withinMask(g, artArea.value);
   if (!mask) return null;
   if (!mask.field) mask.field = Art.prepare(g, mask.allowed);  // kept with the mask, for the next go
-  return { shape, rigor, km: length, where: mask.name, g, field: mask.field, allowed: mask.allowed };
+  return { shape, rigor, km: Units.fromUnit(length) / 1000, length, where: mask.name, g, field: mask.field, allowed: mask.allowed };
 }
 
 document.getElementById('art-fit').onclick = async () => {
   if (!mayReplaceForArt()) return;
   const setup = artSetup();
   if (!setup) return;
-  const { shape, km: length, where, field } = setup;
+  const { shape, km, length, where, field } = setup;
   const buttons = [...document.querySelectorAll('#art button')];
   buttons.forEach(b => { b.disabled = true; });
   try {
-    const fits = await Art.fit(field, shape, { km: length, free: artFree.checked }, f => {
+    const fits = await Art.fit(field, shape, { km, free: artFree.checked }, f => {
       planStatus.textContent = `Fitting a ${shape.name.toLowerCase()} into ${where}… ${Math.round(f * 100)}%`;
     });
     if (!fits.length) {
-      planStatus.textContent = `A ${length} km ${shape.name.toLowerCase()} is too big for ${where}. Try a shorter one, or a bigger area.`;
+      planStatus.textContent = `A ${length} ${Units.unit} ${shape.name.toLowerCase()} is too big for ${where}. Try a shorter one, or a bigger area.`;
       return;
     }
     const results = [];
@@ -4514,7 +4552,7 @@ function drawArtHandles(layer, outlineLine) {
   const turn = handle('turn', 'Drag to turn and resize the shape', turnAt(placement));
   const preview = () => {
     outlineLine.setLatLngs(Art.outline(field, shape, next));
-    planStatus.textContent = `${shape.name}: about ${Art.kmFor(shape, next.s).toFixed(1)} km`
+    planStatus.textContent = `${shape.name}: about ${Units.dist(Art.kmFor(shape, next.s) * 1000)}`
       + (next.rot ? `, turned ${Math.round(((next.rot % 360) + 540) % 360 - 180)}°` : '') + '. Let go to draw it on the streets.';
   };
   move.on('drag', e => {
@@ -5089,7 +5127,7 @@ async function updateQuests() {
     questState.done.push(...finished.map(q => q.id));
     questState.completed += finished.length;
     await Store.saveQuests(questState).catch(() => {});
-    for (const q of finished) toast(`Quest done: ${q.title}`, `${questState.completed} quests done in all.`);
+    for (const q of finished) toast(`Quest done: ${Quests.title(q)}`, `${questState.completed} quests done in all.`);
   }
   renderQuests(Quests.streak(firsts), progress);
   await awardStreakTrophies(firsts);
@@ -5125,7 +5163,7 @@ function renderQuests(streak, progress) {
     li.className = p.done ? 'done' : '';
     li.innerHTML = '<div class="quest-title"><strong></strong><button class="link-button" type="button">Plan it</button></div>'
       + '<div class="bar"><span></span></div><small></small>';
-    li.querySelector('strong').textContent = (p.done ? '✓ ' : '') + q.title;
+    li.querySelector('strong').textContent = (p.done ? '✓ ' : '') + Quests.title(q);
     li.querySelector('.bar span').style.width = `${Math.min(100, p.have / Math.max(1, p.of) * 100).toFixed(1)}%`;
     li.querySelector('small').textContent = q.kind === 'street'
       ? (p.done ? 'Finished' : `${Quests.kmText(p.of - p.have)} to go`)

@@ -2346,11 +2346,13 @@ body {
   text-align: center;
 }
 
-/* Language picker (see i18n.js): in Account, and on the login screen */
+/* Language and units pickers (see i18n.js, units.js): in Account, and on the login screen */
 .lang-row {
+  flex-basis: 100%;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 6px 14px;
   font-size: 13px;
 }
 

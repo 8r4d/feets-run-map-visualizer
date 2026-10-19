@@ -1,0 +1,25 @@
+
+<?xml version="1.0" encoding="UTF-8"?>
+<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">
+  <Activities>
+    <Activity Sport="Walking">
+      <Id>2026-10-02T07:30:00Z</Id>
+      <Lap StartTime="2026-10-02T07:30:00Z">
+        <TotalTimeSeconds>240</TotalTimeSeconds>
+        <Track>
+          <Trackpoint><Time>2026-10-02T07:30:00Z</Time><HeartRateBpm><Value>95</Value></HeartRateBpm></Trackpoint>
+          <Trackpoint><Time>2026-10-02T07:30:30Z</Time><Position><LatitudeDegrees>49.28000</LatitudeDegrees><LongitudeDegrees>-123.12000</LongitudeDegrees></Position><AltitudeMeters>20.0</AltitudeMeters></Trackpoint>
+          <Trackpoint><Time>2026-10-02T07:31:00Z</Time><Position><LatitudeDegrees>49.28036</LatitudeDegrees><LongitudeDegrees>-123.12000</LongitudeDegrees></Position><AltitudeMeters>21.0</AltitudeMeters></Trackpoint>
+          <Trackpoint><Time>2026-10-02T07:31:30Z</Time><Position><LatitudeDegrees>49.28072</LatitudeDegrees><LongitudeDegrees>-123.12000</LongitudeDegrees></Position><AltitudeMeters>23.0</AltitudeMeters></Trackpoint>
+          <Trackpoint><Time>2026-10-02T07:32:00Z</Time><Position><LatitudeDegrees>49.28108</LatitudeDegrees><LongitudeDegrees>-123.12000</LongitudeDegrees></Position><AltitudeMeters>26.0</AltitudeMeters></Trackpoint>
+          <Trackpoint><Time>2026-10-02T07:32:30Z</Time><Position><LatitudeDegrees>49.28144</LatitudeDegrees><LongitudeDegrees>-123.12000</LongitudeDegrees></Position><AltitudeMeters>30.0</AltitudeMeters></Trackpoint>
+          <Trackpoint><Time>2026-10-02T07:33:00Z</Time><Position><LatitudeDegrees>49.28180</LatitudeDegrees><LongitudeDegrees>-123.12000</LongitudeDegrees></Position><AltitudeMeters>35.0</AltitudeMeters></Trackpoint>
+          <Trackpoint><Time>2026-10-02T07:33:30Z</Time><Position><LatitudeDegrees>49.28216</LatitudeDegrees><LongitudeDegrees>-123.12000</LongitudeDegrees></Position><AltitudeMeters>41.0</AltitudeMeters></Trackpoint>
+          <Trackpoint><Time>2026-10-02T07:34:00Z</Time><Position><LatitudeDegrees>49.28252</LatitudeDegrees><LongitudeDegrees>-123.12000</LongitudeDegrees></Position><AltitudeMeters>48.0</AltitudeMeters></Trackpoint>
+        </Track>
+      </Lap>
+      <Notes>Morning walk to the seawall
+with a coffee stop</Notes>
+    </Activity>
+  </Activities>
+</TrainingCenterDatabase>

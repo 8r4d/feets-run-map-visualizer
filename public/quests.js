@@ -177,7 +177,7 @@ const Quests = (() => {
     const unit = nearest(units);
     if (unit) {
       const target = Math.max(200, Math.min(AREA_TARGET, Math.round(unit.left / 2 / 100) * 100));
-      quests.push({ id: `${week}:area`, kind: 'area', title: `Cover ${kmText(target)} of new streets in ${unit.name}`, target, areaId: unit.areaId, hood: unit.hood, place: unit.place });
+      quests.push({ id: `${week}:area`, kind: 'area', title: `Cover ${kmText(target)} of new streets in ${unit.name}`, where: unit.name, target, areaId: unit.areaId, hood: unit.hood, place: unit.place });
     }
     const street = nearest(streetsLeft);
     if (street) {
@@ -204,7 +204,18 @@ const Quests = (() => {
     return ways.length > 0 && ways.every(s => excluded.has(s.id));
   }
 
-  const kmText = m => (m < 1000 ? `${Math.max(0, Math.round(m / 10) * 10)} m` : `${(m / 1000).toFixed(m % 1000 ? 1 : 0)} km`);
+  // "450 m", "2 km", "1.5 km"; in miles "350 ft", "1.2 mi" (see units.js).
+  const kmText = m => (Units.miles ? Units.short(Math.max(0, m))
+    : m < 1000 ? `${Math.max(0, Math.round(m / 10) * 10)} m` : `${(m / 1000).toFixed(m % 1000 ? 1 : 0)} km`);
+
+  // A quest's title in the chosen units. Saved titles are in the units of
+  // whoever's browser made the quest; quests made before `where` was kept
+  // fall back to theirs.
+  function title(quest) {
+    if (quest.kind === 'any') return `Cover ${kmText(quest.target)} of new streets anywhere`;
+    if (quest.kind === 'area' && quest.where) return `Cover ${kmText(quest.target)} of new streets in ${quest.where}`;
+    return quest.title;
+  }
 
   // How far along a quest is: { have, of, done } in metres. For a street,
   // `have` is how much of it is covered now (all activities), else the new
@@ -231,5 +242,5 @@ const Quests = (() => {
     return { have, of: quest.target, done: have >= quest.target };
   }
 
-  return { STREAK_MIN, firsts, streak, streakTrophies, weekId, make, offLimits, progress, kmText };
+  return { STREAK_MIN, firsts, streak, streakTrophies, weekId, make, offLimits, progress, kmText, title };
 })();

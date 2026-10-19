@@ -176,7 +176,8 @@ const Elevation = (() => {
   }
 
   // An SVG chart of a profile, with the lowest and highest points marked and
-  // a readout of the height under the pointer. Styled by .elevation in style.css.
+  // a readout of the height under the pointer, labelled in the chosen units
+  // (units.js). Styled by .elevation in style.css.
   function chart(profile) {
     const km = profile[profile.length - 1][0] || 1;
     const heights = profile.map(p => p[1]);
@@ -192,7 +193,8 @@ const Elevation = (() => {
     const line = profile.map(([d, m], i) => `${i ? 'L' : 'M'}${x(d).toFixed(1)},${y(m).toFixed(1)}`).join('');
 
     const svg = el('svg', { class: 'elevation', viewBox: `0 0 ${W} ${H}`, role: 'img' });
-    svg.setAttribute('aria-label', `Elevation: ${Math.round(Math.min(...heights))} to ${Math.round(Math.max(...heights))} m over ${km.toFixed(1)} km`);
+    const along = d => Units.toUnit(d * 1000).toFixed(1);  // km along -> km or miles
+    svg.setAttribute('aria-label', `Elevation: ${Units.height(Math.min(...heights))} to ${Units.height(Math.max(...heights))} over ${Units.dist(km * 1000)}`);
     svg.append(
       el('path', { class: 'area', d: `${line}L${x(km).toFixed(1)},${H - BOTTOM}L${LEFT},${H - BOTTOM}Z` }),
       el('path', { class: 'line', d: line }),
@@ -204,10 +206,10 @@ const Elevation = (() => {
       svg.append(t);
       return t;
     };
-    label(`${Math.round(hi)} m`, { x: LEFT - 4, y: TOP + 8, 'text-anchor': 'end' });
-    label(`${Math.round(lo)} m`, { x: LEFT - 4, y: H - BOTTOM, 'text-anchor': 'end' });
+    label(Units.height(hi), { x: LEFT - 4, y: TOP + 8, 'text-anchor': 'end' });
+    label(Units.height(lo), { x: LEFT - 4, y: H - BOTTOM, 'text-anchor': 'end' });
     label('0', { x: LEFT, y: H - 2 });
-    label(`${km.toFixed(1)} km`, { x: W - 2, y: H - 2, 'text-anchor': 'end' });
+    label(`${along(km)} ${Units.unit}`, { x: W - 2, y: H - 2, 'text-anchor': 'end' });
 
     // Pointer readout: a line at the nearest point and its distance and height.
     const cursor = el('line', { class: 'cursor', y1: TOP, y2: H - BOTTOM, visibility: 'hidden' });
@@ -220,7 +222,7 @@ const Elevation = (() => {
       cursor.setAttribute('x1', x(pd));
       cursor.setAttribute('x2', x(pd));
       cursor.setAttribute('visibility', 'visible');
-      readout.textContent = `${pd.toFixed(1)} km · ${Math.round(pm)} m`;
+      readout.textContent = `${along(pd)} ${Units.unit} · ${Units.height(pm)}`;
     });
     svg.addEventListener('pointerleave', () => {
       cursor.setAttribute('visibility', 'hidden');

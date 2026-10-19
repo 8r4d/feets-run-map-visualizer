@@ -5,6 +5,47 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.10.0 — 2026-10-19
+
+- feets can be installed as an app: on an iPhone with Share → Add to Home
+  Screen, and on Android or in Chrome and Edge with "Install feets as an app"
+  in the About box. It opens in its own window, with its own icon (two
+  footprints), and opens without a connection too, though your tracks need
+  one to load. Nothing of yours is kept on the device for that, only the page.
+- The phone's bar above the page follows light and dark mode.
+- For developers: tests. `tests/run.sh` runs them against a throwaway database
+  and server (see README, "Tests").
+
+## 1.9.0 — 2026-10-19
+
+- Add FIT and TCX files as well as GPX: FIT is what Garmin, Coros, Wahoo and
+  Suunto watches record, TCX is Garmin's older format. Gzipped files work too,
+  so the activities in a Strava "Download your data" archive can go in at
+  once. They're turned into GPX as they're added, and kept and downloaded as
+  GPX, with their times and heights, so pace and climb work as before.
+- A new track shows its activity type tidied up ("Run", not "running") straight
+  away, instead of after a reload.
+
+## 1.8.0 — 2026-10-19
+
+- Miles: pick Kilometres or Miles under Account (next to Language) or on the
+  login screen. Distances, paces (/mi), speeds (mph), climbs and heights (ft),
+  the map's scale, goals, and the lengths typed in Plan mode all follow it.
+  feets starts in miles for a browser set to US English. Goals are kept in km,
+  so switching doesn't change them. Trophies keep the names they were earned
+  with ("100 km").
+
+## 1.7.1 — 2026-10-19
+
+- Password guessing is stopped properly. Within 15 minutes a username gets 5
+  tries and an IP address 20, after which even the right password waits out
+  the 15 minutes. Before, each wrong password only cost a second, and many
+  sent at once weren't slowed at all. "Forgot password?" with the setup
+  password is limited per IP only, so it still unlocks a guessed-at account.
+- Deleting a track only clears that track's segment times if it was yours.
+  Before, asking to delete someone else's track (which was refused) still
+  cleared its segment times.
+
 ## 1.7.0 — 2026-10-19
 
 - Sharing: view links and route links last 7 days for everyone but the admin,
