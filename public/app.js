@@ -5030,10 +5030,23 @@ async function updateQuests() {
   };
   if (!questState) questState = await Store.quests().catch(() => null);
   const week = Quests.weekId(new Date());
-  if (!questState || questState.week !== week) {
+  const near = () => {
     const c = map.getCenter();
-    const near = home ? [home.lat, home.lon] : lastFix ? [lastFix.lat, lastFix.lng] : [c.lat, c.lng];
-    questState = { ...Quests.make(areas, coverageFor, firsts, near), done: [], completed: questState ? questState.completed : 0 };
+    return home ? [home.lat, home.lon] : lastFix ? [lastFix.lat, lastFix.lng] : [c.lat, c.lng];
+  };
+  if (!questState || questState.week !== week) {
+    questState = { ...Quests.make(areas, coverageFor, firsts, near()), done: [], completed: questState ? questState.completed : 0 };
+    await Store.saveQuests(questState).catch(() => {});
+  }
+  // A street marked off-limits since the quests were made: swap in another
+  // (make() leaves off-limits streets out), or drop it if there's none.
+  if (questState.quests.some(q => !questState.done.includes(q.id) && Quests.offLimits(q, areas))) {
+    const fresh = Quests.make(areas, coverageFor, firsts, near()).quests;
+    questState.quests = questState.quests.flatMap(q => {
+      if (questState.done.includes(q.id) || !Quests.offLimits(q, areas)) return [q];
+      const other = fresh.find(f => f.kind === q.kind);
+      return other ? [{ ...other, id: q.id }] : [];
+    });
     await Store.saveQuests(questState).catch(() => {});
   }
   const progress = questState.quests.map(q => Quests.progress(q, areas, coverageFor, firsts));

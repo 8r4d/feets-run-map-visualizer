@@ -193,6 +193,17 @@ const Quests = (() => {
     return { week, quests };
   }
 
+  // Whether a quest's street has since been marked off-limits (all of it, as
+  // marking a named street does): it can't be finished, so it's swapped out.
+  function offLimits(quest, areas) {
+    if (quest.kind !== 'street') return false;
+    const area = areas.find(a => a.id === quest.areaId);
+    if (!area) return false;
+    const excluded = new Set(area.excluded || []);
+    const ways = area.data.streets.filter(s => s.name === quest.name && s.cat === quest.cat && s.hood === quest.hood);
+    return ways.length > 0 && ways.every(s => excluded.has(s.id));
+  }
+
   const kmText = m => (m < 1000 ? `${Math.max(0, Math.round(m / 10) * 10)} m` : `${(m / 1000).toFixed(m % 1000 ? 1 : 0)} km`);
 
   // How far along a quest is: { have, of, done } in metres. For a street,
@@ -220,5 +231,5 @@ const Quests = (() => {
     return { have, of: quest.target, done: have >= quest.target };
   }
 
-  return { STREAK_MIN, firsts, streak, streakTrophies, weekId, make, progress, kmText };
+  return { STREAK_MIN, firsts, streak, streakTrophies, weekId, make, offLimits, progress, kmText };
 })();

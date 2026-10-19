@@ -5,6 +5,12 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.5.2 — 2026-10-19
+
+- Quests: a "Finish …" quest whose street you've since marked off-limits is
+  swapped for another street to finish (or dropped if there's none), instead
+  of hanging about all week. New quests already left off-limits streets out.
+
 ## 1.5.1 — 2026-10-18
 
 - Marking streets off-limits is quick, even a few dozen in a row (all the
