@@ -1365,8 +1365,14 @@ const streetRenderer = L.canvas({ padding: 0.5, tolerance: 5 });
 const areaSelect = document.getElementById('area-select');
 const areaStatus = document.getElementById('area-status');
 let areas = [];
+let menuAreas = [];      // [area, its label in the menus], in menu order (see fillAreaSelect)
 let activeArea = null;   // { area, prep }
 let coverage = null;     // { result, summary }
+// Several areas, coloured in together with no totals: [{ area, prep }],
+// biggest first, and their coverage { results, tracks }.
+let severalAreas = null;
+let severalCoverage = null;
+let streetsChoice = '';  // what Streets shows: an area's id, or 'm:ID,ID,…' for several
 let streetLayer = null;
 let highlightLayer = null;
 let coverageTimer = null;
@@ -1417,7 +1423,7 @@ async function loadAreas() {
   let saved = '';
   try { saved = localStorage.getItem('feets-area') || ''; } catch {}
   fillAreaSelect();
-  setActiveArea(areas.some(a => String(a.id) === saved) ? saved : areas[0] ? String(areas[0].id) : '');
+  setActiveArea(saved.startsWith('m:') || areas.some(a => String(a.id) === saved) ? saved : areas[0] ? String(areas[0].id) : '');
 }
 
 // Streets marked unrunnable in one area but not in another that has them too
@@ -1479,6 +1485,28 @@ function areaParents() {
   return parent;
 }
 
+// Fills a list of boxes to tick: choices are [value, label]. Rebuilt only
+// when the choices change, so a click keeps its place; ticked is a list of values.
+function fillTicks(list, choices, ticked) {
+  const key = choices.map(c => c.join('=')).join('|');
+  if (list.dataset.for !== key) {
+    list.dataset.for = key;
+    list.replaceChildren(...choices.map(([value, label]) => {
+      const row = document.createElement('label');
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.value = value;
+      row.append(box, ` ${label}`);
+      return row;
+    }));
+  }
+  const on = ticked.map(String);
+  list.querySelectorAll('input').forEach(box => { box.checked = on.includes(box.value); });
+}
+
+// The ticked values in a list from fillTicks, joined with commas.
+const tickedIn = list => [...list.querySelectorAll('input:checked')].map(c => c.value).join(',');
+
 function fillAreaSelect() {
   const parent = areaParents();
   const nested = [];  // [area, depth], in menu order
@@ -1488,18 +1516,20 @@ function fillAreaSelect() {
   };
   for (const a of areas) if (!parent.has(a)) add(a, 0);  // areas is sorted by name
   const label = (a, depth) => `${'\u2013 '.repeat(depth)}${a.name}`;
+  menuAreas = nested.map(([a, depth]) => [a, label(a, depth)]);
+  // Streets: one area, or several to colour in together.
   areaSelect.replaceChildren(new Option(areas.length ? 'Choose an area…' : 'No areas yet: add one', ''),
-    ...nested.map(([a, depth]) => new Option(label(a, depth), String(a.id))));
+    ...menuAreas.map(([a, text]) => new Option(text, String(a.id))),
+    ...(areas.length > 1 ? [new Option(t('several areas…'), 'm')] : []));
   // Plan's "Stay within": each area, with its neighbourhoods to tick below
   // (see setWithin). The saved choice wins: the menu was empty when the page
   // first set it.
-  withinAreas = nested.map(([a, depth]) => [a, label(a, depth)]);
   exploreWithin.replaceChildren(new Option(t('anywhere'), ''),
-    ...withinAreas.map(([a, text]) => new Option(text, `a:${a.id}`)),
+    ...menuAreas.map(([a, text]) => new Option(text, `a:${a.id}`)),
     ...(areas.length > 1 ? [new Option(t('several areas…'), 'm')] : []));
   let within = withinValue;
   try { within = localStorage.getItem('feets-explore-within') ?? within; } catch {}
-  withinTicks.querySelector('.explore-within-list').dataset.for = '';  // names may have changed
+  withinTicks.querySelector('.tick-list').dataset.for = '';  // names may have changed
   setWithin(within, false);
   // GPS art's area: each area and each neighbourhood in it; somewhere has to be picked.
   const artValue = artArea.value || (() => { try { return localStorage.getItem('feets-art-area'); } catch { return null; } })();
@@ -1511,14 +1541,32 @@ function fillAreaSelect() {
   if (artArea.selectedIndex < 0 && artArea.options.length) artArea.selectedIndex = 0;
 }
 
+// Shows an area in Streets (by id), or several: 'm:ID,ID,…'.
 function setActiveArea(id) {
-  const area = areas.find(a => String(a.id) === String(id));
-  areaSelect.value = area ? String(area.id) : '';
-  try { localStorage.setItem('feets-area', area ? String(area.id) : ''); } catch {}
+  const value = String(id ?? '');
+  const several = value.startsWith('m:');
+  const ids = several ? value.slice(2).split(',') : [];
+  const picked = areas.filter(a => ids.includes(String(a.id)));
+  const area = several ? null : areas.find(a => String(a.id) === value);
+  streetsChoice = several ? `m:${picked.map(a => a.id).join(',')}` : area ? String(area.id) : '';
+  areaSelect.value = several ? 'm' : streetsChoice;
+  if (areaSelect.selectedIndex < 0) areaSelect.value = '';
+  try { localStorage.setItem('feets-area', streetsChoice); } catch {}
   activeArea = area ? { area, prep: Coverage.prepared(area) } : null;
-  coverage = null;
+  severalAreas = several
+    ? picked.map(a => ({ area: a, prep: Coverage.prepared(a) })).sort((x, y) => y.area.data.streets.length - x.area.data.streets.length)
+    : null;
+  coverage = severalCoverage = null;
   document.getElementById('area-tools').hidden = !area;
-  if (!area) {
+  // The areas to tick, with several.
+  const ticks = document.getElementById('area-ticks');
+  ticks.hidden = !several;
+  if (several) {
+    ticks.querySelector('summary').textContent = picked.length > 1 ? t('{n} areas ticked', { n: picked.length })
+      : picked.length ? t('1 area ticked') : t('Tick the areas to show');
+    fillTicks(ticks.querySelector('.tick-list'), menuAreas.map(([a, text]) => [a.id, text]), picked.map(a => a.id));
+  }
+  if (!area && !picked.length) {
     if (streetLayer) streetLayer.remove();
     streetLayer = null;
     renderCoverage();
@@ -1533,50 +1581,73 @@ function scheduleCoverage() {
 }
 
 function updateCoverage() {
-  if (!showStreets() || !activeArea) {
+  if (!showStreets() || !(activeArea || (severalAreas && severalAreas.length))) {
     if (streetLayer) streetLayer.remove();
     if (streetsMode) renderCoverage();
     return;
   }
   const shown = [...loaded.values()].filter(e => onMap(e.track));
+  if (severalAreas) {
+    const segments = shown.map(e => e.track.segments);
+    severalCoverage = { results: severalAreas.map(m => Coverage.compute(m.prep, segments)), tracks: shown.length };
+    drawStreets();
+    renderCoverage();
+    return;
+  }
   const result = Coverage.compute(activeArea.prep, shown.map(e => e.track.segments));
   coverage = { result, summary: Coverage.summarize(activeArea.prep, result), tracks: shown.length };
   drawStreets();
   renderCoverage();
 }
 
+// The streets coloured by coverage: the area's, or with several, each one's
+// (a street in two of them drawn once), with no clicking to mark it off-limits.
 function drawStreets() {
   if (streetLayer) streetLayer.remove();
   streetLayer = L.layerGroup();
-  const { data } = activeArea.area;
-  for (const hood of data.hoods) {
-    for (const line of hood.lines) {
-      L.polyline(line, { renderer: streetRenderer, color: '#777', weight: 1, opacity: 0.6, interactive: false }).addTo(streetLayer);
+  const sets = severalAreas
+    ? severalAreas.map((m, i) => ({ ...m, fraction: severalCoverage.results[i].fraction }))
+    : [{ ...activeArea, fraction: coverage.result.fraction }];
+  const picked = severalAreas ? null : pickedHoods();
+  const drawn = new Set();  // with several: the street pieces drawn so far
+  for (const { area, prep, fraction } of sets) {
+    const { data } = area;
+    if (!severalAreas) {
+      for (const hood of data.hoods) {
+        for (const line of hood.lines) {
+          L.polyline(line, { renderer: streetRenderer, color: '#777', weight: 1, opacity: 0.6, interactive: false }).addTo(streetLayer);
+        }
+      }
     }
-  }
-  for (const line of data.boundary) {
-    L.polyline(line, { renderer: streetRenderer, color: '#333', weight: 2.5, dashArray: '8 6', interactive: false }).addTo(streetLayer);
-  }
-  const picked = pickedHoods();
-  data.streets.forEach((s, w) => {
-    const f = coverage.result.fraction[w];
-    const unrunnable = activeArea.prep.excluded[w];
-    const faded = picked && !picked.has(s.hood);  // outside the ticked neighbourhoods
-    const style = unrunnable
-      ? { renderer: streetRenderer, color: STREET_COLORS.unrunnable, weight: 3, opacity: faded ? 0.3 : 0.8, dashArray: '2 6' }
-      : {
-        renderer: streetRenderer,
-        color: streetColor(f),
-        weight: s.cat === 'road' ? 4 : 3,
-        opacity: faded ? 0.25 : 0.9,
-        dashArray: s.cat === 'trail' ? '4 5' : null,
-      };
-    const tip = `${s.name || `Unnamed ${CAT_NAMES[s.cat]}`} · ${unrunnable ? 'off-limits' : Math.round(f * 100) + '%'}`;
-    for (const run of s.runs) {
-      L.polyline(run, style).bindTooltip(tip, { sticky: true })
-        .on('click', e => { if (!planMode) streetPopup(w, e.latlng); }).addTo(streetLayer);  // plan mode: map click adds a point
+    for (const line of data.boundary) {
+      L.polyline(line, { renderer: streetRenderer, color: '#333', weight: 2.5, dashArray: '8 6', interactive: false }).addTo(streetLayer);
     }
-  });
+    data.streets.forEach((s, w) => {
+      const f = fraction[w];
+      const unrunnable = prep.excluded[w];
+      const faded = picked && !picked.has(s.hood);  // outside the ticked neighbourhoods
+      const style = unrunnable
+        ? { renderer: streetRenderer, color: STREET_COLORS.unrunnable, weight: 3, opacity: faded ? 0.3 : 0.8, dashArray: '2 6' }
+        : {
+          renderer: streetRenderer,
+          color: streetColor(f),
+          weight: s.cat === 'road' ? 4 : 3,
+          opacity: faded ? 0.25 : 0.9,
+          dashArray: s.cat === 'trail' ? '4 5' : null,
+        };
+      const tip = `${s.name || `Unnamed ${CAT_NAMES[s.cat]}`} · ${unrunnable ? 'off-limits' : Math.round(f * 100) + '%'}`;
+      for (const run of s.runs) {
+        if (severalAreas) {
+          const key = `${s.id}:${run[0]}:${run[run.length - 1]}`;
+          if (drawn.has(key)) continue;
+          drawn.add(key);
+        }
+        const line = L.polyline(run, style).bindTooltip(tip, { sticky: true });
+        if (!severalAreas) line.on('click', e => { if (!planMode) streetPopup(w, e.latlng); });  // plan mode: map click adds a point
+        line.addTo(streetLayer);
+      }
+    });
+  }
   streetLayer.addTo(map);
 }
 
@@ -1593,13 +1664,31 @@ function progressRow(label, t) {
   return row;
 }
 
+function coverageLegend() {
+  const legend = document.createElement('div');
+  legend.className = 'legend';
+  legend.innerHTML = `<span style="--c:${STREET_COLORS.done}">done</span><span style="--c:${STREET_COLORS.started}">started</span>`
+    + `<span style="--c:${STREET_COLORS.todo}">not yet</span><span class="dashed">trail</span>`
+    + `<span class="dotted">off-limits</span>`;
+  return legend;
+}
+
 function renderCoverage() {
   const box = document.getElementById('coverage');
   const hoodBox = document.getElementById('hood-coverage');
   if (!activeArea || !coverage) {
-    box.replaceChildren();
     hoodBox.hidden = true;
     document.getElementById('todo').hidden = true;
+    document.getElementById('unrunnable').hidden = true;
+    // Several areas: just the colours, no totals.
+    if (severalCoverage) {
+      const note = document.createElement('small');
+      note.className = 'coverage-note';
+      note.textContent = t('Colours only, for the tracks on the map. Pick one area for its totals and the streets still to cover.');
+      box.replaceChildren(coverageLegend(), note);
+    } else {
+      box.replaceChildren();
+    }
     return;
   }
   const { summary, tracks } = coverage;
@@ -1627,11 +1716,7 @@ function renderCoverage() {
     all.onclick = () => setPickedHoods([]);
     pickNote.append(all);
   }
-  const legend = document.createElement('div');
-  legend.className = 'legend';
-  legend.innerHTML = `<span style="--c:${STREET_COLORS.done}">done</span><span style="--c:${STREET_COLORS.started}">started</span>`
-    + `<span style="--c:${STREET_COLORS.todo}">not yet</span><span class="dashed">trail</span>`
-    + `<span class="dotted">off-limits</span>`;
+  const legend = coverageLegend();
   const note = document.createElement('small');
   note.className = 'coverage-note';
   note.textContent = `Counting the ${tracks} ${tracks === 1 ? 'track' : 'tracks'} on the map. ` +
@@ -1819,9 +1904,23 @@ for (const id of ['todo', 'unrunnable', 'routes', 'stats-box', 'goals-box']) {
 }
 
 areaSelect.onchange = () => {
+  // "Several areas" starts with the area that was showing, and opens the list to tick more.
+  if (areaSelect.value === 'm') {
+    setActiveArea(`m:${streetsChoice.startsWith('m:') ? streetsChoice.slice(2) : streetsChoice}`);
+    document.getElementById('area-ticks').open = true;
+    return;
+  }
   setActiveArea(areaSelect.value);
   if (activeArea) map.fitBounds(L.latLngBounds(activeArea.area.data.boundary.flat()), { padding: [20, 20] });
 };
+
+document.getElementById('area-ticks').addEventListener('change', e => {
+  const before = severalAreas ? severalAreas.map(m => m.area) : [];
+  setActiveArea(`m:${tickedIn(e.currentTarget.querySelector('.tick-list'))}`);
+  // Fit the map to an area just ticked.
+  const added = severalAreas.find(m => !before.includes(m.area));
+  if (added) map.fitBounds(L.latLngBounds(severalAreas.flatMap(m => m.area.data.boundary.flat())), { padding: [20, 20] });
+});
 
 // Adding an area: list the OSM boundaries around the current view, then
 // fetch the chosen one's streets and save it.
@@ -2842,7 +2941,6 @@ async function routeHeights(g, points, budget) {
 // (none ticked is the whole area) or the areas. Filled in, and the saved
 // choice set, with the areas (see fillAreaSelect).
 let withinValue = '';
-let withinAreas = [];  // [area, its label in the menu], in menu order
 const withinTicks = document.getElementById('explore-within-ticks');
 
 // A Stay within value's areas, and the neighbourhoods of a single one (null
@@ -2883,30 +2981,15 @@ function setWithin(value, save = true) {
   if (exploreWithin.selectedIndex < 0) exploreWithin.value = '';
   // To tick: every area, or the one area's neighbourhoods.
   const choices = !w ? []
-    : w.several ? withinAreas.map(([a, label]) => [a.id, label])
+    : w.several ? menuAreas.map(([a, label]) => [a.id, label])
     : w.areas[0].data.hoods.map((h, i) => [i, h.name]);
-  const ticked = (!w ? [] : w.several ? w.areas.map(a => a.id) : w.hoods || []).map(String);
+  const ticked = !w ? [] : w.several ? w.areas.map(a => a.id) : w.hoods || [];
   withinTicks.hidden = !choices.length;
   withinTicks.querySelector('summary').textContent = !w ? ''
     : w.several ? (ticked.length > 1 ? t('{n} areas ticked', { n: ticked.length }) : ticked.length ? t('1 area ticked') : t('Tick the areas to stay in'))
     : ticked.length ? t('Only {n} of its {total} neighbourhoods', { n: ticked.length, total: choices.length })
     : t('All its neighbourhoods');
-  // Rebuilt for other choices; just re-ticked for the same ones, so a click
-  // keeps its place.
-  const list = withinTicks.querySelector('.explore-within-list');
-  const listFor = choices.map(c => c.join('=')).join('|') + (w && w.several ? '|m' : '');
-  if (list.dataset.for !== listFor) {
-    list.dataset.for = listFor;
-    list.replaceChildren(...choices.map(([key, label]) => {
-      const row = document.createElement('label');
-      const box = document.createElement('input');
-      box.type = 'checkbox';
-      box.value = key;
-      row.append(box, ` ${label}`);
-      return row;
-    }));
-  }
-  list.querySelectorAll('input').forEach(box => { box.checked = ticked.includes(box.value); });
+  fillTicks(withinTicks.querySelector('.tick-list'), choices, ticked);
   summarizeExplore();
 }
 
@@ -2918,7 +3001,7 @@ exploreWithin.onchange = () => {
   withinTicks.open = true;
 };
 withinTicks.addEventListener('change', () => {
-  const ticked = [...withinTicks.querySelectorAll('input:checked')].map(c => c.value).join(',');
+  const ticked = tickedIn(withinTicks.querySelector('.tick-list'));
   const [kind, id] = withinValue.split(':');
   setWithin(kind === 'm' ? `m:${ticked}` : ticked ? `h:${id}:${ticked}` : `a:${id}`);
 });
@@ -4014,9 +4097,9 @@ async function addFoundArea(place, { osmId, built }) {
   const saved = await Store.saveArea({ osmId, name: built.name, data: built.data });
   areas = [...areas.filter(a => a.id !== saved.id), saved].sort((a, b) => a.name.localeCompare(b.name));
   await syncUnrunnable();
-  const active = activeArea && activeArea.area.id;
+  const showing = streetsChoice;
   fillAreaSelect();
-  setActiveArea(active || saved.id);
+  setActiveArea(showing || saved.id);
   scheduleTrophies();
   toast(`New street map: ${saved.name}`, `Added because you've been there ${place.runs} times. See it in Streets mode.`);
 }

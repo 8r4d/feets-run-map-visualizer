@@ -17,6 +17,9 @@ About box (`public/index.html`); keep it and this file in step.
   districts: pick "several areas…" and tick them. A loop stays inside the one
   it starts in when they don't touch. GPS art still picks one area or
   neighbourhood.
+- Streets: "several areas…" in the area menu colours in the streets of every
+  area ticked, for an overview of a large patch at once. It shows no totals,
+  neighbourhoods or "Still to cover" list; pick a single area for those.
 
 ## 1.4.0 — 2026-10-18
 

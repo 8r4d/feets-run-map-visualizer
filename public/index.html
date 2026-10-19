@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>feets</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=85">
+  <link rel="stylesheet" href="style.css?v=86">
 </head>
 <body>
   <aside id="sidebar">
@@ -98,6 +98,10 @@
         <select id="area-select" aria-label="Area"></select>
         <button id="area-add" type="button">Add area</button>
       </div>
+      <details id="area-ticks" class="tick-box" hidden>
+        <summary></summary>
+        <div class="tick-list"></div>
+      </details>
       <div id="area-picker" class="filter-row" hidden>
         <select id="area-candidates" aria-label="Areas here"></select>
         <button id="area-confirm" type="button">Add</button>
@@ -196,9 +200,9 @@
             <label class="explore-select-row" title="Keep the whole loop inside one or more of your areas or neighbourhoods">
               Stay in <select id="explore-within"><option value="">anywhere</option></select>
             </label>
-            <details id="explore-within-ticks" hidden>
+            <details id="explore-within-ticks" class="tick-box" hidden>
               <summary></summary>
-              <div class="explore-within-list"></div>
+              <div class="tick-list"></div>
             </details>
           </div>
         </details>
@@ -407,8 +411,8 @@
 
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="i18n.js?v=2"></script>
-  <script src="lang/fr.js?v=5"></script>
-  <script src="lang/zh.js?v=4"></script>
+  <script src="lang/fr.js?v=6"></script>
+  <script src="lang/zh.js?v=5"></script>
   <script src="gpx.js?v=18"></script>
   <script src="store.js?v=37"></script>
   <script src="osm.js?v=20"></script>
@@ -420,6 +424,6 @@
   <script src="stats.js?v=29"></script>
   <script src="elevation.js?v=3"></script>
   <script src="achievements.js?v=24"></script>
-  <script src="app.js?v=95"></script>
+  <script src="app.js?v=96"></script>
 </body>
 </html>

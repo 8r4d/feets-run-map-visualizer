@@ -49,6 +49,8 @@ I18n.add('fr', {
   'Tick some to count only those': "Cochez-en pour ne compter que ceux-là",
   'Counting only {names}.': "Seulement : {names}.",
   'Count all': "Tout compter",
+  'Tick the areas to show': "Cochez les zones à afficher",
+  'Colours only, for the tracks on the map. Pick one area for its totals and the streets still to cover.': "Couleurs seulement, pour les traces sur la carte. Choisissez une seule zone pour ses totaux et les rues qui restent à parcourir.",
   '({n} ticked)': "({n} cochés)",
   'Still to cover': "Reste à parcourir",
   'Nearest to the middle of the map first': "Les plus proches du centre de la carte d'abord",

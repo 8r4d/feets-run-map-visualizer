@@ -49,6 +49,8 @@ I18n.add('zh', {
   'Tick some to count only those': '勾选后只统计这些街区',
   'Counting only {names}.': '只统计：{names}。',
   'Count all': '全部统计',
+  'Tick the areas to show': '勾选要显示的区域',
+  'Colours only, for the tracks on the map. Pick one area for its totals and the streets still to cover.': '仅显示颜色，按地图上的轨迹计算。选择单个区域可查看其统计和尚未走过的街道。',
   '({n} ticked)': '（已选 {n} 个）',
   'Still to cover': '尚未覆盖',
   'Nearest to the middle of the map first': '离地图中心最近的排在前面',
