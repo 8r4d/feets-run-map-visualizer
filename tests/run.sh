@@ -4,7 +4,7 @@
 # touches feets-config.php or a real database.
 #
 #   tests/run.sh                 everything
-#   tests/run.sh unit            just tests/unit.test.mjs (no database needed)
+#   tests/run.sh unit xp         just the tests that need no database
 #   tests/run.sh api browser     those files
 #
 # Needs: php (with pdo_mysql), mariadb (mariadbd, mariadb-install-db),
@@ -14,12 +14,12 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 names=("$@")
-[ ${#names[@]} -eq 0 ] && names=(unit api browser)
+[ ${#names[@]} -eq 0 ] && names=(unit xp api browser)
 files=()
 for n in "${names[@]}"; do files+=("$ROOT/tests/$n.test.mjs"); done
 
 # Unit tests alone need no server.
-if [ "${names[*]}" = "unit" ]; then
+if [ "${names[*]}" = "unit" ] || [ "${names[*]}" = "xp" ] || [ "${names[*]}" = "unit xp" ]; then
   exec node --test "${files[@]}"
 fi
 

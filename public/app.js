@@ -1155,6 +1155,7 @@ async function removeTrack(id) {
   if (soloId === id) soloId = null;
   await Store.remove(id);
   render();
+  loadXp();  // the server took away what it earned
 }
 
 // --- Removing stray points ---
@@ -1338,7 +1339,7 @@ async function addFiles(files) {
         fileName,
         color: COLORS[(loaded.size + added) % COLORS.length],
         visible: true,
-        addedAt: new Date().toISOString(),
+        addedAt: Date.now(),  // as api.php sends it: Unix ms
       };
       Object.assign(track, await Store.add({ ...track, gpx: text }));  // id, metrics and the sport as kept
       show(track);
@@ -2169,6 +2170,7 @@ async function checkTrophies() {
   if (!fresh.length) return;
   trophies = await Store.addAchievements(fresh);
   renderTrophies();
+  if (known.size) await awardXp(Xp.trophyEvents(fresh));
   // The first check finds everything already run; one note is enough for that.
   if (!known.size && fresh.length > 3) {
     toast(`🏆 ${fresh.length} trophies from your past activities`, 'See them under Trophies.');
@@ -3559,6 +3561,7 @@ async function signedIn(user) {
   backfillMetrics();  // in the background
   await loadAreas();
   await loadTrophies();
+  await loadXp();
   await loadSegments();
   await loadArtShapes();
   scheduleTrophies();
@@ -3593,6 +3596,9 @@ function signedOut() {
   clearTimeout(trophyTimer);
   trophies = [];
   trophyBox.hidden = true;
+  xpState = null;
+  xpFirsts = null;
+  xpBox.hidden = true;
   document.getElementById('stats-box').hidden = true;
   document.getElementById('goals-box').hidden = true;
   goals = { week: null, month: null };
@@ -4895,6 +4901,7 @@ async function updateSegments() {
     }
     renderSegments();
   }
+  awardXp();
 }
 
 const paceOn = (seg, seconds) => paceText(seconds / (seg.distance / 1000));
@@ -5130,7 +5137,9 @@ async function updateQuests() {
     for (const q of finished) toast(`Quest done: ${Quests.title(q)}`, `${questState.completed} quests done in all.`);
   }
   renderQuests(Quests.streak(firsts), progress);
+  xpFirsts = firsts;
   await awardStreakTrophies(firsts);
+  await awardXp(Xp.questEvents(finished, Quests.title));
 }
 
 // Streak trophies (see Quests.streakTrophies), saved and announced like the
@@ -5140,9 +5149,83 @@ async function awardStreakTrophies(firsts) {
   const fresh = Quests.streakTrophies(firsts).filter(a => !known.has(a.code));
   if (!fresh.length) return;
   trophies = await Store.addAchievements(fresh);
+  if (known.size) xpPending.push(...Xp.trophyEvents(fresh));
   renderTrophies();
   if (fresh.length > 3) toast(`🏆 ${fresh.length} streak trophies`, 'See them under Trophies.');
   else fresh.forEach(a => toast(`🏆 ${a.title}`, a.detail));
+}
+
+// --- Experience points ---
+// Xp (xp.js) says what's earned XP, from activities recorded from the day XP
+// started (xpState.since); the server keeps the ledger. Checked after quests
+// and segments update, since they work out what Xp needs, and when quests or
+// trophies are won. Private: only the account itself sees it.
+const xpBox = document.getElementById('xp-box');
+let xpState = null;     // { since, total, recent, refs }, as from Store.xp()
+let xpFirsts = null;    // the last Quests.firsts, for the new streets each activity covered
+let xpPending = [];     // events won before xpState was loaded, or while a check ran
+let xpCheck = Promise.resolve();
+
+async function loadXp() {
+  if (!currentUser || readOnly()) return;
+  try {
+    xpState = await Store.xp();
+  } catch {
+    xpState = null;
+  }
+  renderXp();
+}
+
+// Saves whatever's newly earned, and says so.
+function awardXp(extra = []) {
+  xpPending.push(...extra);
+  xpCheck = xpCheck.then(async () => {
+    if (!xpState || readOnly()) return;
+    const known = new Set(xpState.refs);
+    const events = [...Xp.events({
+      since: xpState.since,
+      tracks: [...loaded.values()].map(e => e.track),
+      onFoot: Stats.onFoot,
+      firsts: xpFirsts,
+      segments,
+      weekId: Quests.weekId,
+      streakMin: Quests.STREAK_MIN,
+    }), ...xpPending].filter(e => !known.has(e.ref));
+    xpPending = [];
+    if (!events.length) return;
+    const before = Xp.level(xpState.total).level;
+    xpState = await Store.addXp(events);
+    renderXp();
+    const added = events.filter(e => xpState.added.includes(e.ref));
+    if (!added.length) return;
+    const points = added.reduce((sum, e) => sum + e.points, 0);
+    const now = Xp.level(xpState.total).level;
+    if (now > before) toast(`⬆️ Level ${now}`, `+${points} XP: ${added[0].detail}${added.length > 1 ? ` and ${added.length - 1} more` : ''}`);
+    else toast(`+${points} XP`, added.length > 1 ? `${added[0].detail} and ${added.length - 1} more` : added[0].detail);
+  }).catch(err => console.error('XP:', err));
+  return xpCheck;
+}
+
+function renderXp() {
+  xpBox.hidden = !xpState;
+  if (!xpState) return;
+  const { level, into, need } = Xp.level(xpState.total);
+  document.getElementById('xp-level').textContent = level;
+  xpBox.querySelector('.xp-bar span').style.width = `${(into / need * 100).toFixed(1)}%`;
+  document.getElementById('xp-progress').textContent =
+    `${into} of ${need} XP to level ${level + 1} · ${xpState.total.toLocaleString()} XP in all`;
+  document.getElementById('xp-recent').replaceChildren(...xpState.recent.map(e => {
+    const li = document.createElement('li');
+    li.innerHTML = '<span></span><strong></strong>';
+    li.querySelector('span').textContent = e.detail || e.kind;
+    li.querySelector('strong').textContent = `+${e.points}`;
+    return li;
+  }));
+  const since = new Date(xpState.since).toLocaleDateString(undefined, { dateStyle: 'medium' });
+  document.getElementById('xp-note').textContent = xpState.recent.length
+    ? `Counting since ${since}.`
+    : `XP counts from ${since}: activities you record from then on, the new streets and bests in them, `
+      + 'quests and trophies. Older activities you add don\'t earn any.';
 }
 
 function renderQuests(streak, progress) {

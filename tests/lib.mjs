@@ -95,9 +95,9 @@ export function loadScripts(files, globals = {}) {
 }
 
 // A GPX track with times and heights: `n` points along a line going north
-// from `start`, `step` metres and `seconds` apart.
-export function gpxText({ name = 'Test run', start = [49.28, -123.12], n = 60, step = 20, seconds = 6, type = 'running' } = {}) {
-  const t0 = Date.UTC(2026, 9, 1, 15);
+// from `start`, `step` metres and `seconds` apart, starting at `at` (ms).
+export function gpxText({ name = 'Test run', start = [49.28, -123.12], n = 60, step = 20, seconds = 6, type = 'running', at = Date.UTC(2026, 9, 1, 15) } = {}) {
+  const t0 = at;
   const pts = Array.from({ length: n }, (_, i) =>
     `<trkpt lat="${(start[0] + (i * step) / 111320).toFixed(6)}" lon="${start[1]}"><ele>${10 + i}</ele>`
     + `<time>${new Date(t0 + i * seconds * 1000).toISOString()}</time></trkpt>`);

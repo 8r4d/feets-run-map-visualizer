@@ -78,6 +78,7 @@ I18n.add('fr', {
   'km': "km",
   'mi': "mi",
   'Units': "Unités",
+  'Level': "Niveau",
   'Install feets as an app': "Installer feets comme une application",
   'Kilometres': "Kilomètres",
   'Miles': "Miles",

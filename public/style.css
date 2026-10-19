@@ -1267,6 +1267,7 @@ body {
   font-size: 16px;
 }
 
+.read-only #xp-box,
 .read-only #area-tools,
 .read-only #plan-save,
 .read-only #todo-list .skip,
@@ -1420,6 +1421,63 @@ body {
 }
 
 #stats-box .hint {
+  color: var(--muted);
+}
+
+/* Experience points: the level, with a bar in the heading, and what earned the last few */
+#xp-level {
+  margin-left: -4px;  /* "Level 3", not "Level  3" */
+}
+
+.xp-bar {
+  flex: 1;
+  height: 6px;
+  margin-left: 4px;
+  align-self: center;
+  overflow: hidden;
+  background: var(--track);
+  border-radius: 3px;
+}
+
+.xp-bar span {
+  display: block;
+  height: 100%;
+  background: #8e24aa;
+}
+
+#xp-progress {
+  color: var(--muted);
+}
+
+#xp-recent {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+}
+
+#xp-recent li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+#xp-recent li span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+#xp-recent li strong {
+  color: var(--art);
+  font-variant-numeric: tabular-nums;
+}
+
+#xp-note {
   color: var(--muted);
 }
 
@@ -2402,6 +2460,7 @@ body {
   color: var(--link);
 }
 
+.no-tracks #xp-box,
 .no-tracks #trophies-box,
 .no-tracks #stats-box,
 .no-tracks #quests-box,

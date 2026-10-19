@@ -97,6 +97,13 @@
 // Achievements (worked out in the browser by achievements.js; the server only remembers them)
 //   GET  api.php?action=achievements         [{code, title, detail, earnedAt}], oldest first
 //   POST api.php?action=achievement_add      {achievements: [{code, title, detail}]}; already-earned codes are ignored
+//
+// Experience points (worked out in the browser by xp.js; the server keeps the ledger, see add_xp)
+//   GET  api.php?action=xp                   {since, total, recent, refs}: since (Unix ms) is when the account's
+//                                            XP started counting, set on the first call; recent: the last few
+//                                            events; refs: every ref in the ledger, so they aren't sent again
+//   POST api.php?action=xp_add               {events: [{kind, ref, track?, points, detail}]}; refs already in the
+//                                            ledger are ignored. Returns what GET does, plus added: [refs]
 
 const SESSION_COOKIE = 'feets_session';
 const SESSION_DAYS = 30;
@@ -134,6 +141,7 @@ const SCHEMA = [
       home          TEXT         NULL,                    -- JSON: { lat, lon, zoom }, where the map opens
       area_scan     TEXT         NULL,                    -- JSON: { off, last, skip }, see area_scan_claim()
       quests        TEXT         NULL,                    -- JSON: this week's quests, see save_quests()
+      xp_since      TIMESTAMP    NULL,                    -- when experience points started counting, see xp()
       created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) CHARACTER SET utf8mb4
     SQL,
@@ -170,6 +178,19 @@ const SCHEMA = [
       user_id     INT       NOT NULL,
       created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       used_at     TIMESTAMP NULL
+    ) CHARACTER SET utf8mb4
+    SQL,
+    <<<SQL
+    CREATE TABLE IF NOT EXISTS xp_events (  -- experience points earned, one row per thing that earned them
+      user_id   INT          NOT NULL,
+      ref       VARCHAR(150) NOT NULL,  -- what earned them, e.g. activity:123 or quest:2026-10-19:any
+      kind      VARCHAR(20)  NOT NULL,  -- activity, streets, best, segment, streak, quest, trophy
+      track_id  INT          NULL,      -- the activity it came from, if any: deleting it takes the points away
+      points    INT          NOT NULL,
+      detail    VARCHAR(255) NULL,
+      earned_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, ref),
+      INDEX (track_id)
     ) CHARACTER SET utf8mb4
     SQL,
     <<<SQL
@@ -398,6 +419,10 @@ function db(): PDO {
         // ...and finding areas for places you run.
         if (!$pdo->query("SHOW COLUMNS FROM users LIKE 'area_scan'")->fetch()) {
             $pdo->exec('ALTER TABLE users ADD COLUMN area_scan TEXT NULL AFTER home');
+        }
+        // ...and experience points.
+        if (!$pdo->query("SHOW COLUMNS FROM users LIKE 'xp_since'")->fetch()) {
+            $pdo->exec('ALTER TABLE users ADD COLUMN xp_since TIMESTAMP NULL AFTER quests');
         }
         // ...and view links that expire.
         if (!$pdo->query("SHOW COLUMNS FROM view_links LIKE 'expires_at'")->fetch()) {
@@ -770,7 +795,7 @@ function admin_delete_user(array $admin, array $b): array {
     foreach ([$id, ...array_map('intval', $viewers->fetchAll(PDO::FETCH_COLUMN))] as $uid) {
         $pdo->prepare('DELETE FROM segment_efforts WHERE track_id IN (SELECT id FROM tracks WHERE user_id = ?)
                        OR segment_id IN (SELECT id FROM segments WHERE user_id = ?)')->execute([$uid, $uid]);
-        foreach (['tracks', 'segments', 'routes', 'areas', 'art_shapes', 'achievements', 'sessions',
+        foreach (['tracks', 'segments', 'routes', 'areas', 'art_shapes', 'achievements', 'xp_events', 'sessions',
                   'password_resets', 'strava_accounts', 'strava_states'] as $table) {
             $pdo->prepare("DELETE FROM $table WHERE user_id = ?")->execute([$uid]);
         }
@@ -1170,6 +1195,7 @@ function track_meta(array $row): array {
         'visible' => (bool) $row['visible'],
         'distance' => (float) $row['distance_m'],
         'time' => $row['track_time'],
+        'addedAt' => isset($row['added_unix']) ? (int) $row['added_unix'] * 1000 : null,  // Unix ms; null where not asked for
         // null: not worked out yet (see backfill_metrics). Decoded as objects so {} stays {}.
         'metrics' => isset($row['metrics']) ? json_decode($row['metrics']) : null,
     ];
@@ -1191,7 +1217,7 @@ function send_track_list(int $userId): void {
     $first = true;
     $select = db()->prepare(
         'SELECT id, strava_id, name, sport, simplified, file_name, color, visible, distance_m, track_time, metrics, geometry,
-                IF(simplified, NULL, gpx) AS gpx
+                UNIX_TIMESTAMP(added_at) AS added_unix, IF(simplified, NULL, gpx) AS gpx
          FROM tracks WHERE user_id = ? AND id > ? ORDER BY id LIMIT 200'
     );
     $update = db()->prepare('UPDATE tracks SET geometry = ?, sport = ?, simplified = 1 WHERE id = ?');
@@ -1338,6 +1364,7 @@ function delete_track(int $userId, int $id): array {
     $stmt->execute([$id, $userId]);
     if ($stmt->rowCount()) {
         db()->prepare('DELETE FROM segment_efforts WHERE track_id = ?')->execute([$id]);
+        db()->prepare('DELETE FROM xp_events WHERE user_id = ? AND track_id = ?')->execute([$userId, $id]);
     }
     return ['ok' => true];
 }
@@ -2361,6 +2388,61 @@ function list_achievements(int $userId): array {
 // Saves newly earned achievements and returns the full list. INSERT IGNORE
 // keeps the first earned date of a code the browser sends again; at most 200
 // are taken per request.
+// --- Experience points ---
+// Worked out in the browser (xp.js), which says what earned them; this keeps
+// the ledger, so each thing only ever counts once and every device shows the
+// same total. XP is private and only motivational, so the points aren't
+// checked beyond being sensible. Nothing before xp_since counts: that's what
+// stops an import of years of old activities levelling someone up at once.
+
+const XP_KINDS = ['activity', 'streets', 'best', 'segment', 'streak', 'quest', 'trophy'];
+
+// xp_since is set the first time this is asked: a day back from then, so a
+// run from earlier that day, before feets was opened, still counts.
+function xp(int $userId, array $added = []): array {
+    db()->prepare('UPDATE users SET xp_since = NOW() - INTERVAL 1 DAY WHERE id = ? AND xp_since IS NULL')->execute([$userId]);
+    $stmt = db()->prepare('SELECT UNIX_TIMESTAMP(xp_since) AS since,
+                                  (SELECT COALESCE(SUM(points), 0) FROM xp_events WHERE user_id = u.id) AS total
+                           FROM users u WHERE id = ?');
+    $stmt->execute([$userId]);
+    $row = $stmt->fetch();
+    $recent = db()->prepare('SELECT kind, points, detail, earned_at AS earnedAt FROM xp_events
+                             WHERE user_id = ? ORDER BY earned_at DESC, ref DESC LIMIT 15');
+    $recent->execute([$userId]);
+    $events = array_map(fn($e) => ['points' => (int) $e['points']] + $e, $recent->fetchAll());
+    $refs = db()->prepare('SELECT ref FROM xp_events WHERE user_id = ?');
+    $refs->execute([$userId]);
+    return ['since' => (int) $row['since'] * 1000, 'total' => (int) $row['total'], 'recent' => $events,
+            'refs' => $refs->fetchAll(PDO::FETCH_COLUMN), 'added' => $added];
+}
+
+function add_xp(int $userId, array $b): array {
+    $insert = db()->prepare('INSERT IGNORE INTO xp_events (user_id, ref, kind, track_id, points, detail) VALUES (?, ?, ?, ?, ?, ?)');
+    $owns = db()->prepare('SELECT 1 FROM tracks WHERE id = ? AND user_id = ?');
+    $added = [];
+    foreach (array_slice((array) ($b['events'] ?? []), 0, 500) as $e) {
+        $ref = mb_substr(trim((string) ($e['ref'] ?? '')), 0, 150);
+        $kind = (string) ($e['kind'] ?? '');
+        $points = (int) ($e['points'] ?? 0);
+        if ($ref === '' || !in_array($kind, XP_KINDS, true) || $points < 1 || $points > 1000) {
+            continue;
+        }
+        $track = isset($e['track']) ? (int) $e['track'] : null;
+        if ($track !== null) {
+            $owns->execute([$track, $userId]);
+            if (!$owns->fetch()) {
+                continue;  // deleted since, or not theirs
+            }
+        }
+        $detail = isset($e['detail']) ? mb_substr((string) $e['detail'], 0, 255) : null;
+        $insert->execute([$userId, $ref, $kind, $track, $points, $detail]);
+        if ($insert->rowCount()) {
+            $added[] = $ref;
+        }
+    }
+    return xp($userId, $added);
+}
+
 function add_achievements(int $userId, array $b): array {
     $insert = db()->prepare('INSERT IGNORE INTO achievements (user_id, code, title, detail) VALUES (?, ?, ?, ?)');
     foreach (array_slice($b['achievements'] ?? [], 0, 200) as $a) {
@@ -2556,6 +2638,10 @@ if ($method === 'POST' && $action === 'invite') {
     send_json(list_achievements($userId));
 } elseif ($method === 'POST' && $action === 'achievement_add') {
     send_json(add_achievements($userId, read_json()));
+} elseif ($method === 'GET' && $action === 'xp') {
+    send_json(xp($userId));
+} elseif ($method === 'POST' && $action === 'xp_add') {
+    send_json(add_xp($userId, read_json()));
 } elseif ($method === 'POST' && $action === 'strava_auto_on') {
     send_json(strava_auto_on($user, read_json()));
 } elseif ($method === 'POST' && $action === 'strava_auto_off') {

@@ -198,7 +198,7 @@ own web servers.
 
 ```sh
 tests/run.sh               # everything
-tests/run.sh unit          # just the ones that need no server
+tests/run.sh unit xp       # just the ones that need no server
 tests/run.sh api browser   # those files
 ```
 
@@ -210,10 +210,11 @@ the browser tests also need Google Chrome or Chromium, and are skipped without
 it. There's nothing to `npm install`.
 
 - `tests/unit.test.mjs`: units (km and miles) and reading FIT files, in Node.
+- `tests/xp.test.mjs`: what earns XP, and levels, in Node.
 - `tests/api.test.mjs`: accounts, the password-guessing limits, who can see and
-  change what, view links, and adding tracks.
+  change what, view links, adding tracks, and the XP ledger.
 - `tests/browser.test.mjs`: the real page in headless Chrome: logging in,
-  adding GPX, FIT and TCX files, miles, dark mode, and opening offline.
+  adding GPX, FIT and TCX files, XP, miles, dark mode, and opening offline.
   `FEETS_SCREENSHOTS=some/folder tests/run.sh browser` saves pictures of the
   page along the way.
 - `tests/fixtures/`: the FIT files were written with Garmin's FIT SDK
@@ -261,6 +262,7 @@ load quickly. The original GPX is kept for the ↓ download.
 | `public/planner.js`  | Routes planned routes along the areas' streets.          |
 | `public/stats.js`    | The Stats box's sums, and progress towards goals.        |
 | `public/achievements.js` | Which trophies are earned.                           |
+| `public/xp.js`       | Experience points and levels: what's earned XP.          |
 | `public/elevation.js`| Elevation charts, and planned routes' elevation from Open-Meteo. |
 | `public/strava-webhook.php` | Address Strava's webhook calls. Passes them on to `api.php`. |
 | `public/style.css`   | Styles.                                                  |
@@ -414,3 +416,28 @@ marathon.
   this year's trophies first, then all-time ones; past years' are kept but
   not shown.
 - View-only accounts see the owner's trophies.
+
+## Levels and XP
+
+The **Level** box at the top of the panel shows experience points: a
+motivational extra, private to each account (view-only accounts and view
+links don't get it). It only counts from here on, so importing years of old
+activities doesn't level anyone up:
+
+- **The start:** each account's XP starts the first time it opens feets after
+  1.11.0, counted from a day before then, so that day's run still counts
+  (`users.xp_since`).
+- **Which activities count:** recorded since then, added within 7 days of
+  being recorded, and with times (so a planned route saved as GPX doesn't).
+  The same activity twice (Strava and a file) counts once.
+- **What earns XP:** each activity (10, plus 10 × √km; rides count a third of
+  their distance), new streets (10 a km), a new best over 1K, 5K, 10K, half or
+  marathon (40; beating every earlier activity, old ones too), a segment best
+  (20), a week that keeps the new-streets streak going (25), a quest done (50)
+  and a trophy (15, unless one check earns more than 3, which means an
+  import).
+- **Levels:** level 2 takes 200 XP, and each level after takes 50 more.
+- **How it's kept:** `xp.js` works out what's been earned; `api.php` keeps a
+  ledger (`xp_events`) with one row per thing, so nothing counts twice and
+  every device shows the same. Deleting an activity deletes its rows. The
+  points aren't checked beyond being sensible: it's only motivational.

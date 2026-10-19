@@ -78,6 +78,7 @@ I18n.add('zh', {
   'km': '公里',
   'mi': '英里',
   'Units': '单位',
+  'Level': '等级',
   'Install feets as an app': '将 feets 安装为应用',
   'Kilometres': '公里',
   'Miles': '英里',

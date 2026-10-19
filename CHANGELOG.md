@@ -5,6 +5,17 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.11.0 — 2026-10-19
+
+- Levels and experience points (XP), at the top of the panel. Private, and
+  only from here on: XP starts counting today (from a day back, so today's
+  run counts), and only activities recorded since then, and added within a
+  week of being recorded, earn any, so importing old activities doesn't level
+  you up. XP comes from each activity (more for longer ones, less per extra
+  km), new streets, new bests over 1K to a marathon, segment bests, streak
+  weeks, quests and trophies. Deleting an activity takes away what it earned.
+  See Help → Getting Started, "Levels and XP".
+
 ## 1.10.0 — 2026-10-19
 
 - feets can be installed as an app: on an iPhone with Share → Add to Home

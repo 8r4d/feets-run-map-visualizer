@@ -3,7 +3,9 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { URL_BASE, member, fixture } from './lib.mjs';
+import fs from 'node:fs';
+import os from 'node:os';
+import { URL_BASE, member, fixture, gpxText } from './lib.mjs';
 import { chromePath, launch } from './chrome.mjs';
 
 const skip = !chromePath && 'Chrome or Chromium not found (set CHROME to its path)';
@@ -57,6 +59,32 @@ test('add GPX, FIT and TCX files', { skip }, async () => {
   // Kept as GPX: that's what downloads.
   const kept = await page.eval(`fetch('api.php').then(r => r.json()).then(ts => ts.map(t => t.fileName).sort())`);
   assert.deepEqual(kept, ['stanley-park.gpx', 'trail-run.gpx', 'walk.gpx']);
+});
+
+test('XP: old activities earn none, a new run does', { skip }, async () => {
+  const xp = () => page.eval(`({ shown: !document.getElementById('xp-box').hidden,
+    level: document.getElementById('xp-level').textContent, progress: document.getElementById('xp-progress').textContent })`);
+  await page.waitFor(`!document.getElementById('xp-box').hidden`, { what: 'the XP box' });
+  await new Promise(r => setTimeout(r, 3000));  // quests (and so XP) are checked after a pause
+  assert.match((await xp()).progress, /^0 of 200 XP/, 'the files above were recorded before XP started');
+
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'feets-xp-')), 'This morning.gpx');
+  // Recorded just after this account's XP started (a day before the login above).
+  const since = await page.eval(`xpState.since`);
+  fs.writeFileSync(file, gpxText({ name: 'This morning', n: 300, step: 15, seconds: 5, at: since + 1000 }));
+  await page.setFiles('#file-input', [file]);
+  const progress = await page.waitFor(`(t => /^[1-9]\\d* of 200 XP/.test(t) && t)(document.getElementById('xp-progress').textContent)`,
+    { what: 'XP for the new run', timeout: 15000 });
+  assert.match(progress, /XP in all/);
+  assert.match(await page.eval(`document.getElementById('xp-recent').textContent`), /This morning\+\d+/);
+  assert.ok(page.dialogs.length === 0);
+  await page.eval(`document.getElementById('xp-box').open = true`);
+  await snap('xp');
+  // Deleting it takes its XP away again (and keeps the other tests' three tracks).
+  await page.eval(`fetch('api.php').then(r => r.json()).then(ts => ts.find(t => t.name === 'This morning').id)
+    .then(id => fetch('api.php?action=delete&id=' + id, { method: 'POST', body: '{}' }))`);
+  await page.reload();
+  await page.waitFor(`/^0 of 200 XP/.test(document.getElementById('xp-progress').textContent)`, { what: 'the XP to go' });
 });
 
 test('miles', { skip }, async () => {

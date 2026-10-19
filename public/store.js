@@ -123,6 +123,10 @@ const Store = (() => {
     // Achievements: each resolves to [{ code, title, detail, earnedAt }], oldest first.
     achievements: () => json('GET', '?action=achievements'),
     addAchievements: achievements => json('POST', '?action=achievement_add', { achievements }),
+    // Experience points: { since (Unix ms), total, recent: [{ kind, points, detail, earnedAt }], refs }.
+    xp: () => json('GET', '?action=xp'),
+    // events: [{ kind, ref, track?, points, detail }]; resolves as xp() does, plus added: [refs].
+    addXp: events => json('POST', '?action=xp_add', { events }),
 
     // Tracks
     all: () => json('GET', ''),

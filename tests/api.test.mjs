@@ -157,3 +157,41 @@ test('not logged in: nothing but the login', async () => {
   assert.equal((await c.call('routes')).status, 401);
   assert.equal((await c.call('add', trackBody(gpxText()))).status, 401);
 });
+
+test('XP: a start date, a ledger that counts each thing once, and deletes take points away', async () => {
+  const a = await member(), b = await member();
+  const first = (await a.client.call('xp')).body;
+  assert.ok(Math.abs(first.since - (Date.now() - 86400000)) < 60000, 'XP counts from a day before it was first asked');
+  assert.equal(first.total, 0);
+  await new Promise(r => setTimeout(r, 1100));
+  assert.equal((await a.client.call('xp')).body.since, first.since, "and the start date doesn't move");
+
+  const { body: { id } } = await a.client.call('add', trackBody(gpxText()));
+  const { body: other } = await b.client.call('add', trackBody(gpxText()));
+  const r = await a.client.call('xp_add', { events: [
+    { kind: 'activity', ref: `activity:${id}`, track: id, points: 32, detail: 'Test run' },
+    { kind: 'quest', ref: 'quest:2026-10-19:any', points: 50, detail: 'Quest' },
+    { kind: 'quest', ref: 'quest:2026-10-19:any', points: 50, detail: 'Quest, again' },
+    { kind: 'cheating', ref: 'x', points: 50 },
+    { kind: 'trophy', ref: 'trophy:huge', points: 100000 },
+    { kind: 'activity', ref: `activity:${other.id}`, track: other.id, points: 30 },
+  ] });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.added, [`activity:${id}`, 'quest:2026-10-19:any'], "duplicates, unknown kinds, silly points and others' tracks are left out");
+  assert.equal(r.body.total, 82);
+  assert.deepEqual(r.body.refs.sort(), [`activity:${id}`, 'quest:2026-10-19:any']);
+  assert.equal(r.body.recent.length, 2);
+  assert.equal((await a.client.call('xp_add', { events: [{ kind: 'quest', ref: 'quest:2026-10-19:any', points: 50 }] })).body.added.length, 0);
+  assert.equal((await b.client.call('xp')).body.total, 0, "B's XP is B's own");
+
+  await a.client.call('delete', {}, `&id=${id}`);
+  const after = (await a.client.call('xp')).body;
+  assert.equal(after.total, 50, "deleting the activity takes its XP; the quest's stays");
+  await b.client.call('delete', {}, `&id=${other.id}`);
+});
+
+test('XP is private: view-only accounts and view links get none', async () => {
+  const { client } = await member({ viewer: true });
+  assert.equal((await client.call('xp')).status, 403);
+  assert.equal((await client.call('xp_add', { events: [] })).status, 403);
+});
