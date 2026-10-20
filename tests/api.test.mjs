@@ -214,6 +214,21 @@ test('quests keep the month\'s boss and the streak shields', async () => {
   assert.deepEqual(kept.shields, { held: 2, used: ['2026-10-12'], earned: ['2026-10-05'] }, 'two at most');
 });
 
+test('finding areas: a turn twice a day, given back when OpenStreetMap was busy, and how it went kept', async () => {
+  const a = await member();
+  // Not a new account any more, so turns are 12 hours apart.
+  execSync(`${process.env.FEETS_DB} -e "UPDATE users SET created_at = NOW() - INTERVAL 1 DAY WHERE username = '${a.username}'"`);
+  assert.equal((await a.client.call('area_scan_claim', {})).body.go, true);
+  assert.equal((await a.client.call('area_scan_claim', {})).body.go, false, 'one turn');
+  await a.client.call('area_scan_save', { result: 'OpenStreetMap was busy, so it will try again in an hour.', retry: true });
+  const last = () => JSON.parse(execSync(`${process.env.FEETS_DB} -N -e "SELECT area_scan FROM users WHERE username = '${a.username}'"`)).last;
+  assert.ok(Math.abs(last() - (Date.now() / 1000 - 11 * 3600)) < 60, 'the next turn in an hour, not 12');
+  assert.equal((await a.client.call('area_scan_claim', {})).body.go, false, 'not straight away');
+  const me = (await a.client.call('me')).body.user;
+  assert.equal(me.autoAreasLast.text, 'OpenStreetMap was busy, so it will try again in an hour.');
+  assert.ok(Math.abs(me.autoAreasLast.at - Date.now()) < 60000);
+});
+
 // --- Virtual races ---
 // Places as [east, north] metres from a point in Vancouver, and runs along them.
 const ORIGIN = [49.28, -123.12];

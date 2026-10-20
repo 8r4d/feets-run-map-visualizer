@@ -71,7 +71,8 @@
 //                                            Returns what GET does
 //   POST api.php?action=area_scan_claim      a turn at looking for places you run without an area (see
 //                                            area_scan_claim): {go, skip: [cell keys not to try again]}
-//   POST api.php?action=area_scan_save       {on?, skip?: [cell keys]}: switch it on or off, add places not to try
+//   POST api.php?action=area_scan_save       {on?, skip?: [cell keys], result?, retry?}: switch it on or off, add places
+//                                            not to try, note how a turn went, or give back a turn OSM was too busy for
 //
 // Planned routes (drawn in the browser by planner.js)
 //   GET  api.php?action=routes               all of the user's routes, newest first
@@ -614,7 +615,9 @@ function user_json(array $user): array {
         $home->execute([$json['readOnly'] ? $user['data_owner'] : $user['id']]);
         $json['home'] = json_decode((string) $home->fetchColumn(), true) ?: null;
         if (!$json['readOnly']) {
-            $json['autoAreas'] = empty(area_scan_state((int) $user['id'])['off']);
+            $scan = area_scan_state((int) $user['id']);
+            $json['autoAreas'] = empty($scan['off']);
+            $json['autoAreasLast'] = $scan['result'] ?? null;  // {at (Unix ms), text}: how the last turn went
         }
     }
     return $json;
@@ -2486,10 +2489,21 @@ function area_scan_claim(int $userId): array {
     ];
 }
 
+// {on?, skip?, result?, retry?}: result is how a turn went, to show; retry
+// gives a turn back that OpenStreetMap was too busy for, so the next comes in
+// AREA_SCAN_RETRY_MINUTES instead of AREA_SCAN_HOURS.
+const AREA_SCAN_RETRY_MINUTES = 60;
+
 function area_scan_save(int $userId, array $b): array {
     $state = area_scan_state($userId);
     if (array_key_exists('on', $b)) {
         $state['off'] = !$b['on'];
+    }
+    if (isset($b['result'])) {
+        $state['result'] = ['at' => time() * 1000, 'text' => mb_substr((string) $b['result'], 0, 200)];
+    }
+    if (!empty($b['retry'])) {
+        $state['last'] = time() - AREA_SCAN_HOURS * 3600 + AREA_SCAN_RETRY_MINUTES * 60;
     }
     $skip = array_filter(array_map('strval', $b['skip'] ?? []), fn($k) => preg_match('/^-?\d+,-?\d+$/', $k));
     $state['skip'] = array_slice(array_values(array_unique(array_merge($state['skip'] ?? [], $skip))), -AREA_SCAN_SKIPS);

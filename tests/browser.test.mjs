@@ -360,6 +360,33 @@ test('a virtual race: made from a route, then entered on its own page', { skip }
   await page.waitFor(`document.getElementById('auth').hidden`, { what: 'the app again' });
 });
 
+test('finding areas: a place on the edge of an area you have still counts, from its points outside', { skip }, async () => {
+  // An area covering the south half of one ~1 km square; two runs start in it and go north out of it.
+  // In Edmonton, away from the other tests' tracks.
+  const box = [[53.500, -113.500], [53.500, -113.490], [53.505, -113.490], [53.505, -113.500], [53.500, -113.500]];
+  const id = await page.eval(`Store.saveArea({ osmId: 999002, name: 'South Half', data: { boundary: [${JSON.stringify(box)}], hoods: [],
+    streets: [{ id: 501, name: 'Test Lane', cat: 'road', hood: -1, len: 100, runs: [[[53.501, -113.499], [53.501, -113.491]]] }] } }).then(a => a.id)`);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'feets-scan-'));
+  const files = [1, 2].map(n => {
+    const file = path.join(dir, `Edge run ${n}.gpx`);
+    fs.writeFileSync(file, gpxText({ name: `Edge run ${n}`, start: [53.502, -113.495], n: 30, step: 20, at: Date.UTC(2026, 8, n) }));
+    return file;
+  });
+  await page.reload();
+  await page.waitFor(`areas.some(a => a.id === ${id})`, { what: 'the area' });
+  await page.setFiles('#file-input', files);
+  await page.waitFor(`[...loaded.values()].filter(e => /^Edge run/.test(e.track.name)).length === 2`, { what: 'the two runs' });
+  const place = await page.eval(`unmappedPlaces(new Set()).find(p => p.key === '5350,-11350')`);
+  assert.ok(place, 'the square counts: both runs go outside the area in it, though each starts inside');
+  assert.equal(place.runs, 2);
+  assert.ok(place.lat > 53.505, `looked up from a point outside the area: ${place.lat}`);
+  // Tidy up for the tests after.
+  await page.eval(`fetch('api.php').then(r => r.json()).then(ts => Promise.all(ts.filter(t => /^Edge run/.test(t.name))
+    .map(t => fetch('api.php?action=delete&id=' + t.id, { method: 'POST', body: '{}' })))).then(() => Store.deleteArea(${id}))`);
+  await page.reload();
+  await page.waitFor(`document.querySelectorAll('#track-list li').length === 3 && !areas.length`, { what: 'back to three tracks' });
+});
+
 test('no errors on the page', { skip }, async () => {
   assert.deepEqual(page.errors.map(e => e.exception?.description || e.text), []);
 });

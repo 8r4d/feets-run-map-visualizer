@@ -5,6 +5,18 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.18.2 — 2026-10-20
+
+- Fixed: *Add street maps where I've been* stopped finding the neighbourhoods
+  next to ones you already have. It judged each ~1 km square by the first
+  point of a run in it, so a square on the edge of a mapped area was taken as
+  mapped whenever that point fell inside. A run now counts in a square when
+  any of its points there are outside every area, and that point is what's
+  looked up.
+- A turn OpenStreetMap was too busy for is tried again an hour later instead
+  of 12, and under the checkbox it now says when it last looked and what it
+  found.
+
 ## 1.18.1 — 2026-10-20
 
 - A long-run boss is never more than a half marathon (it was up to a

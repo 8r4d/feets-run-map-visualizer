@@ -3803,6 +3803,7 @@ async function signedIn(user) {
   if (!user.readOnly) loadViewLinks();
   if (!user.readOnly) loadRaces();
   autoAreas.checked = Boolean(user.autoAreas);
+  showScanResult(user.autoAreasLast);
   if (autoAreas.checked) scheduleFindAreas(SCAN_FIRST);
   await initStrava();
   const shared = routeParam && routes.find(r => r.id === routeParam);
@@ -4471,6 +4472,7 @@ const SCAN_EVERY = 3600000; // ms between asking for a turn
 const SCAN_LEVELS = [10, 9, 11, 8, 7];
 const SCAN_MAX_KM2 = 50;    // bigger boundaries (a whole city) are left for you to add by hand
 const SCAN_TRIES = 5;       // places looked up in a turn, until one gets an area
+const SCAN_SAMPLE = 30;     // points of a run tried in each place for one outside every area
 let scanTimer = null;
 const autoAreas = document.getElementById('auto-areas');
 
@@ -4493,45 +4495,74 @@ function scheduleFindAreas(delay) {
 }
 
 // The places run most often that no area covers, busiest first: [{ key, lat, lon, runs }].
+// A run counts in a place when one of its points there is outside every
+// area, and that point is what's looked up: a place on the edge of an area
+// you have is mostly the neighbourhood next door. (Judging a place by one
+// point missed those whenever that point fell on the mapped side.)
 function unmappedPlaces(skip) {
   const places = new Map();
+  const outside = (lat, lon) => !areas.some(a => OSM.inArea(a, lat, lon));
   for (const { track } of loaded.values()) {
     if (!Stats.onFoot(track)) continue;
-    const here = new Set();
+    const counted = new Set(), tries = new Map();
     for (const seg of track.segments) {
       for (const [lat, lon] of seg) {
         const key = `${Math.floor(lat / SCAN_CELL)},${Math.floor(lon / SCAN_CELL)}`;
-        if (here.has(key)) continue;
-        here.add(key);
+        if (counted.has(key) || skip.has(key)) continue;
+        const n = tries.get(key) || 0;
+        if (n >= SCAN_SAMPLE) continue;
+        tries.set(key, n + 1);
+        if (!outside(lat, lon)) continue;
+        counted.add(key);
         if (!places.has(key)) places.set(key, { key, lat, lon, runs: 0 });
         places.get(key).runs++;
       }
     }
   }
-  return [...places.values()]
-    .filter(p => p.runs >= SCAN_MIN_RUNS && !skip.has(p.key) && !areas.some(a => OSM.inArea(a, p.lat, p.lon)))
-    .sort((a, b) => b.runs - a.runs);
+  return [...places.values()].filter(p => p.runs >= SCAN_MIN_RUNS).sort((a, b) => b.runs - a.runs);
+}
+
+// How the last turn went, under the checkbox: "Last looked Oct 20, 9:14 am: …".
+function showScanResult(last) {
+  const note = document.getElementById('auto-areas-note');
+  note.hidden = !last;
+  if (last) note.textContent = `Last looked ${whenText(last.at)}: ${last.text}`;
+}
+
+async function noteScan(text, retry = false) {
+  showScanResult({ at: Date.now(), text });
+  await Store.saveAreaScan({ result: text, ...(retry ? { retry } : {}) }).catch(() => {});
 }
 
 // One turn: the busiest places first, until one gets an area or SCAN_TRIES
 // have been looked up. A place whose only boundary is too big, or already one
 // of your areas (its edge just missing the spot), is skipped from now on.
 // Resolves to the seconds until the next turn, while the account is new.
+// Each turn's outcome is noted (showScanResult). One that OpenStreetMap was
+// too busy for is given back, so the next try is in an hour, not 12.
 async function findAreas() {
   if (!currentUser || readOnly() || !autoAreas.checked) return null;
   const { go, skip, again } = await Store.claimAreaScan();
   if (!go) return again;
   const tooBig = new Set();  // osm ids found too big this turn: no need to fetch them twice
   const skipped = [];
+  const places = unmappedPlaces(new Set(skip));
   try {
-    for (const place of unmappedPlaces(new Set(skip)).slice(0, SCAN_TRIES)) {
+    for (const place of places.slice(0, SCAN_TRIES)) {
       const pick = await areaFor(place, tooBig);
       if (pick) {
         await addFoundArea(place, pick);
+        await noteScan(`added ${pick.built.name}.`);
         return again;
       }
       skipped.push(place.key);
     }
+    await noteScan(!places.length ? "every place you've been a few times has a street map."
+      : `none of ${skipped.length === 1 ? 'the 1 place' : `the ${skipped.length} places`} tried has a neighbourhood-sized boundary.`
+        + (places.length > skipped.length ? ' More next time.' : ''));
+  } catch (err) {
+    await noteScan('OpenStreetMap was busy, so it will try again in an hour.', true);
+    throw err;
   } finally {
     if (skipped.length) await Store.saveAreaScan({ skip: skipped }).catch(() => {});
   }

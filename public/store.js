@@ -87,7 +87,8 @@ const Store = (() => {
     // { go, skip, again }: go is false if another device or tab had a turn lately;
     // again, while the account is new, is the seconds until the next turn (else null).
     claimAreaScan: () => json('POST', '?action=area_scan_claim'),
-    saveAreaScan: settings => json('POST', '?action=area_scan_save', settings),  // { on?, skip? } → { on }
+    // { on?, skip?, result? (how a turn went), retry? (give back a turn OSM was too busy for) } → { on }
+    saveAreaScan: settings => json('POST', '?action=area_scan_save', settings),
     // Marks OSM ways unrunnable (or counts them again); resolves to { excluded: [way ids] }.
     excludeWays: (areaId, ways, excluded) => json('POST', `?action=area_exclude&id=${areaId}`, { ways, excluded }),
     // Your names for OSM ways that have none: { way id: name }. Saving '' takes the name off.
