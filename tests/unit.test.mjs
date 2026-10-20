@@ -92,7 +92,7 @@ test('read: .fit.gz is unpacked and kept as .gpx', async () => {
 });
 
 // --- Cards (cards.js), with the street coverage they look at ---
-test('cards: found by running: distances, months, times of day, streets and neighbourhoods', () => {
+test('cards: found by running, at most one per set per run, the same picks every time', () => {
   const { Cards } = loadScripts(['coverage.js', 'cards.js']);
   const O = [53.45, -113.55];
   const at = (e, n) => [O[0] + n / 111320, O[1] + e / (111320 * Math.cos(O[0] * Math.PI / 180))];
@@ -105,23 +105,34 @@ test('cards: found by running: distances, months, times of day, streets and neig
     streets: [street(1, 'Oak Street', 0, 0, 300, 0), street(2, '5th Avenue', 1, 0, 300, 200), street(3, 'Elm Close', 1, 400, 460, 200)],
   } };
   const local = (d, h, m = 0) => new Date(2026, 0, d, h, m).toISOString();
-  const run = (name, time, km, segments = []) => ({ name, time, distance: km * 1000, segments });
+  const run = (name, time, km, segments = []) => ({ id: name, name, time, distance: km * 1000, segments });
   const tracks = [
     run('Long one', local(5, 5, 30), 21.2, [line(-50, 350, 0, 5)]),       // all of Oak Street
     run('Night jog', local(5, 22), 3, [line(0, 150, 200, 5), line(390, 470, 200, 5)]),  // half of 5th Avenue, all of Elm Close
     ...[6, 7, 8, 9, 10, 11].map(d => run(`Day ${d}`, local(d, 12), 1)),
   ];
-  const found = new Map(Cards.evaluate(tracks, [area]).map(c => [c.code, c.detail]));
-  const codes = [...found.keys()].sort();
-  assert.deepEqual(codes, [
-    'f:clock:double', 'f:clock:early', 'f:clock:lunch', 'f:clock:night', 'f:clock:week',
-    'f:distance:10000', 'f:distance:15000', 'f:distance:21097', 'f:distance:5000',
-    'f:month:1', 'f:trees:elm', 'f:trees:oak', 'f:types:close',
-    'h:77:North', 'h:77:North:gold', 'h:77:South',
-  ].sort(), 'not 5th Avenue: only 150 m of it, under STREET_RUN; not the half marathon card for a 3 km run');
+  const list = Cards.evaluate(tracks, [area]);
+  const found = new Map(list.map(c => [c.code, c.detail]));
+  const codes = [...found.keys()];
+  assert.equal(JSON.stringify(Cards.evaluate(tracks, [area])), JSON.stringify(list), 'the same picks every time');
+  // The long run: one card in each set it could find any in, not all four distances.
+  assert.equal(codes.filter(c => c.startsWith('f:distance:')).length, 1, 'one distance card, though it was long enough for four');
+  for (const c of ['f:month:1', 'f:clock:early', 'f:trees:oak', 'h:77:North']) assert.ok(found.has(c), c);
   assert.equal(found.get('f:trees:oak'), 'Oak Street');
-  assert.match(found.get('f:distance:21097'), /^Long one, /);
-  assert.match(found.get('f:clock:double'), /^Long one and Night jog, /);
+  // The night jog: Night Owl or Double Day, not both; and Elm Close for two sets.
+  assert.equal(codes.filter(c => c === 'f:clock:night' || c === 'f:clock:double').length, 1);
+  for (const c of ['f:trees:elm', 'f:types:close', 'h:77:South']) assert.ok(found.has(c), c);
+  assert.ok(!found.has('f:month:1') || codes.filter(c => c.startsWith('f:month:')).length === 1, 'January once');
+  // The lunchtime runs: Lunch Break, then Seven Straight on the seventh day.
+  assert.ok(found.has('f:clock:lunch'));
+  assert.match(found.get('f:clock:week'), / to /);
+  assert.ok(!codes.some(c => c.startsWith('f:numbers:')), 'not 5th Avenue: only 150 m of it, under STREET_RUN');
+  assert.ok(!found.has('h:77:North:gold'), 'gold only from a run after the card, covering it again');
+  // One more run of Oak Street turns North gold (and the other distance cards wait for their own runs).
+  const again = Cards.evaluate([...tracks, run('Oak again', local(12, 7), 2, [line(-50, 350, 0, 5)])], [area]).map(c => c.code);
+  assert.ok(again.includes('h:77:North:gold'));
+  assert.equal(again.filter(c => c.startsWith('f:distance:')).length, 1, 'a 2 km run finds no distance card');
+  found.set('h:77:North:gold', 'Every street done');
 
   // Shown by set; the neighbourhood set needs every card gold to be complete.
   const owned = new Map([...found].map(([code, detail]) => [code, { code, detail }]));

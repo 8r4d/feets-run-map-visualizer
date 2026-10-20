@@ -5,6 +5,16 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.18.4 — 2026-10-20
+
+- A run finds at most one card in each running set (and each area's
+  neighbourhoods): of the ones it could find, one at random, the same on every
+  device. The rest wait for another run that does it too. A neighbourhood
+  turns gold on a run after its card.
+- The cards found by running so far, and the trophies for those sets, are
+  cleared once more, and activities from the last two weeks find them again
+  under the new rule. Cards from quests and bosses stay.
+
 ## 1.18.3 — 2026-10-20
 
 - The seasons follow a Canadian prairie year: March is Sugar Shack (still

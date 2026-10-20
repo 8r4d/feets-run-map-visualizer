@@ -214,6 +214,22 @@ test('quests keep the month\'s boss and the streak shields', async () => {
   assert.deepEqual(kept.shields, { held: 2, used: ['2026-10-12'], earned: ['2026-10-05'] }, 'two at most');
 });
 
+test('cards: found by running cleared once more for one a set per run, quest and boss cards kept, two weeks back', async () => {
+  const a = await member();
+  await a.client.call('card_add', { cards: [{ code: 'f:trees:oak', detail: 'x' }, { code: 'h:77:North', detail: 'x' },
+    { code: 'q:creatures:fox', detail: 'x' }, { code: 'q:legends:horseman', detail: 'x' }] });
+  await a.client.call('achievement_add', { achievements: [{ code: 'cards:trees', title: 'Arboretum set' }, { code: 'cards:h77', title: 'Riverbend set' },
+    { code: 'cards:creatures', title: 'Trail Creatures set' }] });
+  // As before 1.18.4.
+  execSync(`${process.env.FEETS_DB} -e "DELETE FROM settings WHERE name = 'cards_per_run'"`);
+  const after = (await a.client.call('cards')).body;
+  assert.deepEqual(after.cards.map(c => c.code).sort(), ['q:creatures:fox', 'q:legends:horseman']);
+  assert.ok(Math.abs(after.since - (Date.now() - 14 * 86400000)) < 120000, 'counting from two weeks back');
+  assert.deepEqual((await a.client.call('achievements')).body.map(t => t.code), ['cards:creatures']);
+  await a.client.call('card_add', { cards: [{ code: 'f:trees:oak', detail: 'x' }] });
+  assert.equal((await a.client.call('cards')).body.cards.length, 3, 'just once');
+});
+
 test('finding areas: a turn twice a day, given back when OpenStreetMap was busy, and how it went kept', async () => {
   const a = await member();
   // Not a new account any more, so turns are 12 hours apart.

@@ -512,6 +512,20 @@ function db(): PDO {
             $pdo->exec("DELETE FROM achievements WHERE code LIKE 'cards:%'");
             $pdo->exec("DELETE FROM xp_events WHERE ref LIKE 'trophy:cards:%'");
         }
+        // ...and cards found at most one a set per run (1.18.4): the cards found
+        // by running so far are cleared once, with their sets' trophies, and
+        // everyone's activities from the last two weeks find them again.
+        // Cards from quests and bosses stay.
+        if (!$pdo->query("SELECT 1 FROM settings WHERE name = 'cards_per_run'")->fetch()) {
+            $pdo->exec("DELETE FROM cards WHERE code LIKE 'f:%' OR code LIKE 'h:%'");
+            $sets = ['distance', 'month', 'clock', 'trees', 'birds', 'numbers', 'types', 'land'];
+            $codes = implode(', ', array_map(fn($id) => "'cards:$id'", $sets));
+            $pdo->exec("DELETE FROM achievements WHERE code LIKE 'cards:h%' OR code IN ($codes)");
+            $refs = implode(', ', array_map(fn($id) => "'trophy:cards:$id'", $sets));
+            $pdo->exec("DELETE FROM xp_events WHERE ref LIKE 'trophy:cards:h%' OR ref IN ($refs)");
+            $pdo->exec('UPDATE users SET cards_since = NOW() - INTERVAL 14 DAY');
+            $pdo->exec("INSERT INTO settings (name, value) VALUES ('cards_per_run', NOW())");
+        }
         // ...and view links that expire.
         if (!$pdo->query("SHOW COLUMNS FROM view_links LIKE 'expires_at'")->fetch()) {
             $pdo->exec('ALTER TABLE view_links ADD COLUMN expires_at TIMESTAMP NULL AFTER created_at');

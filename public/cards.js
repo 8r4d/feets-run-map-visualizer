@@ -4,9 +4,11 @@
 //
 // Two kinds of set:
 // - found by running (evaluate): distances, months, times of day, street
-//   names (a street counts once you've covered some of it: STREET_RUN), and
-//   one set per area with neighbourhoods: a card for each at HOOD_PCT
-//   coverage, turned gold when every street in it is done
+//   names (a street counts once a run has covered some of it: STREET_RUN),
+//   and one set per area with neighbourhoods: a card for each at HOOD_PCT
+//   coverage, turned gold when every street in it is done. A run finds at
+//   most one card in each set: of the ones it could, one at random (the same
+//   one on every device). The rest wait for another run that does it too.
 // - from quests (pack): each quest finished turns over one card you don't
 //   have yet, from the quest set of the moment: the month's season while it
 //   has cards left (each month has its own, back every year), then the first
@@ -31,14 +33,15 @@ const Cards = (() => {
     'November', 'December'];
   const MONTH_ICONS = ['❄️', '💘', '🍁', '🌱', '🌷', '☀️', '🏖️', '🌻', '🍎', '🎃', '🌨️', '🎄'];
 
-  // Sets found by running. test(stats) gives the detail to keep, or nothing.
+  // Sets found by running. test(run, s) gives the detail to keep if this run
+  // finds the card, or nothing; s.before is the runs before it (see evaluate).
   const FOUND = [
     { id: 'distance', name: 'Long Way Round', icon: '🛣️', color: '#e65100',
       cards: DISTANCES.map(([m, name, icon]) => ({ id: String(m), name, icon, hint: `Go ${name === 'Ultra' ? '50 km' : name} in one go`,
-        test: s => s.first(t => t.distance >= m) })) },
+        test: (t, s) => (t.distance >= m ? s.detail(t) : null) })) },
     { id: 'month', name: 'Twelve Months', icon: '📅', color: '#00897b',
       cards: MONTHS.map((name, i) => ({ id: String(i + 1), name, icon: MONTH_ICONS[i], hint: `Get out in ${name}`,
-        test: s => s.first(t => s.date(t).getMonth() === i) })) },
+        test: (t, s) => (s.date(t).getMonth() === i ? s.detail(t) : null) })) },
     { id: 'clock', name: 'Around the Clock', icon: '🕰️', color: '#5e35b1',
       cards: [
         ['early', 'Early Bird', '🐦', 'Start before 6 am', h => h >= 3 && h < 6],
@@ -47,10 +50,10 @@ const Cards = (() => {
         ['afternoon', 'Afternoon Tea', '🫖', 'Start between 2 and 5 pm', h => h >= 14 && h < 17],
         ['evening', 'Golden Hour', '🌇', 'Start between 5 and 9 pm', h => h >= 17 && h < 21],
         ['night', 'Night Owl', '🦉', 'Start after 9 pm', h => h >= 21 || h < 3],
-      ].map(([id, name, icon, hint, hours]) => ({ id, name, icon, hint, test: s => s.first(t => hours(s.date(t).getHours())) }))
+      ].map(([id, name, icon, hint, hours]) => ({ id, name, icon, hint, test: (t, s) => (hours(s.date(t).getHours()) ? s.detail(t) : null) }))
         .concat([
-          { id: 'double', name: 'Double Day', icon: '✌️', hint: 'Get out twice in one day', test: s => s.double() },
-          { id: 'week', name: 'Seven Straight', icon: '🔥', hint: 'Get out seven days in a row', test: s => s.daysInARow(7) },
+          { id: 'double', name: 'Double Day', icon: '✌️', hint: 'Get out twice in one day', test: (t, s) => s.double(t) },
+          { id: 'week', name: 'Seven Straight', icon: '🔥', hint: 'Get out seven days in a row', test: (t, s) => s.daysInARow(t, 7) },
         ]) },
     { id: 'trees', name: 'Arboretum', icon: '🌳', color: '#2e7d32',
       cards: [['Oak', '🌳'], ['Maple', '🍁'], ['Elm', '🌲'], ['Birch', '🪵'], ['Cedar', '🌲'], ['Pine', '🌲', 'Pine|Pines'],
@@ -148,35 +151,23 @@ const Cards = (() => {
   const fmtDate = d => d.toLocaleDateString(undefined, { dateStyle: 'medium' });
   const dayKey = d => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 
-  // What the found sets look at: on-foot activities oldest first, with a
-  // detail naming the first one to do something.
-  function trackStats(tracks) {
-    const timed = tracks.filter(t => t.time && !Number.isNaN(Date.parse(t.time)))
-      .sort((a, b) => Date.parse(a.time) - Date.parse(b.time));
+  // What a run's tests look at: the runs before it, and its own date and name.
+  function runStats(before) {
     const date = t => new Date(t.time);
     const detail = t => `${t.name}, ${fmtDate(date(t))}`;
-    const days = [...new Set(timed.map(t => dayKey(date(t))))];
     return {
-      date,
-      first: match => { const t = timed.find(match); return t ? detail(t) : null; },
-      double: () => {
-        const seen = new Map();
-        for (const t of timed) {
-          const k = dayKey(date(t));
-          if (seen.has(k)) return `${seen.get(k).name} and ${t.name}, ${fmtDate(date(t))}`;
-          seen.set(k, t);
-        }
-        return null;
+      before, date, detail,
+      // Its second (or later) run of a day.
+      double: t => {
+        const other = before.find(o => dayKey(date(o)) === dayKey(date(t)));
+        return other ? `${other.name} and ${t.name}, ${fmtDate(date(t))}` : null;
       },
-      daysInARow: n => {
-        const have = new Set(days);
-        for (const t of timed) {
-          const d = date(t);
-          let k = 1;
-          while (k < n && have.has(dayKey(new Date(d.getFullYear(), d.getMonth(), d.getDate() + k)))) k++;
-          if (k === n) return `From ${fmtDate(d)}`;
-        }
-        return null;
+      // Its day ends n days in a row out.
+      daysInARow: (t, n) => {
+        const days = new Set([...before, t].map(o => dayKey(date(o))));
+        const d = date(t);
+        for (let k = 1; k < n; k++) if (!days.has(dayKey(new Date(d.getFullYear(), d.getMonth(), d.getDate() - k)))) return null;
+        return `${fmtDate(new Date(d.getFullYear(), d.getMonth(), d.getDate() - n + 1))} to ${fmtDate(d)}`;
       },
     };
   }
@@ -188,41 +179,80 @@ const Cards = (() => {
     return all;
   }
 
-  // The street names you've covered some of (STREET_RUN, or most of a short
-  // one), and the neighbourhood cards: [{ code, detail }].
-  function streetsAndHoods(tracks, areas) {
-    const named = new Set();
-    const hoods = [];
-    const segments = tracks.map(t => t.segments);
+  // A run's streets: the names it covered some of itself (STREET_RUN, or most
+  // of a short street), and the neighbourhood cards it could find: a card
+  // where it covered something and the runs so far have HOOD_PCT, gold where
+  // the runs so far have done every street. cover: per area id, the points
+  // the runs before have visited; this run's are added to it.
+  function runStreets(t, areas, cover) {
+    const named = [];
+    const hoods = new Map();  // set id (h + OSM id) -> [{ code, detail }]
     for (const area of areas) {
       const prep = Coverage.prepared(area);
-      const summary = Coverage.summarize(prep, Coverage.compute(prep, segments));
-      for (const g of summary.groups) {
-        if (g.name && g.covered >= Math.min(STREET_RUN, g.len * 0.8)) named.add(g.name);
+      if (!cover.has(area.id)) cover.set(area.id, new Uint8Array(prep.n));
+      const visited = cover.get(area.id);
+      const own = Coverage.compute(prep, [t.segments]);
+      if (!own.visited.some(Boolean)) continue;  // not here
+      const mine = Coverage.summarize(prep, own);
+      for (const g of mine.groups) {
+        if (g.name && g.covered >= Math.min(STREET_RUN, g.len * 0.8) && !named.includes(g.name)) named.push(g.name);
       }
+      for (let k = 0; k < prep.n; k++) if (own.visited[k]) visited[k] = 1;
+      const fraction = new Float32Array(area.data.streets.length);
+      for (let w = 0; w < fraction.length; w++) {
+        let count = 0;
+        for (let k = prep.first[w]; k < prep.first[w + 1]; k++) count += visited[k];
+        fraction[w] = count / Math.max(1, prep.first[w + 1] - prep.first[w]);
+      }
+      const sofar = Coverage.summarize(prep, { visited, fraction });
       area.data.hoods.forEach((hood, i) => {
-        const t = combine(summary.byHood[i]);
-        if (!t.len || t.covered / t.len * 100 < HOOD_PCT) return;
+        if (!combine(mine.byHood[i]).covered) return;
+        const all = combine(sofar.byHood[i]);
+        if (!all.len || all.covered / all.len * 100 < HOOD_PCT) return;
         const code = `h:${area.osmId}:${hood.name}`;
-        hoods.push({ code, detail: `${Math.round(t.covered / t.len * 100)}% of its streets` });
-        if (t.streets > 0 && t.done === t.streets) hoods.push({ code: `${code}:gold`, detail: 'Every street done' });
+        const list = hoods.get(`h${area.osmId}`) || [];
+        list.push({ code, detail: `${Math.round(all.covered / all.len * 100)}% of its streets` });
+        if (all.streets > 0 && all.done === all.streets) list.push({ code: `${code}:gold`, detail: 'Every street done' });
+        hoods.set(`h${area.osmId}`, list);
       });
     }
-    return { named: [...named].sort((a, b) => a.localeCompare(b)), hoods };
+    return { named: named.sort((a, b) => a.localeCompare(b)), hoods };
   }
 
-  // Every found card met now: [{ code, detail }]. tracks: on-foot activities.
+  // The found cards activities have found: [{ code, detail }]. tracks: on-foot
+  // activities that count (see app.js). They're gone through oldest first,
+  // each finding at most one card per set, picked by hashing the run's id
+  // with the set's, so it's the same pick every time and on every device.
   function evaluate(tracks, areas) {
-    const stats = trackStats(tracks);
-    const { named, hoods } = streetsAndHoods(tracks, areas);
+    const runs = tracks.filter(t => t.time && !Number.isNaN(Date.parse(t.time)))
+      .sort((a, b) => Date.parse(a.time) - Date.parse(b.time) || String(a.id).localeCompare(String(b.id)));
+    const found = new Set();
     const out = [];
-    for (const set of FOUND) {
-      for (const card of set.cards) {
-        const detail = card.words ? named.find(n => card.words.test(n)) : card.test(stats);
-        if (detail) out.push({ code: `f:${set.id}:${card.id}`, detail });
+    const cover = new Map();
+    const pick = (t, setId, options) => {
+      const fresh = options.filter(o => !found.has(o.code));
+      if (!fresh.length) return;
+      const card = fresh[hash(`${t.id}:${setId}`) % fresh.length];
+      found.add(card.code);
+      out.push(card);
+    };
+    runs.forEach((t, i) => {
+      const s = runStats(runs.slice(0, i));
+      const { named, hoods } = runStreets(t, areas, cover);
+      for (const set of FOUND) {
+        const options = [];
+        for (const card of set.cards) {
+          const detail = card.words ? named.find(n => card.words.test(n)) : card.test(t, s);
+          if (detail) options.push({ code: `f:${set.id}:${card.id}`, detail });
+        }
+        pick(t, set.id, options);
       }
-    }
-    return out.concat(hoods);
+      // A neighbourhood's gold only once it has its card.
+      for (const [setId, options] of hoods) {
+        pick(t, setId, options.filter(o => !o.code.endsWith(':gold') || found.has(o.code.slice(0, -5))));
+      }
+    });
+    return out;
   }
 
   // The quest set turning over now: a seasonal one in its month while it has
