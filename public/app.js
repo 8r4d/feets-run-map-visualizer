@@ -2327,9 +2327,9 @@ async function saveCards(fresh) {
     const card = set && set.cards.find(k => k.code === c.code || `${k.code}:gold` === c.code);
     if (!card) continue;
     const have = set.cards.filter(k => k.owned).length;
-    toast(`🂠 ${c.code.endsWith(':gold') ? 'Gold card' : 'New card'}: ${card.icon} ${card.name}`, `${set.name} ${have}/${set.cards.length} · ${c.detail}`);
+    toast(`🃏 ${c.code.endsWith(':gold') ? 'Gold card' : 'New card'}: ${card.icon} ${card.name}`, `${set.name} ${have}/${set.cards.length} · ${c.detail}`);
   }
-  if (fresh.length > 3) toast(`🂠 ${fresh.length - 3} more cards`, 'See them under Cards, in Questing.');
+  if (fresh.length > 3) toast(`🃏 ${fresh.length - 3} more cards`, 'See them under Cards, in Questing.');
   const done = Cards.setTrophies(sets).filter(a => !knownTrophies.has(a.code));
   if (!done.length) return;
   trophies = await Store.addAchievements(done);
@@ -2347,10 +2347,18 @@ function renderCards() {
   const month = new Date().getMonth();
   const now = Cards.questSet(new Set(cards.map(c => c.code)));
   let owned = 0, all = 0;
-  const groups = [['From quests', 'quest'], ['Found by running', 'found'], ['Neighbourhoods', 'hood']];
+  // In each group: legends, this month's season, evergreen sets, then the
+  // other seasons from next month round; found sets as cards.js lists them.
+  const rank = st => (st.boss ? 0 : st.month === month ? 1 : st.month === undefined ? 2 : 3 + (st.month - month + 12) % 12);
+  const groups = [
+    ['From quests', st => st.kind === 'quest' && (st.month === undefined || st.month === month)],
+    ['Other seasons', st => st.kind === 'quest' && st.month !== undefined && st.month !== month],
+    ['Found by running', st => st.kind === 'found'],
+    ['Neighbourhoods', st => st.kind === 'hood'],
+  ];
   const items = [];
-  for (const [title, kind] of groups) {
-    const list = sets.filter(st => st.kind === kind);
+  for (const [title, belongs] of groups) {
+    const list = sets.filter(belongs).sort((a, b) => rank(a) - rank(b));
     if (!list.length) continue;
     const h = document.createElement('h3');
     h.className = 'card-group';
@@ -2372,16 +2380,17 @@ function renderCards() {
       box.querySelector('.set-name').textContent = set.name;
       box.querySelector('small').textContent = (complete ? '✓ ' : '') + `${have}/${set.cards.length}`
         + (set.month !== undefined && set.month !== month && have < set.cards.length ? ` · ${new Date(2026, set.month, 1).toLocaleString(undefined, { month: 'short' })} only` : '')
+        + (set.boss ? ' · bosses' : '')
         + (now && now.id === set.id ? ' · now' : '');
       box.querySelector('.bar span').style.width = `${(have / set.cards.length * 100).toFixed(1)}%`;
       box.querySelector('.card-grid').append(...set.cards.map(c => {
         const el = document.createElement('div');
-        el.className = 'card' + (c.owned ? '' : ' missing') + (c.gold ? ' gold' : '');
+        el.className = 'card' + (c.owned ? '' : ' missing') + (c.gold ? ' gold' : '') + (set.boss ? ' legend' : '');
         el.innerHTML = '<span class="card-icon"></span><strong></strong><small></small>';
         el.querySelector('.card-icon').textContent = c.owned ? c.icon : '?';
         el.querySelector('strong').textContent = c.owned || set.kind === 'hood' ? c.name : '';
         // A quest card face down says nothing more than the note under the sets.
-        el.querySelector('small').textContent = c.owned ? c.detail : set.kind === 'quest' ? '' : c.hint;
+        el.querySelector('small').textContent = c.owned ? c.detail : set.kind === 'quest' && !set.boss ? '' : c.hint;
         el.title = c.owned ? `${c.name}: ${c.detail}` : c.hint;
         return el;
       }));
@@ -2390,9 +2399,10 @@ function renderCards() {
   }
   document.getElementById('card-sets').replaceChildren(...items);
   document.getElementById('cards-count').textContent = `${owned}/${all}`;
-  document.getElementById('cards-note').textContent = now
+  document.getElementById('cards-note').textContent = (now
     ? `Each quest you finish turns over a ${now.icon} ${now.name} card.`
-    : 'Every quest set you can collect now is complete. Halloween and Winter come back each October and December.';
+    : 'Every quest set you can collect now is complete: next month brings a new season.')
+    + " Beat the month's boss for its legend.";
 }
 
 // Shows this year's trophies, then all-time ones. Earlier years' are kept on
@@ -5427,14 +5437,32 @@ async function updateQuests() {
     const c = map.getCenter();
     return home ? [home.lat, home.lon] : lastFix ? [lastFix.lat, lastFix.lng] : [c.lat, c.lng];
   };
+  let dirty = false;  // questState changed: saved once, near the end
+  if (questState) questState.shields = questState.shields || { held: 0, used: [], earned: [] };
   if (!questState || questState.week !== week) {
     // Last week's quests not done cost a little XP (if XP was counting then).
     const old = questState;
     if (old && xpState && old.week >= Quests.weekId(new Date(xpState.since))) {
       xpPending.push(...Xp.missedEvents(old.quests.filter(q => !old.done.includes(q.id)), Quests.title));
     }
-    questState = { ...Quests.make(areas, coverageFor, firsts, near()), done: [], completed: questState ? questState.completed : 0 };
-    await Store.saveQuests(questState).catch(() => {});
+    // The weeks gone by without new street use up streak shields, if there's a streak to keep.
+    const shields = old ? { ...old.shields } : { held: 0, used: [], earned: [] };
+    const used = old && shields.held ? Quests.useShields(firsts, shields.held, shields.used, old.week, week) : [];
+    if (used.length) {
+      shields.held -= used.length;
+      shields.used = [...shields.used, ...used];
+      toast(`🛡️ ${used.length === 1 ? 'A streak shield' : `${used.length} streak shields`} kept your streak going`,
+        `No new streets the week${used.length === 1 ? '' : 's'} of ${used.join(', ')}. ${shields.held} left.`);
+    }
+    questState = { ...Quests.make(areas, coverageFor, firsts, near()), done: [], completed: old ? old.completed : 0,
+      boss: old ? old.boss : null, bossDone: old ? old.bossDone : false, shields };
+    dirty = true;
+  }
+  // A boss for each month.
+  if (!questState.boss || questState.boss.month !== Quests.monthId(new Date())) {
+    questState.boss = Quests.makeBoss(areas, coverageFor, firsts, tracks, near());
+    questState.bossDone = false;
+    dirty = true;
   }
   // A street marked off-limits since the quests were made: swap in another
   // (make() leaves off-limits streets out), or drop it if there's none.
@@ -5453,6 +5481,7 @@ async function updateQuests() {
     questState.done.push(...finished.map(q => q.id));
     questState.completed += finished.length;
     await Store.saveQuests(questState).catch(() => {});
+    dirty = false;
     for (const q of finished) toast(`Quest done: ${Quests.title(q)}`, `${questState.completed} quests done in all.`);
     // Each turns over a card.
     const owned = new Set(cards.map(c => c.code));
@@ -5465,17 +5494,41 @@ async function updateQuests() {
     }
     await saveCards(turned).catch(err => console.error('Cards:', err));
   }
-  renderQuests(Quests.streak(firsts), progress);
+  // Every quest of the week done: a streak shield, while there's room for one.
+  const { shields } = questState;
+  if (questState.quests.length >= 2 && questState.quests.every(q => questState.done.includes(q.id)) && !shields.earned.includes(week)) {
+    shields.earned.push(week);
+    if (shields.held < Quests.SHIELD_MAX) {
+      shields.held++;
+      toast('🛡️ Streak shield earned', "Every quest done this week. If a week goes by without new streets, it keeps your streak going.");
+    } else {
+      toast('🛡️ Every quest done', `You already hold ${Quests.SHIELD_MAX} streak shields, the most you can.`);
+    }
+    dirty = true;
+  }
+  // The boss: a legend card and a lot of XP.
+  const bossProgress = Quests.bossProgress(questState.boss, areas, firsts, tracks);
+  let bossXp = [];
+  if (bossProgress.done && !questState.bossDone) {
+    questState.bossDone = true;
+    dirty = true;
+    const title = Quests.bossTitle(questState.boss);
+    toast(`👑 Boss beaten: ${title}`, `Its legend card is yours, and ${Xp.POINTS.boss} XP.`);
+    await saveCards([Cards.legendCard(questState.boss, title)]).catch(err => console.error('Cards:', err));
+    bossXp = Xp.bossEvents(questState.boss, title);
+  }
+  if (dirty) await Store.saveQuests(questState).catch(() => {});
+  renderQuests(Quests.streak(firsts, new Date(), shields.used), progress, bossProgress);
   xpFirsts = firsts;
   await awardStreakTrophies(firsts);
-  await awardXp(Xp.questEvents(finished, Quests.title));
+  await awardXp([...Xp.questEvents(finished, Quests.title), ...bossXp]);
 }
 
 // Streak trophies (see Quests.streakTrophies), saved and announced like the
 // others (see checkTrophies).
 async function awardStreakTrophies(firsts) {
   const known = new Set(trophies.map(a => a.code));
-  const fresh = Quests.streakTrophies(firsts).filter(a => !known.has(a.code));
+  const fresh = Quests.streakTrophies(firsts, questState ? questState.shields.used : []).filter(a => !known.has(a.code));
   if (!fresh.length) return;
   trophies = await Store.addAchievements(fresh);
   if (known.size) xpPending.push(...Xp.trophyEvents(fresh));
@@ -5572,18 +5625,25 @@ function renderXp() {
       + 'quests and trophies. Older activities you add don\'t earn any.';
 }
 
-function renderQuests(streak, progress) {
+function renderQuests(streak, progress, bossProgress) {
   questsBox.hidden = false;
+  renderBoss(bossProgress);
   const s = document.getElementById('streak');
   const weeks = n => `${n} week${n === 1 ? '' : 's'}`;
-  s.textContent = streak.current
+  const held = questState.shields.held;
+  s.textContent = (streak.current
     ? `🔥 New streets ${weeks(streak.current)} running (best ${weeks(streak.best)}).`
-      + (streak.counted ? '' : ` This week doesn't count yet: ${Quests.kmText(Quests.STREAK_MIN)} of new street keeps it going.`)
+      + (streak.counted ? '' : ` This week doesn't count yet: ${Quests.kmText(Quests.STREAK_MIN)} of new street keeps it going`
+        + (held ? ', or a shield will.' : '.'))
     : streak.best
       ? `No streak right now (best ${weeks(streak.best)}). ${Quests.kmText(Quests.STREAK_MIN)} of new street this week starts one.`
-      : `Cover ${Quests.kmText(Quests.STREAK_MIN)} of new street this week to start a streak.`;
+      : `Cover ${Quests.kmText(Quests.STREAK_MIN)} of new street this week to start a streak.`)
+    + (held ? ` 🛡️×${held}` : '');
+  s.title = `Streak shields: ${held} of ${Quests.SHIELD_MAX}. Finish every quest in a week to earn one; `
+    + 'a week without new streets uses one up and your streak carries on.';
   const done = progress.filter(p => p.done).length;
-  document.getElementById('quests-summary').textContent = `${done} of ${progress.length} quests` + (streak.current ? ` · 🔥 ${streak.current}` : '');
+  document.getElementById('quests-summary').textContent = `${done} of ${progress.length} quests` + (streak.current ? ` · 🔥 ${streak.current}` : '')
+    + (held ? ` · 🛡️${held}` : '');
   document.getElementById('quest-list').replaceChildren(...questState.quests.map((q, i) => {
     const p = progress[i];
     const li = document.createElement('li');
@@ -5600,8 +5660,39 @@ function renderQuests(streak, progress) {
     plan.onclick = () => planQuest(q);
     return li;
   }));
-  document.getElementById('quests-note').textContent = `New quests every Monday. ${questState.completed} done in all.`
+  document.getElementById('quests-note').textContent = `New quests every Monday, and finish them all for a streak shield. ${questState.completed} done in all.`
     + (areas.length ? '' : ' Add a street area in Road Fill for more kinds of quest.');
+}
+
+// This month's boss, above the week's quests.
+function renderBoss(p) {
+  const box = document.getElementById('boss');
+  const boss = questState.boss;
+  box.hidden = !boss || !p;
+  if (box.hidden) return;
+  const legend = Cards.legend(Number(boss.month.slice(5)) - 1);
+  const [y, m] = boss.month.split('-').map(Number);
+  const daysLeft = Math.max(0, Math.ceil((new Date(y, m, 1) - Date.now()) / 86400000));
+  box.classList.toggle('done', questState.bossDone);
+  box.querySelector('.boss-icon').textContent = legend.icon;
+  box.querySelector('strong').textContent = (questState.bossDone ? '✓ ' : '') + legend.name;
+  box.querySelector('.boss-task').textContent = Quests.bossTitle(boss).replace(/^.*?: /, '');
+  box.querySelector('.bar span').style.width = `${Math.min(100, p.have / Math.max(1, p.of) * 100).toFixed(1)}%`;
+  box.querySelector('small').textContent = questState.bossDone
+    ? `Beaten! Its legend card is in Cards. A new boss on the 1st.`
+    : (boss.kind === 'long' ? `Longest this month: ${p.have ? Quests.kmText(p.have) : 'none yet'}` : `${Quests.kmText(p.have)} of ${Quests.kmText(p.of)}`)
+      + ` · ${daysLeft} day${daysLeft === 1 ? '' : 's'} left · 🃏 legend card + ${Xp.POINTS.boss} XP`;
+  const plan = box.querySelector('button');
+  plan.hidden = questState.bossDone;
+  plan.onclick = () => {
+    if (boss.kind === 'long') {
+      setMode('plan');
+      exploreKm.value = Math.round(Units.toUnit(boss.target) * 2) / 2;
+      planStatus.textContent = `Make a loop is set to ${exploreKm.value} ${Units.unit}. Make a loop to plan one long enough to beat ${legend.name}.`;
+    } else {
+      planQuest(boss);
+    }
+  };
 }
 
 // "Plan it": Plan mode, set up for the quest.

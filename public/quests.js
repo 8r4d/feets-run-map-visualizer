@@ -5,6 +5,14 @@
 // STREAK_MIN metres of new street keeps the streak going. Each week (from
 // Monday, as goals do) also gets three quests, made from your own gaps:
 // new street in a neighbourhood, a street to finish, and new street anywhere.
+//
+// Streak shields: finishing every quest of a week earns one (up to
+// SHIELD_MAX held). A week that ends without new street, while there's a
+// streak to keep, uses one up (useShields): that week bridges the streak
+// without adding to it.
+//
+// Each calendar month also has a boss (makeBoss): one bigger quest, a long
+// run or a lot of new street, with that month's legend card for beating it.
 const Quests = (() => {
   const STREAK_MIN = 100;    // metres of new street for a week to count
   const DAY = 86400000;
@@ -80,18 +88,48 @@ const Quests = (() => {
     return weeks;
   }
 
+  // A week id (YYYY-MM-DD, its Monday) as that Monday's local midnight, in ms.
+  const weekMs = id => { const [y, m, d] = id.split('-').map(Number); return new Date(y, m - 1, d).getTime(); };
+
   // { current, best, thisWeek (metres), counted (this week counts yet) }.
   // A streak still running into this week isn't broken until the week ends.
-  function streak(firstsMap, now = new Date()) {
+  // shielded: week ids a streak shield covered; they bridge a streak but
+  // don't add to it.
+  function streak(firstsMap, now = new Date(), shielded = []) {
     const weeks = byWeek(firstsMap);
+    const bridged = new Set(shielded.map(weekMs));
     const counts = d => (weeks.get(d.getTime()) || 0) >= STREAK_MIN;
     const thisWeek = weekStart(now);
     const counted = counts(thisWeek);
     let current = 0;
-    for (let d = counted ? thisWeek : shiftWeek(thisWeek, -1); counts(d); d = shiftWeek(d, -1)) current++;
+    for (let d = counted ? thisWeek : shiftWeek(thisWeek, -1); counts(d) || bridged.has(d.getTime()); d = shiftWeek(d, -1)) {
+      if (counts(d)) current++;
+    }
     // The best: the longest run of counting weeks, ever.
-    const best = longestRun([...weeks.keys()].filter(k => weeks.get(k) >= STREAK_MIN).sort((a, b) => a - b));
+    const best = longestRun(countingWeeks(weeks), bridged);
     return { current, best: Math.max(best, current), thisWeek: weeks.get(thisWeek.getTime()) || 0, counted };
+  }
+
+  const countingWeeks = weeks => [...weeks.keys()].filter(k => weeks.get(k) >= STREAK_MIN).sort((a, b) => a - b);
+
+  // --- Streak shields ---
+  const SHIELD_MAX = 2;
+
+  // The weeks from week id `from` up to (not including) `to` that a shield
+  // covers: each that didn't count, while the week before it did (or was
+  // shielded), as long as shields last. [week ids].
+  function useShields(firstsMap, held, shielded, from, to) {
+    const weeks = byWeek(firstsMap);
+    const counts = ms => (weeks.get(ms) || 0) >= STREAK_MIN;
+    const bridged = new Set(shielded.map(weekMs));
+    const out = [];
+    for (let d = new Date(weekMs(from)); d.getTime() < weekMs(to) && out.length < held; d = shiftWeek(d, 1)) {
+      const before = shiftWeek(d, -1).getTime();
+      if (counts(d.getTime()) || !(counts(before) || bridged.has(before))) continue;
+      bridged.add(d.getTime());
+      out.push(weekId(d));
+    }
+    return out;
   }
 
   // --- Streak trophies ---
@@ -101,26 +139,30 @@ const Quests = (() => {
   const STREAK_TROPHIES = [4, 8, 12, 26, 52];
 
   // The longest run of counting weeks among week starts (ms, ascending).
-  function longestRun(starts) {
+  // Weeks in `bridged` (ms) join the counting weeks either side of them.
+  function longestRun(starts, bridged = new Set()) {
     let best = 0, run = 0, prev = null;
     for (const k of starts) {
-      run = prev !== null && shiftWeek(new Date(prev), 1).getTime() === k ? run + 1 : 1;
+      let gap = prev === null ? null : shiftWeek(new Date(prev), 1);
+      while (gap && gap.getTime() < k && bridged.has(gap.getTime())) gap = shiftWeek(gap, 1);
+      run = gap && gap.getTime() === k ? run + 1 : 1;
       best = Math.max(best, run);
       prev = k;
     }
     return best;
   }
 
-  function streakTrophies(firstsMap) {
+  function streakTrophies(firstsMap, shielded = []) {
     const weeks = byWeek(firstsMap);
-    const starts = [...weeks.keys()].filter(k => weeks.get(k) >= STREAK_MIN).sort((a, b) => a - b);
+    const starts = countingWeeks(weeks);
+    const bridged = new Set(shielded.map(weekMs));
     const earned = [];
     const detail = n => `New streets every week for ${n} weeks`;
-    const allTime = longestRun(starts);
+    const allTime = longestRun(starts, bridged);
     for (const n of STREAK_TROPHIES) if (allTime >= n) earned.push({ code: `streak:${n}`, title: `${n}-week streak`, detail: detail(n) });
     const years = [...new Set(starts.map(k => new Date(k).getFullYear()))].filter(y => y >= Achievements.FIRST_YEAR);
     for (const year of years) {
-      const best = longestRun(starts.filter(k => new Date(k).getFullYear() === year));
+      const best = longestRun(starts.filter(k => new Date(k).getFullYear() === year), bridged);
       for (const n of STREAK_TROPHIES) {
         if (best >= n) earned.push({ code: `year:${year}:streak:${n}`, title: `${year}: ${n}-week streak`, detail: detail(n) });
       }
@@ -147,11 +189,10 @@ const Quests = (() => {
   }
   const away = ([a, b], [c, d]) => Planner.distance(a, b, c, d);
 
-  // This week's quests. coverageFor(area): Coverage.compute's result for the
-  // area with every on-foot activity. near: where to look first ([lat, lon]).
-  function make(areas, coverageFor, firstsMap, near, now = new Date()) {
-    const week = weekId(now);
-    const quests = [];
+  // The gaps quests are made from: neighbourhoods (or areas without any)
+  // with new street left, and named streets mostly covered. coverageFor(area):
+  // Coverage.compute's result for the area with every on-foot activity.
+  function gaps(areas, coverageFor) {
     const units = [], streetsLeft = [];
     for (const area of areas) {
       const prep = Coverage.prepared(area);
@@ -172,7 +213,26 @@ const Quests = (() => {
         streetsLeft.push({ areaId: area.id, hood: g.hood, name: g.name, cat: g.cat, left, place: middleOf(g.ways.flatMap(w => streets[w].runs)) });
       }
     }
-    const nearest = list => list.filter(x => x.place).sort((a, b) => away(a.place, near) - away(b.place, near))[0];
+    return { units, streetsLeft };
+  }
+
+  const nearestTo = near => list => list.filter(x => x.place).sort((a, b) => away(a.place, near) - away(b.place, near))[0];
+
+  // New street in a usual recent week: the last 8 weeks' average, in metres.
+  function usualWeek(firstsMap, now) {
+    const weeks = byWeek(firstsMap);
+    let sum = 0;
+    for (let i = 1; i <= 8; i++) sum += weeks.get(shiftWeek(weekStart(now), -i).getTime()) || 0;
+    return sum / 8;
+  }
+
+  // This week's quests. coverageFor(area): Coverage.compute's result for the
+  // area with every on-foot activity. near: where to look first ([lat, lon]).
+  function make(areas, coverageFor, firstsMap, near, now = new Date()) {
+    const week = weekId(now);
+    const quests = [];
+    const { units, streetsLeft } = gaps(areas, coverageFor);
+    const nearest = nearestTo(near);
 
     const unit = nearest(units);
     if (unit) {
@@ -184,13 +244,77 @@ const Quests = (() => {
       quests.push({ id: `${week}:street`, kind: 'street', title: `Finish ${street.name}`, target: Math.round(street.left), areaId: street.areaId, hood: street.hood, name: street.name, cat: street.cat, place: street.place });
     }
     // Anywhere: a little more than a usual recent week, rounded to half a km.
-    const weeks = byWeek(firstsMap);
-    const recent = [];
-    for (let i = 1; i <= 8; i++) recent.push(weeks.get(shiftWeek(weekStart(now), -i).getTime()) || 0);
-    const usual = recent.reduce((a, b) => a + b, 0) / recent.length;
+    const usual = usualWeek(firstsMap, now);
     const target = Math.min(10000, Math.max(1000, Math.round(usual * 1.2 / 500) * 500));
     quests.push({ id: `${week}:any`, kind: 'any', title: `Cover ${kmText(target)} of new streets anywhere`, target });
     return { week, quests };
+  }
+
+  // --- Monthly bosses ---
+  // { id: boss:YYYY-MM, month, kind, target (metres), since (Unix ms),
+  //   legend (a Cards legend id), areaId, hood, where, place }:
+  //   long: one activity of `target` metres this month;
+  //   area: `target` metres of new street in a neighbourhood or area;
+  //   any: `target` metres of new street anywhere.
+  // Which kind goes by the month, from the kinds there's data for. A boss
+  // made partway through a month (the first one, say) is scaled to the days
+  // left. Only activities from `since` count: from here on, like XP.
+  const BOSS_KINDS = ['long', 'area', 'any'];
+  const monthId = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  const monthEnd = d => new Date(d.getFullYear(), d.getMonth() + 1, 1);
+  const round = (m, step) => Math.round(m / step) * step;
+
+  // tracks: on-foot activities, for the long run.
+  function makeBoss(areas, coverageFor, firstsMap, tracks, near, now = new Date()) {
+    const days = (monthEnd(now) - new Date(now.getFullYear(), now.getMonth(), 1)) / DAY;
+    const share = Math.max(0.25, (monthEnd(now) - now) / DAY / days);
+    const unit = nearestTo(near)(gaps(areas, coverageFor).units);
+    // The longest of the last 90 days, a little further.
+    const recent = tracks.filter(t => t.time && now - Date.parse(t.time) < 90 * DAY && Date.parse(t.time) <= now.getTime());
+    const longest = Math.max(0, ...recent.map(t => t.distance));
+    const options = {
+      long: recent.length ? Math.min(42195, Math.max(5000, round(longest * 1.15, 1000))) : 8000,
+      area: unit && Math.max(1000, Math.min(round(unit.left * 0.6, 500), round(5000 * share, 500))),
+      any: areas.length ? Math.min(20000, Math.max(1000, round(usualWeek(firstsMap, now) * 4.3 * 1.5 * share, 500))) : null,
+    };
+    const kinds = BOSS_KINDS.filter(k => options[k]);
+    const kind = kinds[now.getMonth() % kinds.length];
+    const boss = { id: `boss:${monthId(now)}`, month: monthId(now), kind, target: options[kind], since: now.getTime(),
+      legend: Cards.legend(now.getMonth()).id };
+    if (kind === 'area') Object.assign(boss, { areaId: unit.areaId, hood: unit.hood, where: unit.name, place: unit.place });
+    return boss;
+  }
+
+  function bossTask(boss) {
+    if (boss.kind === 'long') return `Go ${kmText(boss.target)} in one go`;
+    if (boss.kind === 'area') return `Cover ${kmText(boss.target)} of new streets in ${boss.where}`;
+    return `Cover ${kmText(boss.target)} of new streets this month`;
+  }
+
+  // "🏔️ The Yeti: Go 12 km in one go"
+  const bossTitle = boss => { const l = Cards.legend(Number(boss.month.slice(5)) - 1); return `${l.icon} ${l.name}: ${bossTask(boss)}`; };
+
+  // How far along a boss is: { have, of, done } in metres; for a long run,
+  // `have` is the longest so far.
+  function bossProgress(boss, areas, firstsMap, tracks) {
+    const [y, m] = boss.month.split('-').map(Number);
+    const from = Math.max(boss.since, new Date(y, m - 1, 1).getTime()), to = new Date(y, m, 1).getTime();
+    const within = time => { const t = Date.parse(time); return t >= from && t < to; };
+    let have = 0;
+    if (boss.kind === 'long') {
+      have = Math.max(0, ...tracks.filter(t => t.time && within(t.time)).map(t => t.distance));
+    } else {
+      let ways = null;
+      if (boss.kind === 'area') {
+        const area = areas.find(a => a.id === boss.areaId);
+        ways = new Set(area ? area.data.streets.filter(s => boss.hood < 0 || s.hood === boss.hood).map(s => s.id) : []);
+      }
+      for (const r of firstsMap.values()) {
+        if (!within(r.time)) continue;
+        for (const [id, metres] of r.ways) if (!ways || ways.has(id)) have += metres;
+      }
+    }
+    return { have, of: boss.target, done: have >= boss.target };
   }
 
   // Whether a quest's street has since been marked off-limits (all of it, as
@@ -242,5 +366,6 @@ const Quests = (() => {
     return { have, of: quest.target, done: have >= quest.target };
   }
 
-  return { STREAK_MIN, firsts, streak, streakTrophies, weekId, make, offLimits, progress, kmText, title };
+  return { STREAK_MIN, SHIELD_MAX, firsts, streak, streakTrophies, useShields, weekId, monthId, make, makeBoss, bossTitle,
+    bossProgress, offLimits, progress, kmText, title };
 })();

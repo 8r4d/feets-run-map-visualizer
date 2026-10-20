@@ -200,6 +200,20 @@ test('cards: the cards found before they only counted from here on are cleared o
   assert.equal((await a.client.call('cards')).body.cards.length, 1, 'just once');
 });
 
+test('quests keep the month\'s boss and the streak shields', async () => {
+  const a = await member();
+  const empty = (await a.client.call('quests')).body;
+  assert.deepEqual(empty.shields, { held: 0, used: [], earned: [] });
+  assert.equal(empty.boss, null);
+  const boss = { id: 'boss:2026-10', month: '2026-10', kind: 'long', target: 14000, since: 1, legend: 'horseman' };
+  await a.client.call('quests_save', { week: '2026-10-19', quests: [], done: [], completed: 3, boss, bossDone: true,
+    shields: { held: 5, used: ['2026-10-12'], earned: ['2026-10-05'] } });
+  const kept = (await a.client.call('quests')).body;
+  assert.deepEqual(kept.boss, boss);
+  assert.equal(kept.bossDone, true);
+  assert.deepEqual(kept.shields, { held: 2, used: ['2026-10-12'], earned: ['2026-10-05'] }, 'two at most');
+});
+
 // --- Virtual races ---
 // Places as [east, north] metres from a point in Vancouver, and runs along them.
 const ORIGIN = [49.28, -123.12];

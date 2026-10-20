@@ -181,8 +181,14 @@ test('cards: only from runs recorded from here on, shown by set in Questing', { 
   const faces = await page.eval(`[...document.querySelectorAll('.card-set[open] .card')].map(c => c.className + ':' + c.querySelector('strong').textContent)`);
   assert.ok(faces.includes('card:5K'), JSON.stringify(faces));
   assert.ok(faces.includes('card missing:'), 'cards not found yet are face down');
-  assert.match(await page.eval(`document.getElementById('cards-note').textContent`), /Each quest you finish turns over a/);
+  assert.match(await page.eval(`document.getElementById('cards-note').textContent`), /Each quest you finish turns over a.*legend/);
+  // This month's boss, above the quests.
+  await page.waitFor(`!document.getElementById('boss').hidden`, { what: "the month's boss" });
+  const legend = await page.eval(`Cards.legend(new Date().getMonth()).name`);
+  assert.match(await page.eval(`document.getElementById('boss').textContent.replace(/\\s+/g, ' ')`), new RegExp(`${legend} ?Plan it .* days? left`));
   await snap('cards');
+  await page.eval(`document.getElementById('cards-box').open = false; document.getElementById('quests-box').open = true`);
+  await snap('boss');
   // Taken out again, so the tests after this see the three files they expect.
   await page.eval(`fetch('api.php').then(r => r.json()).then(ts => ts.find(t => t.name === 'Card run').id)
     .then(id => fetch('api.php?action=delete&id=' + id, { method: 'POST', body: '{}' }))`);

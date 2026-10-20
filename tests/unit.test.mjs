@@ -146,9 +146,71 @@ test('cards: quests turn over a card not yet had, seasonal sets only in their mo
   for (let i = 0; i < 8; i++) owned.add(Cards.pack({ id: `w${i}` }, owned, 'x', oct).code);
   assert.equal([...owned].filter(c => c.startsWith('q:halloween:')).length, 8);
   assert.match(Cards.pack({ id: 'w9' }, owned, 'x', oct).code, /^q:creatures:/, 'Halloween done: the first evergreen set');
-  assert.match(Cards.pack(q, new Set(), 'x', mar).code, /^q:creatures:/, 'no Halloween in March');
-  const everything = new Set(Cards.sets(new Map(), []).filter(s => s.kind === 'quest' && s.month === undefined)
+  assert.match(Cards.pack(q, new Set(), 'x', mar).code, /^q:thaw:/, "March has its own season, Halloween doesn't come");
+  const sets = Cards.sets(new Map(), []);
+  assert.equal(sets.filter(s => s.month !== undefined).length, 12, 'a season a month');
+  const everything = new Set(sets.filter(s => s.kind === 'quest' && (s.month === undefined || s.month === 2) && !s.boss)
     .flatMap(s => s.cards.map(c => c.code)));
   assert.equal(Cards.pack(q, everything, 'x', mar), null, 'every set you can get now is complete');
   assert.match(Cards.pack(q, everything, 'x', new Date(2027, 11, 5)).code, /^q:winter:/, 'but Winter comes round in December');
+  for (let i = 0; i < 40; i++) assert.ok(!Cards.pack({ id: `x${i}` }, new Set(), 'x', mar).code.startsWith('q:legends:'), 'legends only from bosses');
+  assert.equal(Cards.legend(0).name, 'The Yeti');
 });
+
+// --- Streak shields and monthly bosses (quests.js) ---
+const questScripts = () => loadScripts(['units.js', 'stats.js', 'achievements.js', 'coverage.js', 'planner.js', 'cards.js', 'quests.js'],
+  { navigator: { language: 'en-CA', languages: ['en-CA'] } });
+// firsts() as quests.js makes it, for a few weeks: each record a run's new street that week.
+const weekFirsts = (weeks, metres = 500) => new Map(weeks.map((w, i) => {
+  const [y, m, d] = w.split('-').map(Number);
+  return [i, { time: new Date(y, m - 1, d, 12).toISOString(), metres, ways: new Map([[i, metres]]) }];
+}));
+
+test('streak shields: a week without new street bridges the streak, without adding to it', () => {
+  const { Quests } = questScripts();
+  // Weeks of Mondays in October and November 2026; nothing the week of 10-19.
+  const f = weekFirsts(['2026-10-05', '2026-10-12', '2026-10-26', '2026-11-02']);
+  const now = new Date(2026, 10, 4);
+  assert.equal(Quests.streak(f, now).current, 2, 'broken by the empty week');
+  assert.deepEqual([...Quests.useShields(f, 1, [], '2026-10-19', '2026-11-02')], ['2026-10-19']);
+  assert.deepEqual([...Quests.useShields(f, 0, [], '2026-10-19', '2026-11-02')], [], 'none held');
+  assert.deepEqual([...Quests.useShields(f, 1, [], '2026-10-26', '2026-11-09')], [], 'only for a week that missed');
+  const kept = Quests.streak(f, now, ['2026-10-19']);
+  assert.equal(kept.current, 4, 'kept going: 4 weeks with new street, the shielded one not counted');
+  assert.equal(kept.best, 4);
+  // No streak to keep: an empty week after an empty week doesn't use one.
+  const gap = weekFirsts(['2026-10-05']);
+  assert.deepEqual([...Quests.useShields(gap, 2, [], '2026-10-12', '2026-10-26')], ['2026-10-12', '2026-10-19'], 'one a week while they last');
+  assert.deepEqual([...Quests.useShields(gap, 2, [], '2026-10-19', '2026-10-26')], [], 'the week before had nothing');
+  // Trophies count bridged streaks too.
+  const four = weekFirsts(['2026-10-05', '2026-10-12', '2026-10-26', '2026-11-02']);
+  assert.ok(!Quests.streakTrophies(four).some(t => t.code === 'streak:4'));
+  assert.ok(Quests.streakTrophies(four, ['2026-10-19']).some(t => t.code === 'streak:4'));
+});
+
+test('bosses: one a month, scaled to the days left, only counting from when it was made', () => {
+  const { Quests } = questScripts();
+  const run = (km, at) => ({ id: at, name: 'Run', time: new Date(at).toISOString(), distance: km * 1000, segments: [] });
+  const oct20 = new Date(2026, 9, 20, 9);
+  const tracks = [run(10, new Date(2026, 8, 1).getTime()), run(12.4, new Date(2026, 9, 1).getTime())];
+  // No areas: only the long run can be the boss.
+  const boss = Quests.makeBoss([], () => null, new Map(), tracks, [53.5, -113.5], oct20);
+  assert.equal(boss.id, 'boss:2026-10');
+  assert.equal(boss.kind, 'long');
+  assert.equal(boss.target, 14000, 'the longest of the last 90 days (12.4 km), 15% further, to the km');
+  assert.equal(boss.legend, 'horseman');
+  assert.match(Quests.bossTitle(boss), /^🐎 The Headless Horseman: Go 14 km in one go$/);
+  // The 12.4 km run was before the boss: it doesn't count. One after does.
+  assert.equal(Quests.bossProgress(boss, [], new Map(), tracks).have, 0);
+  const after = [...tracks, run(14.2, oct20.getTime() + 86400000)];
+  assert.deepEqual({ ...Quests.bossProgress(boss, [], new Map(), after) }, { have: 14200, of: 14000, done: true });
+  // ...but not next month's.
+  assert.equal(Quests.bossProgress(boss, [], new Map(), [run(20, new Date(2026, 10, 2).getTime())]).have, 0);
+
+  // New street anywhere, scaled to the 12 days of October left.
+  const area = { id: 1, osmId: 1, name: 'Here', excluded: [], data: { boundary: [], hoods: [], streets: [] } };
+  const busy = new Map(Array.from({ length: 8 }, (_, i) => [i, { time: new Date(2026, 9, 12 - 7 * i, 12).toISOString(), metres: 2000, ways: new Map([[i, 2000]]) }]));
+  const nov = Quests.makeBoss([area], () => ({ fraction: [], visited: [] }), busy, [], [0, 0], new Date(2026, 10, 1, 8));
+  assert.equal(nov.kind, ['long', 'any'][10 % 2], "by the month, from the kinds there's data for");
+});
+

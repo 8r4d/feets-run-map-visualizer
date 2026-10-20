@@ -5,6 +5,20 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.18.0 — 2026-10-20
+
+- A boss every month, above the week's quests in Questing: one bigger
+  challenge (a long run past your longest of late, a lot of new streets in one
+  neighbourhood, or new streets anywhere), counting only from when it appears.
+  Beating it earns 200 XP and the month's legend card: twelve legends, one a
+  month, back the next year if missed.
+- A season for every month: each month's quests turn over cards from its own
+  set of 8 (New Year, Hearts, Spring Thaw… Falling Leaves, Winter), back every
+  year.
+- Streak shields: finish every quest in a week to earn one (hold up to 2). A
+  week without new streets uses one up and your streak carries on, streak
+  trophies included.
+
 ## 1.17.1 — 2026-10-20
 
 - Cards only count from here on, like XP: only activities recorded since

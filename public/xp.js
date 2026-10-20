@@ -24,7 +24,7 @@
 const Xp = (() => {
   const DAY = 86400000;
   const ADD_WINDOW = 7 * DAY;
-  const POINTS = { quest: 50, streak: 25, trophy: 15, segment: 20, best: 40, missed: -20 };
+  const POINTS = { quest: 50, boss: 200, streak: 25, trophy: 15, segment: 20, best: 40, missed: -20 };
   const IDLE_GRACE = 7;       // days without an activity before XP starts slipping
   const IDLE_STEP = 5;        // XP lost on the first day after that, then 5 more each day...
   const IDLE_MAX = 50;        // ...up to this much a day
@@ -174,6 +174,9 @@ const Xp = (() => {
   // XP for quests just finished: Quests' quest objects.
   const questEvents = (quests, title) => quests.map(q => ({ kind: 'quest', ref: `quest:${q.id}`, points: POINTS.quest, detail: `Quest: ${title(q)}` }));
 
+  // XP for beating a month's boss (see Quests.makeBoss).
+  const bossEvents = (boss, title) => [{ kind: 'quest', ref: boss.id, points: POINTS.boss, detail: `Boss beaten: ${title}` }];
+
   // XP for trophies just earned, unless there are so many it's an import.
   const trophyEvents = trophies => (trophies.length > TROPHY_BATCH ? []
     : trophies.map(a => ({ kind: 'trophy', ref: `trophy:${a.code}`, points: POINTS.trophy, detail: `Trophy: ${a.title}` })));
@@ -188,6 +191,6 @@ const Xp = (() => {
     return { level: lvl, into: left, need: toNext(lvl) };
   }
 
-  return { events, questEvents, trophyEvents, idleEvents, missedEvents, floor, level, counts, activityPoints,
+  return { events, questEvents, bossEvents, trophyEvents, idleEvents, missedEvents, floor, level, counts, activityPoints,
     POINTS, ADD_WINDOW, TROPHY_BATCH, IDLE_GRACE };
 })();

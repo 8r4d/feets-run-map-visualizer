@@ -8,11 +8,12 @@
 //   one set per area with neighbourhoods: a card for each at HOOD_PCT
 //   coverage, turned gold when every street in it is done
 // - from quests (pack): each quest finished turns over one card you don't
-//   have yet, from the quest set of the moment. Halloween's can only be had
-//   in October and Winter's in December, and they come back each year; the
-//   rest of the time it's the first evergreen set not yet complete. Which
-//   card is picked depends only on the quest and what you have, so every
-//   device turns over the same one.
+//   have yet, from the quest set of the moment: the month's season while it
+//   has cards left (each month has its own, back every year), then the first
+//   evergreen set not yet complete. Which card is picked depends only on the
+//   quest and what you have, so every device turns over the same one.
+// - Legends: one per month, only for beating that month's boss (see
+//   Quests.makeBoss). A legend missed comes round again the next year.
 //
 // Codes: f:SET:CARD (found), q:SET:CARD (quests), h:OSM_ID:NEIGHBOURHOOD and
 // h:…:gold. Finishing a set earns a trophy (setTrophies).
@@ -88,15 +89,59 @@ const Cards = (() => {
     { id: 'weather', name: 'Any Weather', icon: '🌦️', color: '#00838f',
       cards: [['sun', 'Sunshine', '☀️'], ['cloud', 'Overcast', '☁️'], ['rain', 'Downpour', '🌧️'], ['storm', 'Thunderstorm', '⛈️'],
         ['wind', 'Headwind', '🌬️'], ['fog', 'Fog', '🌫️'], ['rainbow', 'Rainbow', '🌈'], ['heat', 'Heatwave', '🥵']] },
+    // Seasons: one a month (month: 0 for January), back every year.
+    { id: 'newyear', name: 'New Year', icon: '🎆', color: '#6a1b9a', month: 0,
+      cards: [['fireworks', 'Fireworks', '🎆'], ['sparkler', 'Sparkler', '🎇'], ['confetti', 'Confetti', '🎊'], ['clock', 'Midnight', '🕛'],
+        ['resolution', 'Resolution', '📝'], ['toast', 'A Toast', '🥂'], ['calendar', 'Fresh Calendar', '📅'], ['party', 'Party Hat', '🥳']] },
+    { id: 'hearts', name: 'Hearts', icon: '💝', color: '#ad1457', month: 1,
+      cards: [['heart', 'Heart', '❤️'], ['ribbon', 'Ribbon Heart', '💝'], ['rose', 'Rose', '🌹'], ['letter', 'Love Letter', '💌'],
+        ['chocolate', 'Chocolates', '🍫'], ['arrow', "Cupid's Arrow", '💘'], ['ring', 'Ring', '💍'], ['bear', 'Teddy Bear', '🧸']] },
+    { id: 'thaw', name: 'Spring Thaw', icon: '🌱', color: '#558b2f', month: 2,
+      cards: [['sprout', 'Sprout', '🌱'], ['clover', 'Clover', '🍀'], ['snail', 'Snail', '🐌'], ['puddle', 'Puddle', '💧'],
+        ['ladybug', 'Ladybug', '🐞'], ['nest', 'Nest', '🪺'], ['tulip', 'Tulip', '🌷'], ['hatchling', 'Hatchling', '🐣']] },
+    { id: 'showers', name: 'April Showers', icon: '☔', color: '#0277bd', month: 3,
+      cards: [['umbrella', 'Umbrella', '☔'], ['raindrop', 'Raindrop', '💧'], ['boots', 'Rain Boots', '🥾'], ['worm', 'Worm', '🪱'],
+        ['duck', 'Duckling', '🦆'], ['mushroom', 'Mushroom', '🍄'], ['rainbow', 'Double Rainbow', '🌈'], ['frog', 'Tree Frog', '🐸']] },
+    { id: 'bloom', name: 'In Bloom', icon: '🌸', color: '#d81b60', month: 4,
+      cards: [['blossom', 'Cherry Blossom', '🌸'], ['bee', 'Bee', '🐝'], ['butterfly', 'Butterfly', '🦋'], ['sunflower', 'Daisy', '🌼'],
+        ['hibiscus', 'Hibiscus', '🌺'], ['bouquet', 'Bouquet', '💐'], ['honey', 'Honey', '🍯'], ['caterpillar', 'Caterpillar', '🐛']] },
+    { id: 'midsummer', name: 'Midsummer', icon: '🌞', color: '#f9a825', month: 5,
+      cards: [['sun', 'Midsummer Sun', '🌞'], ['strawberry', 'Strawberries', '🍓'], ['lemonade', 'Lemonade', '🍋'], ['firefly', 'Firefly', '✨'],
+        ['picnic', 'Picnic', '🧺'], ['kite', 'Kite', '🪁'], ['longday', 'Long Day', '🌅'], ['sunglasses', 'Sunglasses', '😎']] },
+    { id: 'beach', name: 'Beach Days', icon: '🏖️', color: '#00838f', month: 6,
+      cards: [['wave', 'Wave', '🌊'], ['shell', 'Shell', '🐚'], ['crab', 'Crab', '🦀'], ['icecream', 'Ice Cream', '🍦'],
+        ['umbrella', 'Beach Umbrella', '⛱️'], ['surf', 'Surfboard', '🏄'], ['palm', 'Palm Tree', '🌴'], ['dolphin', 'Dolphin', '🐬']] },
+    { id: 'campfire', name: 'Campfire', icon: '🏕️', color: '#bf360c', month: 7,
+      cards: [['tent', 'Tent', '⛺'], ['fire', 'Campfire', '🔥'], ['lantern', 'Lantern', '🏮'], ['compass', 'Compass', '🧭'],
+        ['canoe', 'Canoe', '🛶'], ['stars', 'Starry Night', '🌃'], ['backpack', 'Backpack', '🎒'], ['map', 'Trail Map', '🗺️']] },
+    { id: 'harvest', name: 'Harvest', icon: '🌾', color: '#9e7700', month: 8,
+      cards: [['wheat', 'Wheat', '🌾'], ['apple', 'Apple', '🍎'], ['corn', 'Corn', '🌽'], ['pear', 'Pear', '🍐'],
+        ['grapes', 'Grapes', '🍇'], ['carrot', 'Carrot', '🥕'], ['scarecrow', 'Scarecrow', '👒'], ['pie', 'Pie', '🥧']] },
     { id: 'halloween', name: 'Halloween', icon: '🎃', color: '#e65100', month: 9,
       cards: [['pumpkin', 'Jack-o-lantern', '🎃'], ['ghost', 'Ghost', '👻'], ['bat', 'Bat', '🦇'], ['spider', 'Spider', '🕷️'],
         ['skull', 'Skull', '💀'], ['witch', 'Witch', '🧙'], ['candy', 'Candy', '🍬'], ['zombie', 'Zombie', '🧟']] },
+    { id: 'cozy', name: 'Falling Leaves', icon: '🍂', color: '#8d6e63', month: 10,
+      cards: [['leaf', 'Fallen Leaf', '🍂'], ['maple', 'Maple Leaf', '🍁'], ['acorn', 'Acorn', '🌰'], ['sweater', 'Sweater', '🧥'],
+        ['tea', 'Tea', '🍵'], ['soup', 'Soup', '🍲'], ['owl', 'Barn Owl', '🦉'], ['candle', 'Candle', '🕯️']] },
     { id: 'winter', name: 'Winter', icon: '☃️', color: '#1565c0', month: 11,
       cards: [['snowman', 'Snowman', '☃️'], ['snowflake', 'Snowflake', '❄️'], ['mitten', 'Mittens', '🧤'], ['scarf', 'Scarf', '🧣'],
         ['cocoa', 'Hot Cocoa', '☕'], ['sled', 'Sled', '🛷'], ['penguin', 'Penguin', '🐧'], ['skate', 'Ice Skate', '⛸️']] },
   ].map(set => ({ ...set, cards: set.cards.map(([id, name, icon]) => ({ id, name, icon, hint: set.month === undefined
     ? 'Finish a weekly quest to turn one over'
     : `Finish a weekly quest in ${MONTHS[set.month]} to turn one over` })) }));
+
+  // Legends: the boss of each month (0: January), beaten for its card.
+  const LEGENDS = [
+    ['yeti', 'The Yeti', '🏔️'], ['sphinx', 'The Sphinx', '🦁'], ['greenman', 'The Green Man', '🍀'],
+    ['thunderbird', 'Thunderbird', '⚡'], ['unicorn', 'The Unicorn', '🦄'], ['phoenix', 'The Phoenix', '🔥'],
+    ['kraken', 'The Kraken', '🦑'], ['serpent', 'The Sea Serpent', '🐍'], ['griffin', 'The Griffin', '🦅'],
+    ['horseman', 'The Headless Horseman', '🐎'], ['minotaur', 'The Minotaur', '🐂'], ['dragon', 'The Ice Dragon', '🐉'],
+  ].map(([id, name, icon], month) => ({ id, name, icon, month }));
+  const LEGEND_SET = { id: 'legends', name: 'Legends', icon: '🐉', color: '#7b1fa2', boss: true,
+    cards: LEGENDS.map(l => ({ id: l.id, name: l.name, icon: l.icon, hint: `Beat ${MONTHS[l.month]}'s boss` })) };
+  const legend = month => LEGENDS[month];
+  // The legend card for beating a boss: { code, detail }.
+  const legendCard = (boss, title) => ({ code: `q:legends:${boss.legend}`, detail: `Beat "${title}"` });
 
   const fmtDate = d => d.toLocaleDateString(undefined, { dateStyle: 'medium' });
   const dayKey = d => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
@@ -206,8 +251,8 @@ const Cards = (() => {
     const card = (set, prefix, c) => ({ code: `${prefix}:${set.id}:${c.id}`, name: c.name, icon: c.icon, hint: c.hint,
       owned: Boolean(has(`${prefix}:${set.id}:${c.id}`)), detail: (has(`${prefix}:${set.id}:${c.id}`) || {}).detail || '' });
     const out = [
-      ...QUEST.map(set => ({ id: set.id, name: set.name, icon: set.icon, color: set.color, kind: 'quest', month: set.month,
-        cards: set.cards.map(c => card(set, 'q', c)) })),
+      ...[...QUEST, LEGEND_SET].map(set => ({ id: set.id, name: set.name, icon: set.icon, color: set.color, kind: 'quest',
+        month: set.month, boss: Boolean(set.boss), cards: set.cards.map(c => card(set, 'q', c)) })),
       ...FOUND.map(set => ({ id: set.id, name: set.name, icon: set.icon, color: set.color, kind: 'found',
         cards: set.cards.map(c => card(set, 'f', c)) })),
     ];
@@ -233,5 +278,5 @@ const Cards = (() => {
         detail: set.kind === 'hood' ? `Every neighbourhood card turned gold` : `All ${set.cards.length} cards collected` }));
   }
 
-  return { evaluate, pack, questSet, sets, setTrophies, STREET_RUN, HOOD_PCT };
+  return { evaluate, pack, questSet, sets, setTrophies, legend, legendCard, STREET_RUN, HOOD_PCT };
 })();
