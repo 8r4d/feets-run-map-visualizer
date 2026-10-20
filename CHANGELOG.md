@@ -5,6 +5,11 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.18.1 — 2026-10-20
+
+- A long-run boss is never more than a half marathon (it was up to a
+  marathon), and this month's comes down to that if it was set higher.
+
 ## 1.18.0 — 2026-10-20
 
 - A boss every month, above the week's quests in Questing: one bigger

@@ -200,6 +200,8 @@ test('bosses: one a month, scaled to the days left, only counting from when it w
   assert.equal(boss.target, 14000, 'the longest of the last 90 days (12.4 km), 15% further, to the km');
   assert.equal(boss.legend, 'horseman');
   assert.match(Quests.bossTitle(boss), /^🐎 The Headless Horseman: Go 14 km in one go$/);
+  const long = Quests.makeBoss([], () => null, new Map(), [run(20, new Date(2026, 9, 5).getTime())], [53.5, -113.5], oct20);
+  assert.equal(long.target, 21097, 'never past a half marathon');
   // The 12.4 km run was before the boss: it doesn't count. One after does.
   assert.equal(Quests.bossProgress(boss, [], new Map(), tracks).have, 0);
   const after = [...tracks, run(14.2, oct20.getTime() + 86400000)];

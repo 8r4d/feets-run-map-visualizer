@@ -5464,6 +5464,11 @@ async function updateQuests() {
     questState.bossDone = false;
     dirty = true;
   }
+  // One made before long runs were capped comes down to the cap.
+  if (questState.boss.kind === 'long' && questState.boss.target > Quests.BOSS_LONG_MAX) {
+    questState.boss.target = Quests.BOSS_LONG_MAX;
+    dirty = true;
+  }
   // A street marked off-limits since the quests were made: swap in another
   // (make() leaves off-limits streets out), or drop it if there's none.
   if (questState.quests.some(q => !questState.done.includes(q.id) && Quests.offLimits(q, areas))) {

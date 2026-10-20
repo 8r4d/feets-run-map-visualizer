@@ -260,6 +260,7 @@ const Quests = (() => {
   // made partway through a month (the first one, say) is scaled to the days
   // left. Only activities from `since` count: from here on, like XP.
   const BOSS_KINDS = ['long', 'area', 'any'];
+  const BOSS_LONG_MAX = 21097;  // metres: a long-run boss is never more than a half marathon
   const monthId = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   const monthEnd = d => new Date(d.getFullYear(), d.getMonth() + 1, 1);
   const round = (m, step) => Math.round(m / step) * step;
@@ -273,7 +274,7 @@ const Quests = (() => {
     const recent = tracks.filter(t => t.time && now - Date.parse(t.time) < 90 * DAY && Date.parse(t.time) <= now.getTime());
     const longest = Math.max(0, ...recent.map(t => t.distance));
     const options = {
-      long: recent.length ? Math.min(42195, Math.max(5000, round(longest * 1.15, 1000))) : 8000,
+      long: recent.length ? Math.min(BOSS_LONG_MAX, Math.max(5000, round(longest * 1.15, 1000))) : 8000,
       area: unit && Math.max(1000, Math.min(round(unit.left * 0.6, 500), round(5000 * share, 500))),
       any: areas.length ? Math.min(20000, Math.max(1000, round(usualWeek(firstsMap, now) * 4.3 * 1.5 * share, 500))) : null,
     };
@@ -366,6 +367,6 @@ const Quests = (() => {
     return { have, of: quest.target, done: have >= quest.target };
   }
 
-  return { STREAK_MIN, SHIELD_MAX, firsts, streak, streakTrophies, useShields, weekId, monthId, make, makeBoss, bossTitle,
+  return { STREAK_MIN, SHIELD_MAX, BOSS_LONG_MAX, firsts, streak, streakTrophies, useShields, weekId, monthId, make, makeBoss, bossTitle,
     bossProgress, offLimits, progress, kmText, title };
 })();
