@@ -72,7 +72,7 @@ test('Questing: the modes\' new names, and the game in a column over the map', {
   await page.eval(`document.querySelector('#mode [data-mode=fog]').click()`);
   const q = await where();
   assert.ok(q.shown && q.hud && q.inHud, JSON.stringify(q));
-  assert.deepEqual(q.boxes, ['xp-box', 'quests-box', 'trophies-box']);
+  assert.deepEqual(q.boxes, ['xp-box', 'quests-box', 'cards-box', 'trophies-box']);
   assert.ok(await page.eval(`!document.getElementById('sidebar').contains(document.getElementById('trophies-box'))`), 'gone from the sidebar');
   // On a phone there's no room beside the map: the panel under it has them.
   await page.send('Emulation.setDeviceMetricsOverride', { width: 400, height: 800, deviceScaleFactor: 2, mobile: true });
@@ -158,6 +158,36 @@ test('XP: old activities earn none, a new run does', { skip }, async () => {
     .then(id => fetch('api.php?action=delete&id=' + id, { method: 'POST', body: '{}' }))`);
   await page.reload();
   await page.waitFor(`/^0 of 200 XP/.test(document.getElementById('xp-progress').textContent)`, { what: 'the XP to go' });
+  await page.eval(`document.querySelector('#mode [data-mode=tracks]').click()`);
+});
+
+test('cards: only from runs recorded from here on, shown by set in Questing', { skip }, async () => {
+  await page.eval(`document.querySelector('#mode [data-mode=fog]').click()`);
+  await page.waitFor(`!document.getElementById('cards-box').hidden && cardsSince !== null`, { what: 'the cards box' });
+  await new Promise(r => setTimeout(r, 2500));  // cards are checked with the trophies, after a pause
+  // The 6 km trail run was recorded before cards started: no 5K card from it. (The XP test's
+  // run, recorded since, may have found a card or two: cards stay once found.)
+  assert.ok(!(await page.eval(`cards.map(c => c.code)`)).includes('f:distance:5000'), 'old files find no cards');
+  // A 5.1 km run recorded just after cards started.
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'feets-cards-')), 'Card run.gpx');
+  fs.writeFileSync(file, gpxText({ name: 'Card run', n: 341, step: 15, seconds: 5, at: (await page.eval(`cardsSince`)) + 1000 }));
+  await page.setFiles('#file-input', [file]);
+  await page.waitFor(`cards.some(c => c.code === 'f:distance:5000')`, { what: 'a 5K card', timeout: 15000 });
+  const codes = await page.eval(`cards.map(c => c.code)`);
+  assert.ok(codes.some(c => c.startsWith('f:month:')), JSON.stringify(codes));
+  assert.match(await page.eval(`document.getElementById('cards-count').textContent`), /^\d+\/\d+$/);
+  await page.eval(`document.getElementById('cards-box').open = true;
+    document.querySelectorAll('.card-set').forEach(d => { if (/Long Way Round|Halloween/.test(d.textContent)) d.open = true; })`);
+  const faces = await page.eval(`[...document.querySelectorAll('.card-set[open] .card')].map(c => c.className + ':' + c.querySelector('strong').textContent)`);
+  assert.ok(faces.includes('card:5K'), JSON.stringify(faces));
+  assert.ok(faces.includes('card missing:'), 'cards not found yet are face down');
+  assert.match(await page.eval(`document.getElementById('cards-note').textContent`), /Each quest you finish turns over a/);
+  await snap('cards');
+  // Taken out again, so the tests after this see the three files they expect.
+  await page.eval(`fetch('api.php').then(r => r.json()).then(ts => ts.find(t => t.name === 'Card run').id)
+    .then(id => fetch('api.php?action=delete&id=' + id, { method: 'POST', body: '{}' }))`);
+  await page.reload();
+  await page.waitFor(`document.querySelectorAll('#track-list li').length === 3`, { what: 'the three tracks again' });
   await page.eval(`document.querySelector('#mode [data-mode=tracks]').click()`);
 });
 

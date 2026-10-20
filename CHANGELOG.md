@@ -5,6 +5,24 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.17.1 — 2026-10-20
+
+- Cards only count from here on, like XP: only activities recorded since
+  cards started, and added within a week of being recorded, find them, and
+  neighbourhood cards count only the streets those activities covered. Cards
+  already found from older activities, and the trophies for their sets, are
+  cleared once, so everyone starts the collection fresh.
+
+## 1.17.0 — 2026-10-20
+
+- Cards, in Questing: sets to collect, kept for good, with a trophy for each
+  set finished. Quest sets: every weekly quest you finish turns over a card you
+  don't have yet (Trail Creatures, Night Sky and Any Weather, plus Halloween in
+  October and Winter in December, back every year). Running sets: distances,
+  months, times of day, and street names (trees, birds, numbers, street types,
+  hills and lakes…). And a set per area of its neighbourhoods, each card turning
+  gold when every street in it is done. See Help → Getting Started, "Cards".
+
 ## 1.16.0 — 2026-10-20
 
 - Virtual races: choose *Race* on a saved route in Planning, give the race a

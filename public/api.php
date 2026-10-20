@@ -115,6 +115,12 @@
 //   GET  api.php?action=achievements         [{code, title, detail, earnedAt}], oldest first
 //   POST api.php?action=achievement_add      {achievements: [{code, title, detail}]}; already-earned codes are ignored
 //
+// Cards (worked out in the browser by cards.js; the server only remembers which were found)
+//   GET  api.php?action=cards                {since, cards: [{code, detail, earnedAt}]}, oldest first. since (Unix ms):
+//                                            when the account's activities started finding cards, set on the first call
+//   POST api.php?action=card_add             {cards: [{code, detail}]}; codes already found are ignored. Returns
+//                                            what GET does
+
 // Experience points (worked out in the browser by xp.js; the server keeps the ledger, see add_xp)
 //   GET  api.php?action=xp                   {since, total, recent, refs, idle}: since (Unix ms) is when the
 //                                            account's XP started counting, set on the first call; recent: the
@@ -162,6 +168,7 @@ const SCHEMA = [
       area_scan     TEXT         NULL,                    -- JSON: { off, last, skip }, see area_scan_claim()
       quests        TEXT         NULL,                    -- JSON: this week's quests, see save_quests()
       xp_since      TIMESTAMP    NULL,                    -- when experience points started counting, see xp()
+      cards_since   TIMESTAMP    NULL,                    -- when activities started finding cards, see list_cards()
       created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) CHARACTER SET utf8mb4
     SQL,
@@ -296,6 +303,15 @@ const SCHEMA = [
       ip        VARCHAR(45) NOT NULL,
       tried_at  TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
       INDEX (ip, tried_at)
+    ) CHARACTER SET utf8mb4
+    SQL,
+    <<<SQL
+    CREATE TABLE IF NOT EXISTS cards (  -- cards found for the collection in Questing, kept forever
+      user_id    INT          NOT NULL,
+      code       VARCHAR(191) NOT NULL,  -- e.g. f:trees:oak, q:creatures:fox, h:12345:Brander Gardens:gold
+      detail     VARCHAR(255) NULL,      -- what found it, e.g. the street or the quest
+      earned_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, code)
     ) CHARACTER SET utf8mb4
     SQL,
     <<<SQL
@@ -484,6 +500,15 @@ function db(): PDO {
         // ...and experience points.
         if (!$pdo->query("SHOW COLUMNS FROM users LIKE 'xp_since'")->fetch()) {
             $pdo->exec('ALTER TABLE users ADD COLUMN xp_since TIMESTAMP NULL AFTER quests');
+        }
+        // ...and cards only from here on. Cards found before then came from
+        // every past activity: they're cleared, with the trophies for their
+        // sets (and any XP those earned), so everyone starts the collection again.
+        if (!$pdo->query("SHOW COLUMNS FROM users LIKE 'cards_since'")->fetch()) {
+            $pdo->exec('ALTER TABLE users ADD COLUMN cards_since TIMESTAMP NULL AFTER xp_since');
+            $pdo->exec('DELETE FROM cards');
+            $pdo->exec("DELETE FROM achievements WHERE code LIKE 'cards:%'");
+            $pdo->exec("DELETE FROM xp_events WHERE ref LIKE 'trophy:cards:%'");
         }
         // ...and view links that expire.
         if (!$pdo->query("SHOW COLUMNS FROM view_links LIKE 'expires_at'")->fetch()) {
@@ -856,7 +881,7 @@ function admin_delete_user(array $admin, array $b): array {
     foreach ([$id, ...array_map('intval', $viewers->fetchAll(PDO::FETCH_COLUMN))] as $uid) {
         $pdo->prepare('DELETE FROM segment_efforts WHERE track_id IN (SELECT id FROM tracks WHERE user_id = ?)
                        OR segment_id IN (SELECT id FROM segments WHERE user_id = ?)')->execute([$uid, $uid]);
-        foreach (['tracks', 'segments', 'routes', 'areas', 'way_names', 'art_shapes', 'achievements', 'xp_events', 'sessions',
+        foreach (['tracks', 'segments', 'routes', 'areas', 'way_names', 'art_shapes', 'achievements', 'cards', 'xp_events', 'sessions',
                   'password_resets', 'strava_accounts', 'strava_states'] as $table) {
             $pdo->prepare("DELETE FROM $table WHERE user_id = ?")->execute([$uid]);
         }
@@ -2558,6 +2583,34 @@ function add_achievements(int $userId, array $b): array {
     return list_achievements($userId);
 }
 
+// --- Cards ---
+// Like achievements: found in the browser (cards.js), remembered here with
+// the date each was first found. Like XP, only from here on: cards_since is
+// set the first time they're asked for, a day back so that day's run counts,
+// and only activities recorded after it find any (app.js checks).
+
+function list_cards(int $userId): array {
+    db()->prepare('UPDATE users SET cards_since = NOW() - INTERVAL 1 DAY WHERE id = ? AND cards_since IS NULL')->execute([$userId]);
+    $since = db()->prepare('SELECT UNIX_TIMESTAMP(cards_since) FROM users WHERE id = ?');
+    $since->execute([$userId]);
+    $stmt = db()->prepare('SELECT code, detail, earned_at AS earnedAt FROM cards WHERE user_id = ? ORDER BY earned_at, code');
+    $stmt->execute([$userId]);
+    return ['since' => (int) $since->fetchColumn() * 1000, 'cards' => $stmt->fetchAll()];
+}
+
+function add_cards(int $userId, array $b): array {
+    $insert = db()->prepare('INSERT IGNORE INTO cards (user_id, code, detail) VALUES (?, ?, ?)');
+    foreach (array_slice($b['cards'] ?? [], 0, 500) as $c) {
+        $code = mb_substr(trim((string) ($c['code'] ?? '')), 0, 191);
+        if ($code === '') {
+            continue;
+        }
+        $detail = isset($c['detail']) ? mb_substr((string) $c['detail'], 0, 255) : null;
+        $insert->execute([$userId, $code, $detail]);
+    }
+    return list_cards($userId);
+}
+
 // --- Your own GPS art shapes ---
 // Only the traced line is stored, never the SVG.
 
@@ -3122,6 +3175,10 @@ if ($method === 'POST' && $action === 'invite') {
     send_json(list_achievements($userId));
 } elseif ($method === 'POST' && $action === 'achievement_add') {
     send_json(add_achievements($userId, read_json()));
+} elseif ($method === 'GET' && $action === 'cards') {
+    send_json(list_cards($userId));
+} elseif ($method === 'POST' && $action === 'card_add') {
+    send_json(add_cards($userId, read_json()));
 } elseif ($method === 'GET' && $action === 'xp') {
     send_json(xp($userId));
 } elseif ($method === 'POST' && $action === 'xp_add') {

@@ -2713,3 +2713,157 @@ body.race-page {
 #race-board td:nth-child(4) {
   white-space: nowrap;
 }
+
+/* Cards in Questing: a row per set, opening to a grid of its cards. Each
+   set has its own colour (--set, from cards.js) for the frames and the bar. */
+#cards-count {
+  font-size: 12px;
+  font-weight: normal;
+  color: var(--muted);
+}
+
+#card-sets {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+#card-sets .card-group {
+  margin: 6px 0 0;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+#card-sets .card-group:first-child {
+  margin-top: 0;
+}
+
+.card-set summary {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  column-gap: 6px;
+  padding: 3px 0;
+  font-size: 13px;
+  font-weight: normal;
+  cursor: pointer;
+  list-style: none;
+}
+
+.card-set summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Its own arrow, in place of the panel's (.panel summary::before) */
+.panel .card-set summary::before {
+  content: none;
+}
+
+.card-set .set-icon::after {
+  content: '▸';
+  margin-left: 4px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.card-set[open] .set-icon::after {
+  content: '▾';
+}
+
+.card-set .set-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-set summary small {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.card-set summary .bar {
+  grid-column: 2 / -1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--track);
+  overflow: hidden;
+}
+
+.card-set summary .bar span {
+  display: block;
+  height: 100%;
+  background: var(--set);
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+  gap: 6px;
+  padding: 6px 0 8px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-height: 104px;
+  padding: 8px 4px 6px;
+  text-align: center;
+  background: var(--surface);
+  border: 2px solid var(--set);
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--set) 15%, transparent);
+}
+
+.card .card-icon {
+  font-size: 28px;
+  line-height: 1.2;
+}
+
+.card strong {
+  font-size: 12px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.card small {
+  font-size: 10px;
+  line-height: 1.25;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Not found yet: face down, with what finds it */
+.card.missing {
+  border-style: dashed;
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+  box-shadow: none;
+}
+
+.card.missing {
+  min-height: 0;
+  justify-content: center;
+}
+
+.card.missing .card-icon {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* A neighbourhood with every street done */
+.card.gold {
+  border-color: #c9a227;
+  background: linear-gradient(160deg, color-mix(in srgb, #f5d76e 35%, var(--surface)), var(--surface) 60%);
+  box-shadow: inset 0 0 0 3px rgba(201, 162, 39, 0.25);
+}

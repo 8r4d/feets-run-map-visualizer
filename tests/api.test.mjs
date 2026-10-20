@@ -169,6 +169,37 @@ test('way names: yours alone, renamed or taken off, and readable by your viewers
   await owner.call('way_names_save', { ways: [7], name: '' });
 });
 
+test('cards: from here on, kept once with the date first found, private to each account', async () => {
+  const a = await member(), b = await member();
+  const start = (await a.client.call('cards')).body;
+  assert.deepEqual(start.cards, []);
+  const dayBack = Date.now() - 86400000;
+  assert.ok(Math.abs(start.since - dayBack) < 60000, 'found from a day back, like XP');
+  assert.equal((await a.client.call('cards')).body.since, start.since, 'set once');
+  const first = (await a.client.call('card_add', { cards: [{ code: 'f:trees:oak', detail: 'Oak Street' }, { code: 'q:creatures:fox', detail: 'For a quest' }] })).body.cards;
+  assert.deepEqual(first.map(c => [c.code, c.detail]).sort(), [['f:trees:oak', 'Oak Street'], ['q:creatures:fox', 'For a quest']]);
+  const again = (await a.client.call('card_add', { cards: [{ code: 'f:trees:oak', detail: 'Oak Avenue' }, { code: '' }] })).body.cards;
+  assert.equal(again.find(c => c.code === 'f:trees:oak').detail, 'Oak Street', 'the first find stays');
+  assert.equal(again.length, 2);
+  assert.deepEqual((await b.client.call('cards')).body.cards, [], "B doesn't see A's cards");
+  const { client: viewer } = await member({ viewer: true });
+  assert.equal((await viewer.call('cards')).status, 403, 'private, like XP');
+});
+
+test('cards: the cards found before they only counted from here on are cleared once, with their set trophies', async () => {
+  const a = await member();
+  await a.client.call('card_add', { cards: [{ code: 'f:trees:oak', detail: 'Oak Street' }] });
+  await a.client.call('achievement_add', { achievements: [{ code: 'cards:trees', title: 'Arboretum set' }, { code: 'distance:100', title: '100 km' }] });
+  // As the database was before: no cards_since column.
+  execSync(`${process.env.FEETS_DB} -e "ALTER TABLE users DROP COLUMN cards_since"`);
+  const after = (await a.client.call('cards')).body;
+  assert.deepEqual(after.cards, [], 'cleared');
+  assert.ok(after.since > 0, 'and counting from now');
+  assert.deepEqual((await a.client.call('achievements')).body.map(t => t.code), ['distance:100'], 'only the set trophies go');
+  await a.client.call('card_add', { cards: [{ code: 'f:trees:oak', detail: 'Oak Street' }] });
+  assert.equal((await a.client.call('cards')).body.cards.length, 1, 'just once');
+});
+
 // --- Virtual races ---
 // Places as [east, north] metres from a point in Vancouver, and runs along them.
 const ORIGIN = [49.28, -123.12];

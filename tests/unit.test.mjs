@@ -90,3 +90,65 @@ test('read: .fit.gz is unpacked and kept as .gpx', async () => {
   assert.equal(trkpts(text).length, 201);
   assert.ok(Convert.ACCEPT.test('a.tcx.gz') && Convert.ACCEPT.test('b.FIT') && !Convert.ACCEPT.test('c.zip'));
 });
+
+// --- Cards (cards.js), with the street coverage they look at ---
+test('cards: found by running: distances, months, times of day, streets and neighbourhoods', () => {
+  const { Cards } = loadScripts(['coverage.js', 'cards.js']);
+  const O = [53.45, -113.55];
+  const at = (e, n) => [O[0] + n / 111320, O[1] + e / (111320 * Math.cos(O[0] * Math.PI / 180))];
+  // A street from (e1, n) to (e2, n), with a point every 20 m, and a run along part of it.
+  const line = (e1, e2, n, step = 20) => Array.from({ length: Math.round(Math.abs(e2 - e1) / step) + 1 },
+    (_, i) => at(e1 + Math.sign(e2 - e1) * i * step, n));
+  const street = (id, name, hood, e1, e2, n) => ({ id, name, cat: 'road', hood, len: Math.abs(e2 - e1), runs: [line(e1, e2, n)] });
+  const area = { id: 1, osmId: 77, name: 'Riverbend', excluded: [], data: {
+    boundary: [], hoods: [{ name: 'North', lines: [] }, { name: 'South', lines: [] }],
+    streets: [street(1, 'Oak Street', 0, 0, 300, 0), street(2, '5th Avenue', 1, 0, 300, 200), street(3, 'Elm Close', 1, 400, 460, 200)],
+  } };
+  const local = (d, h, m = 0) => new Date(2026, 0, d, h, m).toISOString();
+  const run = (name, time, km, segments = []) => ({ name, time, distance: km * 1000, segments });
+  const tracks = [
+    run('Long one', local(5, 5, 30), 21.2, [line(-50, 350, 0, 5)]),       // all of Oak Street
+    run('Night jog', local(5, 22), 3, [line(0, 150, 200, 5), line(390, 470, 200, 5)]),  // half of 5th Avenue, all of Elm Close
+    ...[6, 7, 8, 9, 10, 11].map(d => run(`Day ${d}`, local(d, 12), 1)),
+  ];
+  const found = new Map(Cards.evaluate(tracks, [area]).map(c => [c.code, c.detail]));
+  const codes = [...found.keys()].sort();
+  assert.deepEqual(codes, [
+    'f:clock:double', 'f:clock:early', 'f:clock:lunch', 'f:clock:night', 'f:clock:week',
+    'f:distance:10000', 'f:distance:15000', 'f:distance:21097', 'f:distance:5000',
+    'f:month:1', 'f:trees:elm', 'f:trees:oak', 'f:types:close',
+    'h:77:North', 'h:77:North:gold', 'h:77:South',
+  ].sort(), 'not 5th Avenue: only 150 m of it, under STREET_RUN; not the half marathon card for a 3 km run');
+  assert.equal(found.get('f:trees:oak'), 'Oak Street');
+  assert.match(found.get('f:distance:21097'), /^Long one, /);
+  assert.match(found.get('f:clock:double'), /^Long one and Night jog, /);
+
+  // Shown by set; the neighbourhood set needs every card gold to be complete.
+  const owned = new Map([...found].map(([code, detail]) => [code, { code, detail }]));
+  const sets = Cards.sets(owned, [area]);
+  const hoods = sets.find(s => s.kind === 'hood');
+  assert.equal(JSON.stringify(hoods.cards.map(c => [c.name, c.owned, c.gold])), '[["North",true,true],["South",true,false]]');
+  assert.equal(Cards.setTrophies(sets).length, 0);
+  owned.set('h:77:South:gold', { detail: 'Every street done' });
+  assert.equal(Cards.setTrophies(Cards.sets(owned, [area])).map(a => a.code).join(), 'cards:h77');
+});
+
+test('cards: quests turn over a card not yet had, seasonal sets only in their month', () => {
+  const { Cards } = loadScripts(['coverage.js', 'cards.js']);
+  const oct = new Date(2026, 9, 20), mar = new Date(2027, 2, 1);
+  const q = { id: '2026-10-19:any' };
+  const first = Cards.pack(q, new Set(), 'Cover 5 km', oct);
+  assert.match(first.code, /^q:halloween:/, "October's set");
+  assert.equal(Cards.pack(q, new Set(), 'Cover 5 km', oct).code, first.code, 'the same quest turns over the same card everywhere');
+  assert.equal(first.detail, 'For "Cover 5 km"');
+  // Never one already had; a set runs out after its last card.
+  const owned = new Set();
+  for (let i = 0; i < 8; i++) owned.add(Cards.pack({ id: `w${i}` }, owned, 'x', oct).code);
+  assert.equal([...owned].filter(c => c.startsWith('q:halloween:')).length, 8);
+  assert.match(Cards.pack({ id: 'w9' }, owned, 'x', oct).code, /^q:creatures:/, 'Halloween done: the first evergreen set');
+  assert.match(Cards.pack(q, new Set(), 'x', mar).code, /^q:creatures:/, 'no Halloween in March');
+  const everything = new Set(Cards.sets(new Map(), []).filter(s => s.kind === 'quest' && s.month === undefined)
+    .flatMap(s => s.cards.map(c => c.code)));
+  assert.equal(Cards.pack(q, everything, 'x', mar), null, 'every set you can get now is complete');
+  assert.match(Cards.pack(q, everything, 'x', new Date(2027, 11, 5)).code, /^q:winter:/, 'but Winter comes round in December');
+});

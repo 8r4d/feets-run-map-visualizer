@@ -2258,7 +2258,7 @@ function scheduleTrophies() {
   scheduleSegments();
   clearTimeout(trophyTimer);
   trophyTimer = setTimeout(() => {
-    trophyCheck = trophyCheck.then(checkTrophies).catch(err => console.error('Achievements:', err));
+    trophyCheck = trophyCheck.then(checkTrophies).then(checkCards).catch(err => console.error('Achievements:', err));
   }, 1500);
 }
 
@@ -2279,6 +2279,120 @@ async function checkTrophies() {
     fresh.slice(0, 3).forEach(a => toast(`🏆 ${a.title}`, a.detail));
     if (fresh.length > 3) toast(`🏆 ${fresh.length - 3} more`, 'See them under Trophies.');
   }
+}
+
+// --- Cards ---
+// Sets to collect in Questing (see cards.js): found by running, checked with
+// the trophies, or turned over by finishing quests (updateQuests). Kept for
+// the account, not this browser, so they're private like XP: view-only
+// accounts don't get them. Like XP, only from here on: only activities that
+// earn XP from cardsSince (recorded after it, added within a week of that;
+// see Xp.counts) find cards, so importing old runs finds none.
+const cardsBox = document.getElementById('cards-box');
+let cards = [];  // as from Store.cards()
+let cardsSince = null;  // Unix ms, or null until loaded
+
+async function loadCards() {
+  if (readOnly()) return;
+  try {
+    ({ since: cardsSince, cards } = await Store.cards());
+  } catch {
+    cards = [];
+    cardsSince = null;
+  }
+  renderCards();
+}
+
+const ownedCards = () => new Map(cards.map(c => [c.code, c]));
+
+// The cards your activities have found that aren't kept yet.
+async function checkCards() {
+  if (!currentUser || readOnly() || cardsSince === null) return;
+  const owned = ownedCards();
+  const tracks = [...loaded.values()].map(e => e.track).filter(t => Stats.onFoot(t) && Xp.counts(t, cardsSince));
+  const fresh = Cards.evaluate(tracks, areas).filter(c => !owned.has(c.code));
+  await saveCards(fresh);
+  if (!fresh.length) renderCards();  // areas may have changed: a new one's neighbourhoods
+}
+
+// Keeps new cards, says so, and gives the trophy for any set they complete.
+async function saveCards(fresh) {
+  if (!fresh.length) return;
+  const knownTrophies = new Set(trophies.map(a => a.code));
+  ({ since: cardsSince, cards } = await Store.addCards(fresh));
+  renderCards();
+  const sets = Cards.sets(ownedCards(), areas);
+  for (const c of fresh.slice(0, 3)) {
+    const set = sets.find(st => st.cards.some(k => k.code === c.code || `${k.code}:gold` === c.code));
+    const card = set && set.cards.find(k => k.code === c.code || `${k.code}:gold` === c.code);
+    if (!card) continue;
+    const have = set.cards.filter(k => k.owned).length;
+    toast(`🂠 ${c.code.endsWith(':gold') ? 'Gold card' : 'New card'}: ${card.icon} ${card.name}`, `${set.name} ${have}/${set.cards.length} · ${c.detail}`);
+  }
+  if (fresh.length > 3) toast(`🂠 ${fresh.length - 3} more cards`, 'See them under Cards, in Questing.');
+  const done = Cards.setTrophies(sets).filter(a => !knownTrophies.has(a.code));
+  if (!done.length) return;
+  trophies = await Store.addAchievements(done);
+  renderTrophies();
+  await awardXp(Xp.trophyEvents(done));
+  for (const a of done.slice(0, 3)) toast(`🏆 ${a.title} complete`, a.detail);
+}
+
+// The sets in Cards: one row each, opening to show its cards. Cards not
+// found yet show what finds them.
+const openSets = new Set();  // set ids opened, kept while the page is
+function renderCards() {
+  cardsBox.hidden = readOnly();
+  const sets = Cards.sets(ownedCards(), areas);
+  const month = new Date().getMonth();
+  const now = Cards.questSet(new Set(cards.map(c => c.code)));
+  let owned = 0, all = 0;
+  const groups = [['From quests', 'quest'], ['Found by running', 'found'], ['Neighbourhoods', 'hood']];
+  const items = [];
+  for (const [title, kind] of groups) {
+    const list = sets.filter(st => st.kind === kind);
+    if (!list.length) continue;
+    const h = document.createElement('h3');
+    h.className = 'card-group';
+    h.textContent = title;
+    items.push(h);
+    for (const set of list) {
+      const have = set.cards.filter(c => c.owned).length;
+      owned += have;
+      all += set.cards.length;
+      const box = document.createElement('details');
+      box.className = 'card-set';
+      box.style.setProperty('--set', set.color);
+      box.open = openSets.has(set.id);
+      box.ontoggle = () => (box.open ? openSets.add(set.id) : openSets.delete(set.id));
+      const complete = set.cards.every(c => (set.kind === 'hood' ? c.gold : c.owned));
+      box.innerHTML = '<summary><span class="set-icon"></span><span class="set-name"></span><small></small>'
+        + '<span class="bar"><span></span></span></summary><div class="card-grid"></div>';
+      box.querySelector('.set-icon').textContent = set.icon;
+      box.querySelector('.set-name').textContent = set.name;
+      box.querySelector('small').textContent = (complete ? '✓ ' : '') + `${have}/${set.cards.length}`
+        + (set.month !== undefined && set.month !== month && have < set.cards.length ? ` · ${new Date(2026, set.month, 1).toLocaleString(undefined, { month: 'short' })} only` : '')
+        + (now && now.id === set.id ? ' · now' : '');
+      box.querySelector('.bar span').style.width = `${(have / set.cards.length * 100).toFixed(1)}%`;
+      box.querySelector('.card-grid').append(...set.cards.map(c => {
+        const el = document.createElement('div');
+        el.className = 'card' + (c.owned ? '' : ' missing') + (c.gold ? ' gold' : '');
+        el.innerHTML = '<span class="card-icon"></span><strong></strong><small></small>';
+        el.querySelector('.card-icon').textContent = c.owned ? c.icon : '?';
+        el.querySelector('strong').textContent = c.owned || set.kind === 'hood' ? c.name : '';
+        // A quest card face down says nothing more than the note under the sets.
+        el.querySelector('small').textContent = c.owned ? c.detail : set.kind === 'quest' ? '' : c.hint;
+        el.title = c.owned ? `${c.name}: ${c.detail}` : c.hint;
+        return el;
+      }));
+      items.push(box);
+    }
+  }
+  document.getElementById('card-sets').replaceChildren(...items);
+  document.getElementById('cards-count').textContent = `${owned}/${all}`;
+  document.getElementById('cards-note').textContent = now
+    ? `Each quest you finish turns over a ${now.icon} ${now.name} card.`
+    : 'Every quest set you can collect now is complete. Halloween and Winter come back each October and December.';
 }
 
 // Shows this year's trophies, then all-time ones. Earlier years' are kept on
@@ -3669,6 +3783,7 @@ async function signedIn(user) {
   backfillMetrics();  // in the background
   await loadAreas();
   await loadTrophies();
+  await loadCards();
   await loadXp();
   await loadSegments();
   await loadArtShapes();
@@ -3705,6 +3820,9 @@ function signedOut() {
   clearTimeout(trophyTimer);
   trophies = [];
   trophyBox.hidden = true;
+  cards = [];
+  cardsSince = null;
+  cardsBox.hidden = true;
   xpState = null;
   xpFirsts = null;
   xpBox.hidden = true;
@@ -5336,6 +5454,16 @@ async function updateQuests() {
     questState.completed += finished.length;
     await Store.saveQuests(questState).catch(() => {});
     for (const q of finished) toast(`Quest done: ${Quests.title(q)}`, `${questState.completed} quests done in all.`);
+    // Each turns over a card.
+    const owned = new Set(cards.map(c => c.code));
+    const turned = [];
+    for (const q of finished) {
+      const card = Cards.pack(q, owned, Quests.title(q));
+      if (!card) break;
+      owned.add(card.code);
+      turned.push(card);
+    }
+    await saveCards(turned).catch(err => console.error('Cards:', err));
   }
   renderQuests(Quests.streak(firsts), progress);
   xpFirsts = firsts;
