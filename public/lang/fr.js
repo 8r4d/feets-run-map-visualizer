@@ -61,6 +61,15 @@ I18n.add('fr', {
   'Count again': "Compter à nouveau",
   'Count it again': "La compter à nouveau",
   'Mark off-limits': "Marquer comme interdite",
+  'Name it': "Lui donner un nom",
+  'Rename': "Renommer",
+  'Remove the name': "Retirer le nom",
+  'Name this road': "Nommer cette rue",
+  'Name this path': "Nommer ce chemin",
+  'Name this trail': "Nommer ce sentier",
+  'Rename this road': "Renommer cette rue",
+  'Rename this path': "Renommer ce chemin",
+  'Rename this trail': "Renommer ce sentier",
 
   // --- Plan ---
   'Show street coverage': "Afficher la couverture des rues",

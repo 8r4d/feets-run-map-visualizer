@@ -1471,6 +1471,8 @@ const areaKind = level => (level <= 8 ? 'district' : level === 9 ? 'community' :
 const km = m => Units.short(m);  // "450 m", "3.2 km", "12 km"; in miles "350 ft", "2.1 mi"
 const streetColor = f => (Coverage.isDone(f) ? STREET_COLORS.done : f > 0.05 ? STREET_COLORS.started : STREET_COLORS.todo);
 
+const escapeHtml = text => text.replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+
 function groupLabel(g) {
   return g.name || `Unnamed ${CAT_NAMES[g.cat]}`;
 }
@@ -1504,7 +1506,8 @@ function setPickedHoods(indices) {
 
 async function loadAreas() {
   try {
-    areas = await Store.areas();
+    [areas, wayNames] = await Promise.all([Store.areas(), Store.wayNames().catch(() => ({}))]);
+    areas.forEach(applyWayNames);
   } catch (err) {
     areas = [];
     areaStatus.textContent = 'Could not load areas: ' + err.message;
@@ -1514,6 +1517,49 @@ async function loadAreas() {
   try { saved = localStorage.getItem('feets-area') || ''; } catch {}
   fillAreaSelect();
   setActiveArea(saved.startsWith('m:') || areas.some(a => String(a.id) === saved) ? saved : areas[0] ? String(areas[0].id) : '');
+}
+
+// Your names for OSM ways that have none: { way id: name }. They go in as
+// the street's name, so a named path is grouped, listed, quested and counted
+// for trophies like any named street. OSM's own name (osmName) always wins.
+let wayNames = {};
+
+function applyWayNames(area) {
+  for (const s of area.data.streets) {
+    if (s.osmName === undefined) s.osmName = s.name;
+    s.name = s.osmName || wayNames[s.id] || '';
+  }
+}
+
+// Names a way that OSM has no name for, or takes the name off (name ''). A
+// way you've named already is renamed along with every other way with that
+// name, in every area, so a path drawn as several OSM ways keeps one name.
+async function nameWay(w, name) {
+  const s = activeArea.area.data.streets[w];
+  const old = !s.osmName && s.name;
+  const ways = old
+    ? [...new Set(areas.flatMap(a => a.data.streets.filter(o => !o.osmName && o.name === old && o.cat === s.cat).map(o => o.id)))]
+    : [s.id];
+  map.closePopup();
+  try {
+    wayNames = await Store.saveWayNames(ways, name);
+  } catch (err) {
+    alert(`Couldn't save the name: ${err.message}`);
+    return;
+  }
+  areas.forEach(applyWayNames);
+  // A street quest on the old name follows it.
+  if (old && questState && questState.quests.some(q => q.kind === 'street' && q.name === old && q.cat === s.cat)) {
+    for (const q of questState.quests) {
+      if (q.kind !== 'street' || q.name !== old || q.cat !== s.cat) continue;
+      q.name = name || old;
+      q.title = `Finish ${q.name}`;
+    }
+    Store.saveQuests(questState).catch(() => {});
+  }
+  scheduleCoverage();
+  scheduleTrophies();
+  scheduleQuests();
 }
 
 // Streets marked unrunnable in one area but not in another that has them too
@@ -1729,7 +1775,8 @@ function drawStreets() {
           opacity: faded ? 0.25 : 0.9,
           dashArray: s.cat === 'trail' ? '4 5' : null,
         };
-      const tip = `${s.name || `Unnamed ${CAT_NAMES[s.cat]}`} · ${unrunnable ? 'off-limits' : Math.round(f * 100) + '%'}`;
+      // Escaped: Leaflet shows a tooltip string as HTML, and names can be typed in (see nameWay).
+      const tip = `${escapeHtml(s.name || `Unnamed ${CAT_NAMES[s.cat]}`)} · ${unrunnable ? 'off-limits' : Math.round(f * 100) + '%'}`;
       for (const run of s.runs) {
         if (severalAreas) {
           const key = `${s.id}:${run[0]}:${run[run.length - 1]}`;
@@ -1900,6 +1947,30 @@ function streetPopup(w, latlng) {
     if (s.name) button.title = `Applies to all of ${s.name} in this area`;
     button.onclick = () => setUnrunnable(w, !unrunnable);
     box.append(button);
+  }
+  // OSM has no name for it: name it yourself (or rename it, or take the name off).
+  if (!readOnly() && !s.osmName) {
+    const rename = document.createElement('button');
+    rename.type = 'button';
+    rename.textContent = s.name ? t('Rename') : t('Name it');
+    if (s.name) rename.title = `Renames every ${CAT_NAMES[s.cat]} you've called ${s.name}`;
+    rename.onclick = async () => {
+      map.closePopup();
+      // Names you've given others of its kind, to pick for the next piece of the same path.
+      const yours = [...new Set(areas.flatMap(a => a.data.streets.filter(o => !o.osmName && o.name && o.cat === s.cat).map(o => o.name)))];
+      const name = await askName(t(`${s.name ? 'Rename' : 'Name'} this ${CAT_NAMES[s.cat]}`), s.name, t('Save'),
+        yours.sort((a, b) => a.localeCompare(b)));
+      if (name && name !== s.name) nameWay(w, name);
+    };
+    box.append(rename);
+    if (s.name) {
+      const clear = document.createElement('button');
+      clear.type = 'button';
+      clear.className = 'link-button';
+      clear.textContent = t('Remove the name');
+      clear.onclick = () => nameWay(w, '');
+      box.append(clear);
+    }
   }
   L.popup().setLatLng(latlng).setContent(box).openOn(map);
 }
@@ -2127,6 +2198,7 @@ async function fetchAndSaveArea(osmId) {
     const built = await OSM.buildArea(osmId, message => { areaStatus.textContent = message; });
     areaStatus.textContent = 'Saving…';
     const saved = await Store.saveArea({ osmId, name: built.name, data: built.data });
+    applyWayNames(saved);
     areas = [...areas.filter(a => a.id !== saved.id), saved].sort((a, b) => a.name.localeCompare(b.name));
     await syncUnrunnable();
     fillAreaSelect();
@@ -2992,11 +3064,17 @@ document.getElementById('plan-clear').onclick = () => {
 };
 document.getElementById('plan-gpx').onclick = () => downloadRoute(plan.name || 'feets route', plan);
 // Asks for a name in a small dialog; resolves to the trimmed name, or null if cancelled.
-function askName(title, value, okLabel) {
+// suggestions: names to offer as you type.
+function askName(title, value, okLabel, suggestions = []) {
   const dialog = document.getElementById('name-dialog');
   const input = document.getElementById('name-dialog-input');
   document.getElementById('name-dialog-title').textContent = title;
   document.getElementById('name-dialog-ok').textContent = okLabel;
+  document.getElementById('name-dialog-list').replaceChildren(...suggestions.map(name => {
+    const option = document.createElement('option');
+    option.value = name;
+    return option;
+  }));
   input.value = value;
   dialog.returnValue = '';
   dialog.showModal();
@@ -4264,6 +4342,7 @@ async function areaFor(place, tooBig) {
 
 async function addFoundArea(place, { osmId, built }) {
   const saved = await Store.saveArea({ osmId, name: built.name, data: built.data });
+  applyWayNames(saved);
   areas = [...areas.filter(a => a.id !== saved.id), saved].sort((a, b) => a.name.localeCompare(b.name));
   await syncUnrunnable();
   const showing = streetsChoice;

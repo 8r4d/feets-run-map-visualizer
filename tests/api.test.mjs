@@ -151,6 +151,24 @@ test('view-only accounts read their inviter\'s tracks and change nothing', async
   await a.call('delete', {}, `&id=${added.body.id}`);
 });
 
+test('way names: yours alone, renamed or taken off, and readable by your viewers', async () => {
+  const a = await member(), b = await member();
+  assert.deepEqual((await a.client.call('way_names')).body, {});
+  assert.deepEqual((await a.client.call('way_names_save', { ways: [11, 12], name: '  Fern Trail ' })).body,
+    { 11: 'Fern Trail', 12: 'Fern Trail' }, 'trimmed');
+  assert.deepEqual((await a.client.call('way_names_save', { ways: [12], name: 'Moss Path' })).body,
+    { 11: 'Fern Trail', 12: 'Moss Path' });
+  assert.deepEqual((await a.client.call('way_names_save', { ways: [11], name: '' })).body, { 12: 'Moss Path' });
+  assert.deepEqual((await b.client.call('way_names')).body, {}, "B doesn't see A's names");
+
+  const owner = await admin();
+  await owner.call('way_names_save', { ways: [7], name: 'Admin Lane' });
+  const { client } = await member({ viewer: true });
+  assert.equal((await client.call('way_names')).body[7], 'Admin Lane');
+  assert.equal((await client.call('way_names_save', { ways: [7], name: 'x' })).status, 403);
+  await owner.call('way_names_save', { ways: [7], name: '' });
+});
+
 test('not logged in: nothing but the login', async () => {
   const c = new Client();
   assert.equal((await c.call('')).status, 401);

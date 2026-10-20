@@ -5,6 +5,23 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.15.0 — 2026-10-20
+
+- feets in Japanese (日本語): pick it from the language menu, or it's used by
+  itself when your browser is set to Japanese. The help pages stay in English,
+  as they do in French and Chinese.
+
+## 1.14.0 — 2026-10-20
+
+- Name the paths, trails and roads OpenStreetMap has no name for: click one
+  in Road Fill and choose *Name it*. The name is used like any street's: in
+  the to-do list, on the map, in street quests and in the street counts for
+  trophies, in every area that has it, and it stays when an area is
+  refreshed. Pieces of one path given the same name count as one street (the
+  dialog offers names you've used already). *Rename* renames every piece with
+  that name, and *Remove the name* takes it off. Names OSM already has can't
+  be changed. Names are your own; view-only accounts see the owner's.
+
 ## 1.13.0 — 2026-10-19
 
 - Each map mode keeps its own base map: pick the topographic map in Questing

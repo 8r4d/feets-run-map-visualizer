@@ -66,6 +66,9 @@
 //   POST api.php?action=area_save            {osmId, name, data} prepared by osm.js; replaces an existing one
 //   POST api.php?action=area_delete&id=ID
 //   POST api.php?action=area_exclude&id=ID   {ways, excluded}: mark OSM ways unrunnable (or count them again)
+//   GET  api.php?action=way_names            your names for OSM ways that have none: {way id: name}
+//   POST api.php?action=way_names_save       {ways, name}: names those ways; an empty name takes the name off.
+//                                            Returns what GET does
 //   POST api.php?action=area_scan_claim      a turn at looking for places you run without an area (see
 //                                            area_scan_claim): {go, skip: [cell keys not to try again]}
 //   POST api.php?action=area_scan_save       {on?, skip?: [cell keys]}: switch it on or off, add places not to try
@@ -238,6 +241,14 @@ const SCHEMA = [
       excluded    LONGTEXT     NULL,      -- JSON array of OSM way ids marked unrunnable
       fetched_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
       UNIQUE (user_id, osm_id)
+    ) CHARACTER SET utf8mb4
+    SQL,
+    <<<SQL
+    CREATE TABLE IF NOT EXISTS way_names (  -- your names for OSM ways that have none, in every area
+      user_id  INT          NOT NULL,
+      way_id   BIGINT       NOT NULL,
+      name     VARCHAR(255) NOT NULL,
+      PRIMARY KEY (user_id, way_id)
     ) CHARACTER SET utf8mb4
     SQL,
     <<<SQL
@@ -798,7 +809,7 @@ function admin_delete_user(array $admin, array $b): array {
     foreach ([$id, ...array_map('intval', $viewers->fetchAll(PDO::FETCH_COLUMN))] as $uid) {
         $pdo->prepare('DELETE FROM segment_efforts WHERE track_id IN (SELECT id FROM tracks WHERE user_id = ?)
                        OR segment_id IN (SELECT id FROM segments WHERE user_id = ?)')->execute([$uid, $uid]);
-        foreach (['tracks', 'segments', 'routes', 'areas', 'art_shapes', 'achievements', 'xp_events', 'sessions',
+        foreach (['tracks', 'segments', 'routes', 'areas', 'way_names', 'art_shapes', 'achievements', 'xp_events', 'sessions',
                   'password_resets', 'strava_accounts', 'strava_states'] as $table) {
             $pdo->prepare("DELETE FROM $table WHERE user_id = ?")->execute([$uid]);
         }
@@ -2098,6 +2109,30 @@ function area_exclude(int $userId, int $id, array $b): array {
     return ['excluded' => $excluded];
 }
 
+// Your names for OSM ways that have none, kept by way id apart from the areas,
+// so they apply in every area that has the way and survive a refresh.
+function way_names(int $userId): object {
+    $stmt = db()->prepare('SELECT way_id, name FROM way_names WHERE user_id = ?');
+    $stmt->execute([$userId]);
+    $names = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $names[(int) $row['way_id']] = $row['name'];
+    }
+    return (object) $names;
+}
+
+function save_way_names(int $userId, array $b): object {
+    $name = mb_substr(trim((string) ($b['name'] ?? '')), 0, 255);
+    $ways = array_slice(array_unique(array_map('intval', (array) ($b['ways'] ?? []))), 0, 5000);
+    $put = db()->prepare('INSERT INTO way_names (user_id, way_id, name) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name)');
+    $remove = db()->prepare('DELETE FROM way_names WHERE user_id = ? AND way_id = ?');
+    foreach ($ways as $way) {
+        if ($way <= 0) continue;
+        $name === '' ? $remove->execute([$userId, $way]) : $put->execute([$userId, $way, $name]);
+    }
+    return way_names($userId);
+}
+
 function area_delete(int $userId, int $id): array {
     db()->prepare('DELETE FROM areas WHERE user_id = ? AND id = ?')->execute([$userId, $id]);
     return ['ok' => true];
@@ -2559,7 +2594,7 @@ if (!empty($user['read_only'])) {
     if ($method === 'GET' && $action === 'strava_status') {
         send_json(['configured' => false, 'connected' => false, 'athlete' => null, 'autoImport' => false]);
     }
-    $readable = !empty($user['view_link']) ? ['routes'] : ['', 'areas', 'achievements', 'routes', 'goals', 'track_profile', 'art_shapes'];
+    $readable = !empty($user['view_link']) ? ['routes'] : ['', 'areas', 'way_names', 'achievements', 'routes', 'goals', 'track_profile', 'art_shapes'];
     if ($method !== 'GET' || !in_array($action, $readable, true) || isset($_GET['gpx'])) {
         fail('This is a view-only account', 403);
     }
@@ -2605,6 +2640,10 @@ if ($method === 'POST' && $action === 'invite') {
     send_json(area_delete($userId, $id));
 } elseif ($method === 'POST' && $action === 'area_exclude' && $id) {
     send_json(area_exclude($userId, $id, read_json()));
+} elseif ($method === 'GET' && $action === 'way_names') {
+    send_json(way_names($userId));
+} elseif ($method === 'POST' && $action === 'way_names_save') {
+    send_json(save_way_names($userId, read_json()));
 } elseif ($method === 'GET' && $action === 'routes') {
     send_routes($userId);
 } elseif ($method === 'POST' && $action === 'route_save') {

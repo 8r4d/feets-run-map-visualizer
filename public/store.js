@@ -90,6 +90,9 @@ const Store = (() => {
     saveAreaScan: settings => json('POST', '?action=area_scan_save', settings),  // { on?, skip? } → { on }
     // Marks OSM ways unrunnable (or counts them again); resolves to { excluded: [way ids] }.
     excludeWays: (areaId, ways, excluded) => json('POST', `?action=area_exclude&id=${areaId}`, { ways, excluded }),
+    // Your names for OSM ways that have none: { way id: name }. Saving '' takes the name off.
+    wayNames: () => json('GET', '?action=way_names'),
+    saveWayNames: (ways, name) => json('POST', '?action=way_names_save', { ways, name }),  // → wayNames()
 
     // Planned routes: { id, name, distance, createdAt, updatedAt, data: { waypoints, legs, straight } }.
     routes: () => json('GET', '?action=routes'),

@@ -231,6 +231,58 @@ test('installable, and opens offline', { skip }, async () => {
   }
 });
 
+test('naming an unnamed path: its pieces become one street, kept after a reload, renamed and taken off together', { skip }, async () => {
+  // A small square area off Stanley Park with two unnamed paths and a named road.
+  const box = [[49.30, -123.15], [49.30, -123.14], [49.31, -123.14], [49.31, -123.15], [49.30, -123.15]];
+  const street = (id, name, cat, lat) => ({ id, name, cat, hood: -1, len: 500, runs: [[[lat, -123.148], [lat, -123.142]]] });
+  const data = { boundary: [box], hoods: [], streets: [street(101, '', 'path', 49.302), street(102, '', 'path', 49.304), street(103, 'Test Road', 'road', 49.306)] };
+  const id = await page.eval(`Store.saveArea({ osmId: 999001, name: 'Test Square', data: ${JSON.stringify(data)} }).then(a => a.id)`);
+  await page.reload();
+  await page.waitFor(`areas.some(a => a.id === ${id})`, { what: 'the area to load' });
+  await page.eval(`document.querySelector('#mode [data-mode=streets]').click(); setActiveArea('${id}')`);
+  await page.waitFor(`coverage && activeArea.area.id === ${id}`, { what: 'the coverage' });
+  const groups = () => page.eval(`coverage.summary.groups.map(g => [g.name, g.ways.length]).sort()`);
+  assert.deepEqual(await groups(), [['', 1], ['', 1], ['Test Road', 1]]);
+
+  // Names a path from its popup: w is its index in the area, button the one to press.
+  let offered = [];  // the names the dialog offered
+  const name = async (w, button, text) => {
+    await page.eval(`streetPopup(${w}, L.latLng(49.30, -123.145))`);
+    await page.eval(`[...document.querySelectorAll('.street-popup button')].find(b => b.textContent === ${JSON.stringify(button)}).click()`);
+    if (text === undefined) return;
+    await page.waitFor(`document.getElementById('name-dialog').open`, { what: 'the name dialog' });
+    offered = await page.eval(`[...document.querySelectorAll('#name-dialog-list option')].map(o => o.value)`);
+    await page.eval(`document.getElementById('name-dialog-input').value = ${JSON.stringify(text)};
+      document.getElementById('name-dialog-ok').click()`);
+  };
+  await name(0, 'Name it', 'Fern Trail');
+  await page.waitFor(`coverage.summary.groups.some(g => g.name === 'Fern Trail')`, { what: 'the first piece named' });
+  await name(1, 'Name it', 'Fern Trail');
+  assert.deepEqual(offered, ['Fern Trail'], 'offered for the next piece');
+  await page.waitFor(`coverage.summary.groups.some(g => g.name === 'Fern Trail' && g.ways.length === 2)`, { what: 'one street of two pieces' });
+  assert.equal(await page.eval(`[...document.querySelectorAll('.street-popup button')].length`), 0, 'the popup closes');
+
+  await page.reload();
+  await page.waitFor(`areas.some(a => a.id === ${id})`, { what: 'the area to load again' });
+  await page.eval(`document.querySelector('#mode [data-mode=streets]').click(); setActiveArea('${id}')`);
+  await page.waitFor(`coverage && activeArea.area.id === ${id}`, { what: 'the coverage again' });
+  assert.deepEqual(await groups(), [['Fern Trail', 2], ['Test Road', 1]], 'kept on the server');
+  assert.equal(await page.eval(`(streetPopup(2, L.latLng(49.30, -123.145)),
+    [...document.querySelectorAll('.street-popup button')].some(b => /Name it|Rename/.test(b.textContent)))`), false,
+    "OSM's own names can't be changed");
+
+  await name(1, 'Rename', 'Moss Path');
+  await page.waitFor(`coverage.summary.groups.some(g => g.name === 'Moss Path' && g.ways.length === 2)`, { what: 'both pieces renamed' });
+  await name(0, 'Remove the name');
+  await page.waitFor(`coverage.summary.groups.filter(g => g.name === '').length === 2`, { what: 'both names off' });
+  assert.deepEqual(await page.eval(`Store.wayNames()`), {});
+
+  await page.eval(`Store.deleteArea(${id})`);
+  await page.reload();
+  await page.waitFor(`!areas.length`, { what: 'the area to go' });
+  await page.eval(`document.querySelector('#mode [data-mode=tracks]').click()`);
+});
+
 test('no errors on the page', { skip }, async () => {
   assert.deepEqual(page.errors.map(e => e.exception?.description || e.text), []);
 });

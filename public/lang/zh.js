@@ -61,6 +61,15 @@ I18n.add('zh', {
   'Count again': '重新计入',
   'Count it again': '重新计入',
   'Mark off-limits': '标记为禁行',
+  'Name it': '命名',
+  'Rename': '重命名',
+  'Remove the name': '移除名称',
+  'Name this road': '为这条道路命名',
+  'Name this path': '为这条小路命名',
+  'Name this trail': '为这条步道命名',
+  'Rename this road': '重命名这条道路',
+  'Rename this path': '重命名这条小路',
+  'Rename this trail': '重命名这条步道',
 
   // --- Plan ---
   'Show street coverage': '显示街道覆盖',

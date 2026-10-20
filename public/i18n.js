@@ -12,8 +12,8 @@
 // The language: the one picked (feets-lang), else the browser's if feets has
 // it, else English. Picking one reloads the page in it.
 const I18n = (() => {
-  const LANGUAGES = { en: 'English', fr: 'Français', zh: '中文' };
-  const HTML_LANG = { en: 'en', fr: 'fr', zh: 'zh-CN' };
+  const LANGUAGES = { en: 'English', fr: 'Français', ja: '日本語', zh: '中文' };
+  const HTML_LANG = { en: 'en', fr: 'fr', ja: 'ja', zh: 'zh-CN' };
   const phrases = {};
 
   let lang = null;
