@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>feets race</title>
+  <!-- A virtual race, open to anyone with its link (race.html?code=CODE):
+       the course, the leaderboard, and a way to enter. See race.js. -->
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#fafafa">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="style.css?v=92">
+  <!-- Light or dark as the main page has it (see index.html). -->
+  <script>
+    let feetsTheme = null;
+    try { feetsTheme = localStorage.getItem('feets-theme'); } catch {}
+    document.documentElement.dataset.theme = feetsTheme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    document.querySelector('meta[name=theme-color]').content = document.documentElement.dataset.theme === 'dark' ? '#181a1b' : '#fafafa';
+  </script>
+</head>
+<body class="race-page">
+  <main id="race">
+    <p class="race-brand"><a href="./">feets</a> · virtual race</p>
+    <h1 id="race-name">Loading…</h1>
+    <p id="race-when"></p>
+    <p id="race-problem" class="race-problem" hidden></p>
+    <div id="race-map" hidden></div>
+
+    <section id="race-enter" class="race-box" hidden>
+      <h2>Enter</h2>
+      <p class="hint" id="race-how"></p>
+      <form id="race-form">
+        <label>Your name, as it shows on the leaderboard
+          <input id="race-runner" maxlength="60" required pattern=".*\S.*" autocomplete="name">
+        </label>
+        <label>Your run: a GPX, FIT or TCX file from your watch or app
+          <input id="race-file" type="file" accept=".gpx,.fit,.tcx,.gz" required>
+        </label>
+        <button id="race-submit" type="submit">Get my time</button>
+      </form>
+      <div id="race-result" aria-live="polite"></div>
+    </section>
+
+    <section class="race-box" id="race-results" hidden>
+      <h2>Leaderboard</h2>
+      <p id="race-empty" class="hint">No times yet. Be the first!</p>
+      <table id="race-board" hidden>
+        <thead><tr><th>#</th><th>Name</th><th>Time</th><th>Pace</th><th>Ran</th><th id="race-host-col" hidden></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <p class="credits">Only each runner's name and time are kept, not their run.
+      Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors.</p>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="i18n.js?v=3"></script>
+  <script src="units.js?v=1"></script>
+  <script src="convert.js?v=1"></script>
+  <script src="race.js?v=1"></script>
+</body>
+</html>

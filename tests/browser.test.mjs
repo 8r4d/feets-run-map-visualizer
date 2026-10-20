@@ -283,6 +283,47 @@ test('naming an unnamed path: its pieces become one street, kept after a reload,
   await page.eval(`document.querySelector('#mode [data-mode=tracks]').click()`);
 });
 
+test('a virtual race: made from a route, then entered on its own page', { skip }, async () => {
+  // A 1.4 km loop round a block, as a saved route.
+  const loop = [[49.28, -123.12], [49.28, -123.1145], [49.2827, -123.1145], [49.2827, -123.12], [49.28, -123.12]];
+  const legs = loop.slice(1).map((p, i) => [loop[i], p]);
+  await page.eval(`Store.saveRoute({ name: 'Block loop', distance: 1400, data: { waypoints: ${JSON.stringify(loop)},
+    legs: ${JSON.stringify(legs)}, straight: [false, false, false, false] } }).then(r => raceDialog({ route: r }))`);
+  await page.waitFor(`document.getElementById('race-dialog').open`, { what: 'the race dialog' });
+  assert.equal(await page.eval(`document.getElementById('race-dialog-name').value`), 'Block loop', "named for the route");
+  page.answers.push(true);  // the prompt with the link
+  await page.eval(`document.getElementById('race-dialog-name').value = 'Lunch loop'; document.getElementById('race-dialog-ok').click()`);
+  await page.waitFor(`!document.getElementById('race-list').hidden`, { what: 'the race under Account' });
+  assert.match(await page.eval(`document.getElementById('race-list').textContent`), /Lunch loop.*open.*0 times/);
+  assert.match(page.dialogs.at(-1), /"Lunch loop" is ready/);
+  const code = await page.eval(`Store.races().then(rs => rs[0].code)`);
+
+  await page.goto(`${URL_BASE}race.html?code=${code}`);
+  await page.waitFor(`document.getElementById('race-name').textContent === 'Lunch loop'`, { what: 'the race page' });
+  assert.equal(await page.eval(`!document.getElementById('race-map').hidden && !!document.querySelector('#race-map .leaflet-interactive')`), true, 'the course on a map');
+  assert.match(await page.eval(`document.getElementById('race-empty').textContent`), /No times yet/);
+  // A run of it, a little while ago, at 2 s a point.
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'feets-race-')), 'Lunch run.gpx');
+  const points = [];
+  for (let i = 1; i < loop.length; i++) {
+    for (let k = i === 1 ? 0 : 1; k <= 40; k++) points.push(loop[i - 1].map((v, j) => v + (loop[i][j] - v) * k / 40));
+  }
+  const from = Date.now() - 3600000;
+  fs.writeFileSync(file, '<gpx><trk><trkseg>' + points.map(([la, lo], i) =>
+    `<trkpt lat="${la.toFixed(7)}" lon="${lo.toFixed(7)}"><time>${new Date(from + i * 2000).toISOString()}</time></trkpt>`).join('') + '</trkseg></trk></gpx>');
+  await page.setFiles('#race-file', [file]);
+  await page.eval(`document.getElementById('race-runner').value = 'Sam'; document.getElementById('race-form').requestSubmit()`);
+  const result = await page.waitFor(`(t => /^Your time/.test(t) && t)(document.getElementById('race-result').textContent)`, { what: 'a time' });
+  assert.match(result, /^Your time: \d+:\d\d \(.+\/km\)\. That's 1st of 1\.$/);
+  const rows = await page.eval(`[...document.querySelectorAll('#race-board tbody tr')].map(tr => [...tr.cells].map(td => td.textContent))`);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0][1], 'Sam (you)');
+  assert.equal(rows[0][5], 'Remove', 'the host, logged in, can take times off');
+  await snap('race');
+  await page.goto(URL_BASE);
+  await page.waitFor(`document.getElementById('auth').hidden`, { what: 'the app again' });
+});
+
 test('no errors on the page', { skip }, async () => {
   assert.deepEqual(page.errors.map(e => e.exception?.description || e.text), []);
 });

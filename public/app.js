@@ -2957,6 +2957,7 @@ function renderRouteList() {
     if (publicView()) action('Share', () => shareRouteLink(r), 'Send someone a link to this route');
     if (!readOnly()) {
       action('Link', () => shareRoute(r), 'A link that opens this route, no login needed');
+      action('Race', () => raceDialog({ route: r }), 'Make a virtual race on this route: anyone with its link can upload a run and get a time');
       action('Rename', () => renameRoute(r));
       action('Delete', () => deleteRoute(r));
     }
@@ -3675,6 +3676,7 @@ async function signedIn(user) {
   await loadRoutes();
   if (planMode) renderPlan();
   if (!user.readOnly) loadViewLinks();
+  if (!user.readOnly) loadRaces();
   autoAreas.checked = Boolean(user.autoAreas);
   if (autoAreas.checked) scheduleFindAreas(SCAN_FIRST);
   await initStrava();
@@ -4134,6 +4136,92 @@ async function createViewLink(label = null, days = null) {
 const worksUntil = days => days
   ? `It stops working in ${days} day${days === 1 ? '' : 's'} (${whenText(Date.now() + days * 86400000)})`
   : 'It works until you turn it off under Account';
+
+// --- Virtual races ---
+// A race is one of your routes and a few days to run it in. Its page
+// (race.html) is open to anyone with the link: they upload a run, the server
+// times it from start to finish along the course, and everyone sees the
+// leaderboard. Made from a saved route's Race button; listed under Account.
+
+const raceUrl = code => new URL(`race.html?code=${code}`, location.href).href;
+const dayText = ms => new Date(ms).toLocaleDateString(undefined, { dateStyle: 'medium' });
+// <input type=date> values, in local time: the day a time is in, and the day's start.
+const dateValue = ms => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const dayStart = value => { const [y, m, d] = value.split('-').map(Number); return new Date(y, m - 1, d).getTime(); };
+
+function raceState(race, now = Date.now()) {
+  return now < race.startsAt ? `starts ${dayText(race.startsAt)}` : now <= race.endsAt ? 'open' : 'finished';
+}
+
+async function loadRaces() {
+  let races = [];
+  try {
+    races = await Store.races();
+  } catch {}
+  const list = document.getElementById('race-list');
+  list.hidden = !races.length;
+  list.replaceChildren(...races.map(race => {
+    const days = `${dayText(race.startsAt)} – ${dayText(race.endsAt)}`;
+    const entries = `${race.entries} ${race.entries === 1 ? 'time' : 'times'}`;
+    const actions = [
+      ['Open', () => window.open(raceUrl(race.code), '_blank', 'noopener')],
+      ['Copy link', () => copyRaceLink(race)],
+      ['Change', () => raceDialog({ race })],
+    ];
+    if (raceState(race) === 'open') actions.push(['End now', async () => {
+      if (!confirm(`End "${race.name}" now? Runs after this won't count.`)) return;
+      await Store.updateRace(race.id, { endsAt: Date.now() }).catch(err => alert(err.message));
+      loadRaces();
+    }]);
+    actions.push(['Delete', async () => {
+      if (!confirm(`Delete the race "${race.name}" and its ${entries}? Its link will stop working.`)) return;
+      await Store.deleteRace(race.id).catch(err => alert(err.message));
+      loadRaces();
+    }, true]);
+    return accountRow(`🏁 ${race.name}`, `${days} · ${raceState(race)} · ${km(race.distance)} · ${entries}`, actions);
+  }));
+}
+
+async function copyRaceLink(race) {
+  try {
+    await navigator.clipboard.writeText(raceUrl(race.code));
+    alert(`Link to "${race.name}" copied. Anyone with it can see the leaderboard and enter.`);
+  } catch {
+    prompt('Anyone with this link can see the leaderboard and enter:', raceUrl(race.code));
+  }
+}
+
+// Making a race from a route ({ route }), or changing one ({ race }).
+function raceDialog({ route, race }) {
+  const dialog = document.getElementById('race-dialog');
+  const name = document.getElementById('race-dialog-name');
+  const from = document.getElementById('race-dialog-from');
+  const to = document.getElementById('race-dialog-to');
+  document.getElementById('race-dialog-title').textContent = race ? 'Change the race' : 'Make a virtual race';
+  document.getElementById('race-dialog-ok').textContent = race ? 'Save' : 'Make the race';
+  document.getElementById('race-dialog-note').textContent = race
+    ? 'Times already in stay, even if their runs are now outside the dates.'
+    : `On "${route.name}" (${km(route.distance)}). Anyone with the race's link can upload a run of it between these days `
+      + "and get a time, from the start to the finish along the route. Only their name and time are kept, not their run.";
+  name.value = race ? race.name : route.name;
+  from.value = dateValue(race ? race.startsAt : Date.now());
+  to.value = dateValue(race ? race.endsAt : Date.now() + 7 * 86400000);
+  dialog.returnValue = '';
+  dialog.showModal();
+  name.select();
+  dialog.addEventListener('close', async () => {
+    if (dialog.returnValue !== 'ok') return;
+    // From the start of the first day to the end of the last.
+    const changes = { name: name.value.trim(), startsAt: dayStart(from.value), endsAt: dayStart(to.value) + 86400000 - 1000 };
+    try {
+      const saved = race ? await Store.updateRace(race.id, changes) : await Store.createRace({ routeId: route.id, ...changes });
+      loadRaces();
+      if (!race) prompt(`"${saved.name}" is ready. Send this link to whoever's racing:`, raceUrl(saved.code));
+    } catch (err) {
+      alert(err.message);
+    }
+  }, { once: true });
+}
 
 document.getElementById('view-link-create').onclick = async () => {
   const link = await createViewLink();

@@ -97,6 +97,20 @@
 //   POST api.php?action=home_save            {lat, lon, zoom}: where the map opens; {} clears it. Returns {home}
 //                                            (sent as user.home by me, login and the like; null when not set)
 //
+// Virtual races: a course, copied from one of your saved routes, and a time window. Anyone with the
+// race's link (race.html?code=CODE) sees its leaderboard and can enter, no login needed (see race_time)
+//   GET  api.php?action=races                your races: [{id, code, name, distance, startsAt, endsAt, entries}]
+//   POST api.php?action=race_create          {routeId, name, startsAt, endsAt} (Unix ms), returns the race
+//   POST api.php?action=race_update&id=ID    {name?, startsAt?, endsAt?}, returns the race
+//   POST api.php?action=race_delete&id=ID    the race and its times
+//   POST api.php?action=race_entry_delete    {id}: takes a time off one of your races
+//   GET  api.php?action=race&code=CODE[&entrant=KEY]  anyone: {name, host, distance, course, startsAt, endsAt,
+//                                            closesAt, mine, entries: [{id, name, seconds, startedAt, yours}]}, fastest
+//                                            first. entrant: the browser's key, to mark its own time (yours)
+//   POST api.php?action=race_enter&code=CODE {name, entrant, gpx}: anyone, while uploads are open. Returns
+//                                            {counted, why?, seconds?, startedAt?, best?, race}; a slower time than
+//                                            the entrant's best only changes their name
+
 // Achievements (worked out in the browser by achievements.js; the server only remembers them)
 //   GET  api.php?action=achievements         [{code, title, detail, earnedAt}], oldest first
 //   POST api.php?action=achievement_add      {achievements: [{code, title, detail}]}; already-earned codes are ignored
@@ -249,6 +263,39 @@ const SCHEMA = [
       way_id   BIGINT       NOT NULL,
       name     VARCHAR(255) NOT NULL,
       PRIMARY KEY (user_id, way_id)
+    ) CHARACTER SET utf8mb4
+    SQL,
+    <<<SQL
+    CREATE TABLE IF NOT EXISTS races (  -- virtual races, see race_time()
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      code        CHAR(24)     NOT NULL UNIQUE,  -- in the race's link
+      owner       INT          NOT NULL,
+      name        VARCHAR(100) NOT NULL,
+      course      MEDIUMTEXT   NOT NULL,  -- JSON [[lat, lon], ...], copied from a route so editing it changes nothing
+      distance_m  DOUBLE       NOT NULL,
+      starts_at   INT          NOT NULL,  -- Unix seconds: runs between these count
+      ends_at     INT          NOT NULL,
+      created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX (owner)
+    ) CHARACTER SET utf8mb4
+    SQL,
+    <<<SQL
+    CREATE TABLE IF NOT EXISTS race_entries (  -- each entrant's best time; never their activity
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      race_id     INT          NOT NULL,
+      entrant     CHAR(32)     NOT NULL,  -- a key their browser made, so a faster run replaces a slower one
+      name        VARCHAR(60)  NOT NULL,
+      seconds     INT          NOT NULL,
+      started_at  INT          NOT NULL,  -- Unix seconds, when they crossed the start
+      added_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (race_id, entrant)
+    ) CHARACTER SET utf8mb4
+    SQL,
+    <<<SQL
+    CREATE TABLE IF NOT EXISTS race_tries (  -- recent race uploads, to limit them per IP
+      ip        VARCHAR(45) NOT NULL,
+      tried_at  TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX (ip, tried_at)
     ) CHARACTER SET utf8mb4
     SQL,
     <<<SQL
@@ -814,6 +861,8 @@ function admin_delete_user(array $admin, array $b): array {
             $pdo->prepare("DELETE FROM $table WHERE user_id = ?")->execute([$uid]);
         }
         $pdo->prepare('DELETE FROM view_links WHERE owner = ?')->execute([$uid]);
+        $pdo->prepare('DELETE FROM race_entries WHERE race_id IN (SELECT id FROM races WHERE owner = ?)')->execute([$uid]);
+        $pdo->prepare('DELETE FROM races WHERE owner = ?')->execute([$uid]);
         $pdo->prepare('DELETE FROM users WHERE id = ?')->execute([$uid]);
     }
     $pdo->commit();
@@ -2555,6 +2604,371 @@ function delete_art_shape(int $userId, int $id): array {
     return ['ok' => true];
 }
 
+// --- Virtual races ---
+// A race is a course, copied from one of your saved routes, and a time
+// window. Anyone with its link (race.html?code=CODE) sees the leaderboard and
+// can enter by uploading an activity: the server finds the fastest time it
+// went from the course's start to its finish, along the course, within the
+// window (race_time). Only that time and the name they give are kept, never
+// the activity.
+
+const RACE_NEAR = 30.0;     // metres: passing this close to the start or finish counts
+const RACE_STRAY = 40.0;    // metres: this far off the course still counts as on it
+const RACE_ON_COURSE = 0.8; // share of the run, start to finish, that must be on the course
+const RACE_COVER = 0.9;     // share of the course the run must go along: no short cuts
+const RACE_LENGTH = [0.85, 1.4];  // the run's distance, start to finish, as a share of the course's
+const RACE_STEP = 10.0;     // metres between the points lines are compared at
+const RACE_MIN_M = 100.0;   // shorter courses aren't worth racing
+const RACE_MAX_DAYS = 366;
+const RACE_GRACE_DAYS = 2;  // uploads stay open this long after the end, for runs on the last day
+const RACE_MAX_ENTRIES = 1000;
+const RACE_GPX_MAX_BYTES = 20 * 1024 * 1024;
+const RACE_TRIES_PER_IP = 30;  // uploads per IP within LOGIN_WINDOW minutes
+
+// [lat, lon] points as metres [x, y] on a flat plane; fine at the scale of a course.
+function race_xy(array $points, float $lat0): array {
+    $ky = 111320.0;
+    $kx = $ky * cos(deg2rad($lat0));
+    return array_map(fn($p) => [(float) $p[1] * $kx, (float) $p[0] * $ky], $points);
+}
+
+function race_gap(array $a, array $b): float {
+    return hypot($a[0] - $b[0], $a[1] - $b[1]);
+}
+
+function race_length(array $xy): float {
+    $m = 0.0;
+    for ($i = 1, $n = count($xy); $i < $n; $i++) {
+        $m += race_gap($xy[$i - 1], $xy[$i]);
+    }
+    return $m;
+}
+
+// Points every RACE_STEP metres along a line.
+function race_dense(array $xy): array {
+    $out = [$xy[0]];
+    for ($i = 1, $n = count($xy); $i < $n; $i++) {
+        [$x1, $y1] = $xy[$i - 1];
+        [$x2, $y2] = $xy[$i];
+        $steps = (int) ceil(race_gap($xy[$i - 1], $xy[$i]) / RACE_STEP);
+        for ($k = 1; $k <= $steps; $k++) {
+            $out[] = [$x1 + ($x2 - $x1) * $k / $steps, $y1 + ($y2 - $y1) * $k / $steps];
+        }
+    }
+    return $out;
+}
+
+// A line's dense points in a grid of RACE_STRAY squares, for race_share().
+function race_grid(array $xy): array {
+    $grid = [];
+    foreach (race_dense($xy) as $p) {
+        $grid[(int) floor($p[0] / RACE_STRAY) . ',' . (int) floor($p[1] / RACE_STRAY)][] = $p;
+    }
+    return $grid;
+}
+
+// The share of $points within RACE_STRAY of the line in $grid.
+function race_share(array $points, array $grid): float {
+    $near = 0;
+    foreach ($points as $p) {
+        $cx = (int) floor($p[0] / RACE_STRAY);
+        $cy = (int) floor($p[1] / RACE_STRAY);
+        for ($x = $cx - 1; $x <= $cx + 1; $x++) {
+            for ($y = $cy - 1; $y <= $cy + 1; $y++) {
+                foreach ($grid["$x,$y"] ?? [] as $q) {
+                    if (race_gap($p, $q) <= RACE_STRAY) {
+                        $near++;
+                        continue 4;
+                    }
+                }
+            }
+        }
+    }
+    return $points ? $near / count($points) : 0.0;
+}
+
+// Where in a pass by a point (indices $from to $to of $p, all near it) to time
+// from: the last moment near its closest (leaving the start), or the first
+// (reaching the finish). Standing about at the start or finish doesn't count.
+function race_mark(array $p, int $from, int $to, array $at, bool $last): int {
+    $closest = INF;
+    for ($k = $from; $k <= $to; $k++) {
+        $closest = min($closest, race_gap($p[$k], $at));
+    }
+    $mark = $last ? $to : $from;
+    for ($k = $from; $k <= $to; $k++) {
+        $i = $last ? $to - ($k - $from) : $k;
+        if (race_gap($p[$i], $at) <= $closest + 5) {
+            return $i;
+        }
+    }
+    return $mark;
+}
+
+// The fastest an activity went along a course, from its start to its finish,
+// starting and finishing between $from and $to (Unix seconds). Like a
+// segment's efforts (segments.js), but a course can finish where it starts.
+// Returns ['start' => Unix seconds, 'seconds' => …], or ['why' => …], how far
+// the best try got: no-times, no-start, no-finish, off-course or outside.
+function race_time(array $course, string $gpx, int $from, int $to): array {
+    $points = [];
+    $times = [];
+    foreach (gpx_points($gpx) as [, $lat, $lon, , $time]) {
+        if ($time !== null) {
+            $points[] = [$lat, $lon];
+            $times[] = $time;
+        }
+    }
+    if (count($points) < 2) {
+        return ['why' => 'no-times'];
+    }
+    $p = race_xy($points, (float) $course[0][0]);
+    $c = race_xy($course, (float) $course[0][0]);
+    $start = $c[0];
+    $end = $c[count($c) - 1];
+    $length = race_length($c);
+    $onCourse = race_grid($c);
+    $along = race_dense($c);
+    $n = count($p);
+    $reasons = ['no-start', 'no-finish', 'off-course', 'outside'];
+    $got = 0;  // index in $reasons of how far the best try got
+    $best = null;
+    $i = 0;
+    while ($i < $n) {
+        if (race_gap($p[$i], $start) > RACE_NEAR) {
+            $i++;
+            continue;
+        }
+        // A pass by the start...
+        $zone = $i;
+        while ($i + 1 < $n && race_gap($p[$i + 1], $start) <= RACE_NEAR) {
+            $i++;
+        }
+        $a = race_mark($p, $zone, $i, $start, true);
+        $i++;
+        // ... then on to the finish, once it's gone about the course's length.
+        $metres = 0.0;
+        $b = -1;
+        for ($j = $a + 1; $j < $n; $j++) {
+            $metres += race_gap($p[$j - 1], $p[$j]);
+            if ($metres > $length * RACE_LENGTH[1]) {
+                break;
+            }
+            if ($metres >= $length * RACE_LENGTH[0] && race_gap($p[$j], $end) <= RACE_NEAR) {
+                $last = $j;
+                while ($last + 1 < $n && race_gap($p[$last + 1], $end) <= RACE_NEAR) {
+                    $last++;
+                }
+                $b = race_mark($p, $j, $last, $end, false);
+                break;
+            }
+        }
+        if ($b < 0) {
+            $got = max($got, 1);
+            continue;
+        }
+        $path = array_slice($p, $a, $b - $a + 1);
+        // Along the course (not a short cut), and the whole of it (not just its ends).
+        if (race_share($path, $onCourse) < RACE_ON_COURSE || race_share($along, race_grid($path)) < RACE_COVER) {
+            $got = max($got, 2);
+            continue;
+        }
+        $i = max($i, $b + 1);  // a lap done: the next may start where this one finished
+        if ($times[$a] < $from || $times[$b] > $to) {
+            $got = 3;
+            continue;
+        }
+        $seconds = $times[$b] - $times[$a];
+        if ($seconds > 0 && (!$best || $seconds < $best['seconds'])) {
+            $best = ['start' => $times[$a], 'seconds' => $seconds];
+        }
+    }
+    return $best ?: ['why' => $reasons[$got]];
+}
+
+function race_json(array $row): array {
+    return ['id' => (int) $row['id'], 'code' => $row['code'], 'name' => $row['name'], 'distance' => (float) $row['distance_m'],
+            'startsAt' => (int) $row['starts_at'] * 1000, 'endsAt' => (int) $row['ends_at'] * 1000,
+            'entries' => (int) ($row['entries'] ?? 0)];
+}
+
+function races(int $userId, ?int $onlyId = null): array {
+    $stmt = db()->prepare('SELECT r.*, (SELECT COUNT(*) FROM race_entries e WHERE e.race_id = r.id) AS entries
+                           FROM races r WHERE r.owner = ?' . ($onlyId ? ' AND r.id = ?' : '') . ' ORDER BY r.starts_at DESC, r.id DESC');
+    $stmt->execute($onlyId ? [$userId, $onlyId] : [$userId]);
+    return array_map('race_json', $stmt->fetchAll());
+}
+
+// A race's name and window from {name, startsAt, endsAt} (Unix ms), falling
+// back to $old's for any not given.
+function race_fields(array $b, array $old): array {
+    $name = mb_substr(trim((string) ($b['name'] ?? $old['name'])), 0, 100);
+    $starts = isset($b['startsAt']) ? (int) floor((float) $b['startsAt'] / 1000) : (int) $old['starts_at'];
+    $ends = isset($b['endsAt']) ? (int) floor((float) $b['endsAt'] / 1000) : (int) $old['ends_at'];
+    if ($name === '') {
+        fail('Give the race a name', 400);
+    }
+    if ($ends <= $starts) {
+        fail('The race has to end after it starts', 400);
+    }
+    if ($ends - $starts > RACE_MAX_DAYS * 86400) {
+        fail('A race can last a year at most', 400);
+    }
+    return [$name, $starts, $ends];
+}
+
+function race_create(int $userId, array $b): array {
+    $stmt = db()->prepare('SELECT name, data FROM routes WHERE id = ? AND user_id = ?');
+    $stmt->execute([(int) ($b['routeId'] ?? 0), $userId]);
+    $route = $stmt->fetch();
+    if (!$route) {
+        fail('Route not found', 404);
+    }
+    // The route's line, as routePoints() in app.js draws it.
+    $data = json_decode($route['data'], true);
+    $points = [];
+    foreach ($data['legs'] ?: $data['waypoints'] as $k => $leg) {
+        $leg = $data['legs'] ? $leg : [$leg];
+        foreach ($leg as $n => $pt) {
+            if ($data['legs'] && $k && !$n) continue;  // each leg starts where the last one ended
+            $points[] = [(float) $pt[0], (float) $pt[1]];
+        }
+    }
+    $distance = 0.0;
+    for ($i = 1; $i < count($points); $i++) {
+        $distance += haversine($points[$i - 1][0], $points[$i - 1][1], $points[$i][0], $points[$i][1]);
+    }
+    if ($distance < RACE_MIN_M) {
+        fail('That route is too short to race on', 400);
+    }
+    [$name, $starts, $ends] = race_fields($b, ['name' => $route['name'], 'starts_at' => 0, 'ends_at' => 0]);
+    if ($ends < time()) {
+        fail('That race would be over already', 400);
+    }
+    db()->prepare('INSERT INTO races (code, owner, name, course, distance_m, starts_at, ends_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        ->execute([bin2hex(random_bytes(12)), $userId, $name, json_encode(simplify_line($points, 2.0)), round($distance, 1), $starts, $ends]);
+    return races($userId, (int) db()->lastInsertId())[0];
+}
+
+function race_update(int $userId, int $id, array $b): array {
+    $stmt = db()->prepare('SELECT * FROM races WHERE id = ? AND owner = ?');
+    $stmt->execute([$id, $userId]);
+    $race = $stmt->fetch();
+    if (!$race) {
+        fail('Race not found', 404);
+    }
+    [$name, $starts, $ends] = race_fields($b, $race);
+    db()->prepare('UPDATE races SET name = ?, starts_at = ?, ends_at = ? WHERE id = ?')->execute([$name, $starts, $ends, $id]);
+    return races($userId, $id)[0];
+}
+
+function race_delete(int $userId, int $id): array {
+    $stmt = db()->prepare('DELETE FROM races WHERE id = ? AND owner = ?');
+    $stmt->execute([$id, $userId]);
+    if ($stmt->rowCount()) {
+        db()->prepare('DELETE FROM race_entries WHERE race_id = ?')->execute([$id]);
+    }
+    return ['ok' => true];
+}
+
+function race_entry_delete(int $userId, array $b): array {
+    db()->prepare('DELETE e FROM race_entries e JOIN races r ON r.id = e.race_id WHERE e.id = ? AND r.owner = ?')
+        ->execute([(int) ($b['id'] ?? 0), $userId]);
+    return ['ok' => true];
+}
+
+// The race with this link's code, and its host's username.
+function race_row(string $code): array {
+    $race = null;
+    if (preg_match('/^[0-9a-f]{24}$/', $code)) {
+        $stmt = db()->prepare('SELECT r.*, u.username FROM races r JOIN users u ON u.id = r.owner WHERE r.code = ?');
+        $stmt->execute([$code]);
+        $race = $stmt->fetch();
+    }
+    if (!$race) {
+        fail('There is no race at this link. It may have been deleted.', 404);
+    }
+    return $race;
+}
+
+// What the race page shows. The entrant's key marks their own time; the
+// host, logged in, can take times off (mine).
+function race_info(string $code, string $entrant = ''): array {
+    $race = race_row($code);
+    $user = current_user();
+    $stmt = db()->prepare('SELECT id, entrant, name, seconds, started_at FROM race_entries WHERE race_id = ? ORDER BY seconds, added_at');
+    $stmt->execute([$race['id']]);
+    $entries = array_map(fn($e) => ['id' => (int) $e['id'], 'name' => $e['name'], 'seconds' => (int) $e['seconds'],
+                                    'startedAt' => (int) $e['started_at'] * 1000,
+                                    'yours' => $entrant !== '' && hash_equals($e['entrant'], $entrant)], $stmt->fetchAll());
+    return ['name' => $race['name'], 'host' => $race['username'], 'distance' => (float) $race['distance_m'],
+            'course' => json_decode($race['course'], true),
+            'startsAt' => (int) $race['starts_at'] * 1000, 'endsAt' => (int) $race['ends_at'] * 1000,
+            'closesAt' => ((int) $race['ends_at'] + RACE_GRACE_DAYS * 86400) * 1000,
+            'mine' => $user && empty($user['read_only']) && (int) $user['id'] === (int) $race['owner'],
+            'entries' => $entries];
+}
+
+// Counts a race upload against this IP, and refuses it past RACE_TRIES_PER_IP.
+function count_race_try(): void {
+    $pdo = db();
+    $pdo->exec('DELETE FROM race_tries WHERE tried_at < NOW() - INTERVAL 1 DAY');
+    $pdo->prepare('INSERT INTO race_tries (ip) VALUES (?)')->execute([client_ip()]);
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM race_tries WHERE ip = ? AND tried_at > NOW() - INTERVAL ' . LOGIN_WINDOW . ' MINUTE');
+    $stmt->execute([client_ip()]);
+    if ((int) $stmt->fetchColumn() > RACE_TRIES_PER_IP) {
+        fail('Too many uploads. Wait ' . LOGIN_WINDOW . ' minutes and try again.', 429);
+    }
+}
+
+function race_enter(string $code, array $b): array {
+    $race = race_row($code);
+    $name = mb_substr(trim(preg_replace('/\s+/u', ' ', (string) ($b['name'] ?? ''))), 0, 60);
+    $entrant = (string) ($b['entrant'] ?? '');
+    $gpx = (string) ($b['gpx'] ?? '');
+    if (time() < (int) $race['starts_at']) {
+        fail("The race hasn't started yet", 400);
+    }
+    if (time() > (int) $race['ends_at'] + RACE_GRACE_DAYS * 86400) {
+        fail('This race is over: uploads have closed', 400);
+    }
+    if ($name === '') {
+        fail('Type your name for the leaderboard', 400);
+    }
+    if (!preg_match('/^[0-9a-f]{32}$/', $entrant)) {
+        fail('Missing entrant key', 400);
+    }
+    if ($gpx === '' || strlen($gpx) > RACE_GPX_MAX_BYTES) {
+        fail('Upload a GPX, FIT or TCX file of up to ' . (RACE_GPX_MAX_BYTES >> 20) . ' MB', 400);
+    }
+    count_race_try();
+    $stmt = db()->prepare('SELECT seconds FROM race_entries WHERE race_id = ? AND entrant = ?');
+    $stmt->execute([$race['id'], $entrant]);
+    $before = $stmt->fetchColumn();
+    if ($before === false) {
+        $count = db()->prepare('SELECT COUNT(*) FROM race_entries WHERE race_id = ?');
+        $count->execute([$race['id']]);
+        if ((int) $count->fetchColumn() >= RACE_MAX_ENTRIES) {
+            fail('This race is full', 400);
+        }
+    }
+    $time = race_time(json_decode($race['course'], true), $gpx, (int) $race['starts_at'], (int) $race['ends_at']);
+    if (isset($time['why'])) {
+        return ['counted' => false, 'why' => $time['why'], 'race' => race_info($code, $entrant)];
+    }
+    $best = $before === false || $time['seconds'] < (int) $before;
+    if ($best) {
+        db()->prepare('INSERT INTO race_entries (race_id, entrant, name, seconds, started_at) VALUES (?, ?, ?, ?, ?)
+                       ON DUPLICATE KEY UPDATE name = VALUES(name), seconds = VALUES(seconds),
+                       started_at = VALUES(started_at), added_at = CURRENT_TIMESTAMP')
+            ->execute([$race['id'], $entrant, $name, $time['seconds'], $time['start']]);
+    } else {
+        db()->prepare('UPDATE race_entries SET name = ? WHERE race_id = ? AND entrant = ?')->execute([$name, $race['id'], $entrant]);
+    }
+    return ['counted' => true, 'seconds' => $time['seconds'], 'startedAt' => $time['start'] * 1000, 'best' => $best,
+            'race' => race_info($code, $entrant)];
+}
+
 // --- Routing ---
 
 $method = $_SERVER['REQUEST_METHOD'];
@@ -2577,6 +2991,10 @@ if ($method === 'GET' && $action === 'me') {
     send_json(reset_password(read_json()));
 } elseif ($method === 'POST' && $action === 'recover') {
     send_json(recover(read_json()));
+} elseif ($method === 'GET' && $action === 'race') {
+    send_json(race_info((string) ($_GET['code'] ?? ''), (string) ($_GET['entrant'] ?? '')));
+} elseif ($method === 'POST' && $action === 'race_enter') {
+    send_json(race_enter((string) ($_GET['code'] ?? ''), read_json()));
 } elseif ($method === 'GET' && $action === 'strava_callback') {
     strava_callback();
 } elseif ($action === 'strava_webhook') {
@@ -2640,6 +3058,16 @@ if ($method === 'POST' && $action === 'invite') {
     send_json(area_delete($userId, $id));
 } elseif ($method === 'POST' && $action === 'area_exclude' && $id) {
     send_json(area_exclude($userId, $id, read_json()));
+} elseif ($method === 'GET' && $action === 'races') {
+    send_json(races($userId));
+} elseif ($method === 'POST' && $action === 'race_create') {
+    send_json(race_create($userId, read_json()));
+} elseif ($method === 'POST' && $action === 'race_update' && $id) {
+    send_json(race_update($userId, $id, read_json()));
+} elseif ($method === 'POST' && $action === 'race_delete' && $id) {
+    send_json(race_delete($userId, $id));
+} elseif ($method === 'POST' && $action === 'race_entry_delete') {
+    send_json(race_entry_delete($userId, read_json()));
 } elseif ($method === 'GET' && $action === 'way_names') {
     send_json(way_names($userId));
 } elseif ($method === 'POST' && $action === 'way_names_save') {

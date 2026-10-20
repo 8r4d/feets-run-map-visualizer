@@ -5,6 +5,19 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.16.0 — 2026-10-20
+
+- Virtual races: choose *Race* on a saved route in Planning, give the race a
+  name and its first and last days, and send the link. Anyone with it can open
+  the race's page (no account needed), see the course and the leaderboard, and
+  enter by uploading a run of it. The server times each run from the course's
+  start to its finish, wherever the runner started their watch, as long as it
+  follows the course (no short cuts) and was run during the race. Each runner
+  keeps their best time, uploads stay open 2 days after the end, and only names
+  and times are kept, never the runs. Your races are listed under Account, and
+  opening a race's page while logged in lets you take times off. See Help →
+  Guest Sharing, "Virtual races".
+
 ## 1.15.0 — 2026-10-20
 
 - feets in Japanese (日本語): pick it from the language menu, or it's used by

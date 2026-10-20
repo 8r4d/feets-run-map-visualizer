@@ -6,7 +6,7 @@
 //   (see index.html), so a new version is a new URL and is fetched; older
 //   versions of the same file are then dropped. Leaflet, from its CDN, too:
 //   its URL has its version in it
-// - other files of ours (icons, help pages): network first, copy offline
+// - other files of ours (icons, help pages, race.html): network first, copy offline
 // - api.php, map tiles and anything else from another site: left alone, so
 //   your tracks and account are never kept here (offline, the page says it
 //   can't reach the server, as it does now)
@@ -46,10 +46,13 @@ self.addEventListener('fetch', event => {
   if (!url.pathname.startsWith(scope.pathname)) return;
   if (/\.php$/.test(url.pathname)) return;  // api.php: always the network
 
-  if (request.mode === 'navigate') {
+  if (request.mode === 'navigate' && /^\/?(index\.html)?$/.test(url.pathname.slice(scope.pathname.length))) {
     // The page itself, with any ?view= or ?invite= in the URL: kept as the
     // one copy of the page, which is the same whatever the query string.
     event.respondWith(fromNetwork(event, request, new Request(scope.href)));
+  } else if (request.mode === 'navigate') {
+    // Another page (a race's, say): its own copy, whatever its query string.
+    event.respondWith(fromNetwork(event, request, new Request(url.origin + url.pathname)));
   } else if (url.searchParams.has('v')) {
     event.respondWith(fromCopy(event, request));
   } else {

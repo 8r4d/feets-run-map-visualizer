@@ -112,6 +112,13 @@ const Store = (() => {
     saveArtShape: shape => json('POST', '?action=art_shape_save', shape),  // { name, points } → stored shape
     deleteArtShape: id => json('POST', `?action=art_shape_delete&id=${id}`),
 
+    // Virtual races on your routes: { id, code, name, distance, startsAt, endsAt (Unix ms), entries }.
+    // The race page itself (race.html) talks to api.php on its own, with no login.
+    races: () => json('GET', '?action=races'),
+    createRace: race => json('POST', '?action=race_create', race),  // { routeId, name, startsAt, endsAt } → race
+    updateRace: (id, changes) => json('POST', `?action=race_update&id=${id}`, changes),  // → race
+    deleteRace: id => json('POST', `?action=race_delete&id=${id}`),
+
     // Distance goals in km: { week, month }, null when not set.
     goals: () => json('GET', '?action=goals'),
     saveGoals: goals => json('POST', '?action=goals_save', goals),

@@ -169,6 +169,119 @@ test('way names: yours alone, renamed or taken off, and readable by your viewers
   await owner.call('way_names_save', { ways: [7], name: '' });
 });
 
+// --- Virtual races ---
+// Places as [east, north] metres from a point in Vancouver, and runs along them.
+const ORIGIN = [49.28, -123.12];
+const at = ([e, n]) => [ORIGIN[0] + n / 111320, ORIGIN[1] + e / (111320 * Math.cos(ORIGIN[0] * Math.PI / 180))];
+// A line through `corners` with a point every `step` metres.
+function along(corners, step = 10) {
+  const out = [corners[0]];
+  for (let i = 1; i < corners.length; i++) {
+    const [[e1, n1], [e2, n2]] = [corners[i - 1], corners[i]];
+    const k = Math.max(1, Math.round(Math.hypot(e2 - e1, n2 - n1) / step));
+    for (let j = 1; j <= k; j++) out.push([e1 + (e2 - e1) * j / k, n1 + (n2 - n1) * j / k]);
+  }
+  return out;
+}
+// A GPX of points [east, north], `seconds` apart, from `from` (Unix ms).
+const runGpx = (points, from, seconds = 2) => '<?xml version="1.0"?><gpx version="1.1"><trk><trkseg>'
+  + points.map((p, i) => { const [lat, lon] = at(p); return `<trkpt lat="${lat.toFixed(7)}" lon="${lon.toFixed(7)}">`
+    + `<time>${new Date(from + i * seconds * 1000).toISOString()}</time></trkpt>`; }).join('') + '</trkseg></trk></gpx>';
+const still = (p, n) => Array(n).fill(p);  // standing about: n points in one place
+
+// A 400 m by 300 m loop (1400 m), starting and finishing at its south-west corner.
+const LOOP = [[0, 0], [400, 0], [400, 300], [0, 300], [0, 0]];
+
+test('races: a course from a route, timed from start to finish along it, best time per entrant', async () => {
+  const host = await member(), other = await member();
+  const legs = LOOP.slice(1).map((c, i) => along([LOOP[i], c], 25).map(at));
+  const route = (await host.client.call('route_save', { name: 'Block loop', distance: 1400,
+    data: { waypoints: LOOP.map(at), legs, straight: legs.map(() => false) } })).body;
+  const now = Date.now();
+  const created = await host.client.call('race_create', { routeId: route.id, name: 'Lunch loop', startsAt: now - 86400000, endsAt: now + 86400000 });
+  assert.equal(created.status, 200, JSON.stringify(created.body));
+  const race = created.body;
+  assert.equal(race.name, 'Lunch loop');
+  assert.ok(Math.abs(race.distance - 1400) < 5, `distance ${race.distance}`);
+  assert.equal((await other.client.call('race_create', { routeId: route.id, name: 'x', startsAt: now, endsAt: now + 1000 })).status, 404,
+    "not someone else's route");
+
+  // Anyone with the code, no login: the course and an empty leaderboard.
+  const anyone = new Client();
+  const key = 'a'.repeat(32), key2 = 'b'.repeat(32);
+  const info = (await anyone.call('race', undefined, `&code=${race.code}`)).body;
+  assert.equal(info.host, host.username);
+  assert.ok(info.course.length >= 4);
+  assert.deepEqual(info.entries, []);
+  assert.equal(info.mine, false);
+  assert.equal((await anyone.call('race', undefined, '&code=' + '0'.repeat(24))).status, 404);
+
+  const enter = (gpx, entrant = key, name = 'Sam') => anyone.call('race_enter', { name, entrant, gpx }, `&code=${race.code}`);
+  const hourAgo = now - 3600000;
+  // From 200 m away, 30 s about at the start, the loop at 5 m/s, 20 s at the finish, and off again.
+  const warmup = along([[-200, 0], [0, 0]]);
+  const good = [...warmup, ...still([0, 0], 15), ...along(LOOP).slice(1), ...still([0, 0], 10), ...along([[0, 0], [-200, 0]]).slice(1)];
+  const first = (await enter(runGpx(good, hourAgo))).body;
+  assert.equal(first.counted, true, JSON.stringify(first));
+  assert.ok(first.seconds >= 276 && first.seconds <= 284, `about 1400 m at 5 m/s, not counting the standing about: ${first.seconds}`);
+  assert.equal(first.best, true);
+  assert.deepEqual(first.race.entries.map(e => [e.name, e.yours]), [['Sam', true]]);
+
+  // Stopping halfway round; cutting across a corner (start to finish, but missing a side).
+  assert.equal((await enter(runGpx(along(LOOP.slice(0, 3)), hourAgo), key2)).body.why, 'no-finish');
+  const cut = along([[0, 0], [400, 0], [0, 300], [0, 0]]);
+  assert.equal((await enter(runGpx(cut, hourAgo), key2)).body.why, 'off-course');
+  // Round a bigger block instead: start to finish, but not along the course.
+  const wide = along([[0, 0], [0, -150], [450, -150], [450, 350], [0, 350], [0, 0]]);
+  assert.equal((await enter(runGpx(wide, hourAgo), key2)).body.why, 'off-course');
+  assert.equal((await enter(runGpx(along([[1000, 1000], [2000, 1000]]), hourAgo), key2)).body.why, 'no-start');
+  assert.equal((await enter(runGpx(good, now - 3 * 86400000), key2)).body.why, 'outside', 'run before the race');
+  assert.equal((await enter(good.map(() => '').join('') + '<gpx></gpx>', key2)).body.why, 'no-times');
+
+  // Two laps, the second faster (1 s a point): the faster lap counts.
+  const laps = [...along(LOOP), ...along(LOOP).slice(1).map(p => p)];
+  const lapsGpx = '<?xml version="1.0"?><gpx version="1.1"><trk><trkseg>' + laps.map((p, i) => {
+    const [lat, lon] = at(p);
+    const t = hourAgo + (i <= 140 ? i * 2 : 280 + (i - 140)) * 1000;
+    return `<trkpt lat="${lat.toFixed(7)}" lon="${lon.toFixed(7)}"><time>${new Date(t).toISOString()}</time></trkpt>`;
+  }).join('') + '</trkseg></trk></gpx>';
+  const second = (await enter(lapsGpx, key2, 'Alex')).body;
+  assert.equal(second.counted, true, JSON.stringify(second));
+  assert.ok(second.seconds >= 136 && second.seconds <= 144, `the faster lap: ${second.seconds}`);
+  assert.deepEqual(second.race.entries.map(e => [e.name, e.yours]), [['Alex', true], ['Sam', false]], 'fastest first');
+
+  // Slower than Sam's best: the time stays, the name changes.
+  const slow = (await enter(runGpx(good, hourAgo, 3), key, 'Sam B')).body;
+  assert.equal(slow.counted, true);
+  assert.equal(slow.best, false);
+  assert.deepEqual(slow.race.entries.map(e => [e.name, e.seconds]), [['Alex', second.seconds], ['Sam B', first.seconds]]);
+
+  // The host's list and page; only the host takes times off.
+  const mine = (await host.client.call('races')).body;
+  assert.deepEqual(mine.map(r => [r.name, r.entries]), [['Lunch loop', 2]]);
+  assert.equal((await host.client.call('race', undefined, `&code=${race.code}`)).body.mine, true);
+  const alex = slow.race.entries[0].id;
+  await other.client.call('race_entry_delete', { id: alex });
+  assert.equal((await anyone.call('race', undefined, `&code=${race.code}`)).body.entries.length, 2, "others can't");
+  await host.client.call('race_entry_delete', { id: alex });
+  assert.deepEqual((await anyone.call('race', undefined, `&code=${race.code}`)).body.entries.map(e => e.name), ['Sam B']);
+
+  // Ended: runs from the race still go in for a couple of days, then uploads close.
+  assert.equal((await host.client.call('race_update', { endsAt: now - 7200000 }, `&id=${race.id}`)).status, 200);
+  assert.equal((await enter(runGpx(good, hourAgo), key2, 'Late')).body.why, 'outside', 'ran after it ended');
+  await host.client.call('race_update', { startsAt: now - 10 * 86400000, endsAt: now - 3 * 86400000 }, `&id=${race.id}`);
+  assert.equal((await enter(runGpx(good, now - 5 * 86400000), key2)).status, 400, 'uploads closed');
+  assert.equal((await host.client.call('race_update', { endsAt: now - 20 * 86400000 }, `&id=${race.id}`)).status, 400, 'ends before it starts');
+
+  // Viewers can't see or make races; deleting one ends its link.
+  const { client: viewer } = await member({ viewer: true });
+  assert.equal((await viewer.call('races')).status, 403);
+  assert.equal((await other.client.call('race_delete', {}, `&id=${race.id}`)).status, 200);
+  assert.equal((await anyone.call('race', undefined, `&code=${race.code}`)).status, 200, "others can't delete it");
+  await host.client.call('race_delete', {}, `&id=${race.id}`);
+  assert.equal((await anyone.call('race', undefined, `&code=${race.code}`)).status, 404);
+});
+
 test('not logged in: nothing but the login', async () => {
   const c = new Client();
   assert.equal((await c.call('')).status, 401);
