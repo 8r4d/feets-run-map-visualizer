@@ -146,7 +146,7 @@ test('cards: quests turn over a card not yet had, seasonal sets only in their mo
   for (let i = 0; i < 8; i++) owned.add(Cards.pack({ id: `w${i}` }, owned, 'x', oct).code);
   assert.equal([...owned].filter(c => c.startsWith('q:halloween:')).length, 8);
   assert.match(Cards.pack({ id: 'w9' }, owned, 'x', oct).code, /^q:creatures:/, 'Halloween done: the first evergreen set');
-  assert.match(Cards.pack(q, new Set(), 'x', mar).code, /^q:thaw:/, "March has its own season, Halloween doesn't come");
+  assert.match(Cards.pack(q, new Set(), 'x', mar).code, /^q:sugarshack:/, "March has its own season, Halloween doesn't come");
   const sets = Cards.sets(new Map(), []);
   assert.equal(sets.filter(s => s.month !== undefined).length, 12, 'a season a month');
   const everything = new Set(sets.filter(s => s.kind === 'quest' && (s.month === undefined || s.month === 2) && !s.boss)

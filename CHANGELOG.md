@@ -5,6 +5,13 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.18.3 — 2026-10-20
+
+- The seasons follow a Canadian prairie year: March is Sugar Shack (still
+  winter, but maple syrup time), Spring Thaw moves to April, and November is
+  Freeze-Up (first snow, toques and hockey) in place of Falling Leaves. The
+  Twelve Months cards for March, April and November match.
+
 ## 1.18.2 — 2026-10-20
 
 - Fixed: *Add street maps where I've been* stopped finding the neighbourhoods
@@ -30,7 +37,7 @@ About box (`public/index.html`); keep it and this file in step.
   Beating it earns 200 XP and the month's legend card: twelve legends, one a
   month, back the next year if missed.
 - A season for every month: each month's quests turn over cards from its own
-  set of 8 (New Year, Hearts, Spring Thaw… Falling Leaves, Winter), back every
+  set of 8 (New Year, Hearts, Sugar Shack… Freeze-Up, Winter), back every
   year.
 - Streak shields: finish every quest in a week to earn one (hold up to 2). A
   week without new streets uses one up and your streak carries on, streak

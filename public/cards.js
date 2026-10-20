@@ -29,7 +29,7 @@ const Cards = (() => {
     [30000, '30K', '⛰️'], [42195, 'Marathon', '🥇'], [50000, 'Ultra', '🦄']];
   const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October',
     'November', 'December'];
-  const MONTH_ICONS = ['❄️', '💘', '🌱', '🌧️', '🌷', '☀️', '🏖️', '🌻', '🍎', '🎃', '🍂', '🎄'];
+  const MONTH_ICONS = ['❄️', '💘', '🍁', '🌱', '🌷', '☀️', '🏖️', '🌻', '🍎', '🎃', '🌨️', '🎄'];
 
   // Sets found by running. test(stats) gives the detail to keep, or nothing.
   const FOUND = [
@@ -96,12 +96,14 @@ const Cards = (() => {
     { id: 'hearts', name: 'Hearts', icon: '💝', color: '#ad1457', month: 1,
       cards: [['heart', 'Heart', '❤️'], ['ribbon', 'Ribbon Heart', '💝'], ['rose', 'Rose', '🌹'], ['letter', 'Love Letter', '💌'],
         ['chocolate', 'Chocolates', '🍫'], ['arrow', "Cupid's Arrow", '💘'], ['ring', 'Ring', '💍'], ['bear', 'Teddy Bear', '🧸']] },
-    { id: 'thaw', name: 'Spring Thaw', icon: '🌱', color: '#558b2f', month: 2,
-      cards: [['sprout', 'Sprout', '🌱'], ['clover', 'Clover', '🍀'], ['snail', 'Snail', '🐌'], ['puddle', 'Puddle', '💧'],
-        ['ladybug', 'Ladybug', '🐞'], ['nest', 'Nest', '🪺'], ['tulip', 'Tulip', '🌷'], ['hatchling', 'Hatchling', '🐣']] },
-    { id: 'showers', name: 'April Showers', icon: '☔', color: '#0277bd', month: 3,
-      cards: [['umbrella', 'Umbrella', '☔'], ['raindrop', 'Raindrop', '💧'], ['boots', 'Rain Boots', '🥾'], ['worm', 'Worm', '🪱'],
-        ['duck', 'Duckling', '🦆'], ['mushroom', 'Mushroom', '🍄'], ['rainbow', 'Double Rainbow', '🌈'], ['frog', 'Tree Frog', '🐸']] },
+    // The seasons are a Canadian prairie year: March is still winter (and
+    // maple syrup time), the thaw comes in April, and November is snow.
+    { id: 'sugarshack', name: 'Sugar Shack', icon: '🍁', color: '#a1521f', month: 2,
+      cards: [['syrup', 'Maple Syrup', '🍁'], ['pancakes', 'Pancakes', '🥞'], ['taffy', 'Taffy on Snow', '🍭'], ['sap', 'Sap Bucket', '🪣'],
+        ['cabin', 'Sugar Shack', '🛖'], ['fiddle', 'Fiddler', '🎻'], ['snowshoes', 'Snowshoes', '🥾'], ['icicle', 'Icicles', '🧊']] },
+    { id: 'thaw', name: 'Spring Thaw', icon: '🌱', color: '#558b2f', month: 3,
+      cards: [['melt', 'Snowmelt', '💧'], ['puddle', 'Puddle Jumper', '🥾'], ['crocus', 'Prairie Crocus', '🌷'], ['geese', 'Geese Return', '🦆'],
+        ['robin', 'First Robin', '🐦'], ['sprout', 'Sprout', '🌱'], ['worm', 'Worm', '🪱'], ['mud', 'Mud Season', '🟫']] },
     { id: 'bloom', name: 'In Bloom', icon: '🌸', color: '#d81b60', month: 4,
       cards: [['blossom', 'Cherry Blossom', '🌸'], ['bee', 'Bee', '🐝'], ['butterfly', 'Butterfly', '🦋'], ['sunflower', 'Daisy', '🌼'],
         ['hibiscus', 'Hibiscus', '🌺'], ['bouquet', 'Bouquet', '💐'], ['honey', 'Honey', '🍯'], ['caterpillar', 'Caterpillar', '🐛']] },
@@ -120,9 +122,9 @@ const Cards = (() => {
     { id: 'halloween', name: 'Halloween', icon: '🎃', color: '#e65100', month: 9,
       cards: [['pumpkin', 'Jack-o-lantern', '🎃'], ['ghost', 'Ghost', '👻'], ['bat', 'Bat', '🦇'], ['spider', 'Spider', '🕷️'],
         ['skull', 'Skull', '💀'], ['witch', 'Witch', '🧙'], ['candy', 'Candy', '🍬'], ['zombie', 'Zombie', '🧟']] },
-    { id: 'cozy', name: 'Falling Leaves', icon: '🍂', color: '#8d6e63', month: 10,
-      cards: [['leaf', 'Fallen Leaf', '🍂'], ['maple', 'Maple Leaf', '🍁'], ['acorn', 'Acorn', '🌰'], ['sweater', 'Sweater', '🧥'],
-        ['tea', 'Tea', '🍵'], ['soup', 'Soup', '🍲'], ['owl', 'Barn Owl', '🦉'], ['candle', 'Candle', '🕯️']] },
+    { id: 'freezeup', name: 'Freeze-Up', icon: '🌨️', color: '#546e7a', month: 10,
+      cards: [['snowfall', 'First Snowfall', '🌨️'], ['frost', 'Frosty Window', '🪟'], ['toque', 'Toque', '🧶'], ['chickadee', 'Chickadee', '🐦'],
+        ['hockey', 'Hockey Night', '🏒'], ['greycup', 'Grey Cup', '🏈'], ['soup', 'Hot Soup', '🍲'], ['longnight', 'Long Night', '🌃']] },
     { id: 'winter', name: 'Winter', icon: '☃️', color: '#1565c0', month: 11,
       cards: [['snowman', 'Snowman', '☃️'], ['snowflake', 'Snowflake', '❄️'], ['mitten', 'Mittens', '🧤'], ['scarf', 'Scarf', '🧣'],
         ['cocoa', 'Hot Cocoa', '☕'], ['sled', 'Sled', '🛷'], ['penguin', 'Penguin', '🐧'], ['skate', 'Ice Skate', '⛸️']] },
