@@ -2291,11 +2291,12 @@ async function checkTrophies() {
 const cardsBox = document.getElementById('cards-box');
 let cards = [];  // as from Store.cards()
 let cardsSince = null;  // Unix ms, or null until loaded
+let cardsLookedBack = true;  // the one-time look back for past travels is done (see lookBack)
 
 async function loadCards() {
   if (readOnly()) return;
   try {
-    ({ since: cardsSince, cards } = await Store.cards());
+    ({ since: cardsSince, lookedBack: cardsLookedBack, cards } = await Store.cards());
   } catch {
     cards = [];
     cardsSince = null;
@@ -2340,34 +2341,74 @@ function homeBase(tracks) {
 const PLACE_LOOKUPS = 10;
 let placeCache = {};
 try { placeCache = JSON.parse(localStorage.getItem('feets-places')) || {}; } catch {}
-async function runPlaces(tracks) {
+// limit: new squares to look up this time; progress(done, of) as it goes.
+// Resolves to the map, with .complete false if some runs were left for later.
+async function runPlaces(tracks, { limit = PLACE_LOOKUPS, progress = () => {} } = {}) {
   const out = new Map();
-  let asked = 0;
-  for (const t of tracks) {
+  const squareOf = t => {
     const at = t.segments.find(g => g.length)?.[0];
-    if (!at) continue;
-    const key = `${Math.round(at[0] / 0.05)},${Math.round(at[1] / 0.05)}`;
-    if (!(key in placeCache)) {
-      if (asked >= PLACE_LOOKUPS) continue;  // the rest next time
+    return at ? { at, key: `${Math.round(at[0] / 0.05)},${Math.round(at[1] / 0.05)}` } : null;
+  };
+  const missing = new Set(tracks.map(squareOf).filter(sq => sq && !(sq.key in placeCache)).map(sq => sq.key));
+  let asked = 0, busy = false;
+  out.complete = true;
+  for (const t of tracks) {
+    const sq = squareOf(t);
+    if (!sq) continue;
+    if (!(sq.key in placeCache)) {
+      if (busy || asked >= limit) { out.complete = false; continue; }  // the rest next time
       if (asked++) await new Promise(r => setTimeout(r, 1100));
+      progress(asked, Math.min(limit, missing.size));
       try {
-        placeCache[key] = await OSM.place(at[0], at[1]);
+        placeCache[sq.key] = await OSM.place(sq.at[0], sq.at[1]);
       } catch (err) {
         console.error('Places:', err);
-        break;  // busy: next time
+        busy = true;  // no more asking this time, but runs from squares already known still count
+        out.complete = false;
+        continue;
       }
       try { localStorage.setItem('feets-places', JSON.stringify(placeCache)); } catch {}
     }
-    if (placeCache[key]) out.set(t.id, placeCache[key]);
+    if (placeCache[sq.key]) out.set(t.id, placeCache[sq.key]);
   }
   return out;
+}
+
+// The one-time look back for past travels: Passport stamps and Places from
+// every activity, even ones before cards started (the one exception). Each
+// new ~5 km square is looked up a second apart, so it can take a minute or
+// two. If OpenStreetMap is busy partway, what's found is kept and it can be
+// finished later; only a complete look back is marked done.
+async function lookBack(button) {
+  if (!confirm('Look through all your past activities for the countries and towns you ran in, and add them to Passport '
+    + "and Places? This can only be done once, and it may take a minute or two. Nothing else is added from the past.")) return;
+  button.disabled = true;
+  try {
+    const tracks = [...loaded.values()].map(e => e.track).filter(Stats.onFoot);
+    const places = await runPlaces(tracks, { limit: Infinity, progress: (n, of) => { button.textContent = `Looking up place ${n} of ${of}…`; } });
+    const owned = ownedCards();
+    const fresh = Cards.travels(tracks, places).filter(c => !owned.has(c.code));
+    await saveCards(fresh);
+    if (!places.complete) {
+      alert(`OpenStreetMap stopped answering partway, so ${fresh.length ? `the ${fresh.length} found so far are added and ` : ''}`
+        + 'you can look back again later for the rest.');
+      return;
+    }
+    ({ since: cardsSince, lookedBack: cardsLookedBack, cards } = await Store.cardsLookedBack());
+    toast(fresh.length ? `🛂 ${fresh.length} from past travels` : '🛂 No new places in your past activities',
+      fresh.length ? 'In Passport and Places.' : 'Everywhere you ran is already in Passport and Places.');
+  } catch (err) {
+    alert(`Couldn't look back: ${err.message}`);
+  } finally {
+    renderCards();
+  }
 }
 
 // Keeps new cards, says so, and gives the trophy for any set they complete.
 async function saveCards(fresh) {
   if (!fresh.length) return;
   const knownTrophies = new Set(trophies.map(a => a.code));
-  ({ since: cardsSince, cards } = await Store.addCards(fresh));
+  ({ since: cardsSince, lookedBack: cardsLookedBack, cards } = await Store.addCards(fresh));
   renderCards();
   const sets = Cards.sets(ownedCards(), areas);
   for (const c of fresh.slice(0, 3)) {
@@ -2451,6 +2492,15 @@ function renderCards() {
         return el;
       }));
       items.push(box);
+    }
+    if (title === 'Travels' && !cardsLookedBack) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'link-button look-back';
+      button.textContent = 'Look back for past travels (once)';
+      button.title = 'Add the countries and towns from all your past activities to Passport and Places. Only once.';
+      button.onclick = () => lookBack(button);
+      items.push(button);
     }
   }
   document.getElementById('card-sets').replaceChildren(...items);

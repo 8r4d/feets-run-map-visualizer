@@ -5,6 +5,15 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.19.1 — 2026-10-20
+
+- *Look back for past travels*, once: a button under the Travels sets adds
+  Passport stamps and Places from all your past activities, the one exception
+  to cards only counting from here on. If OpenStreetMap gets busy partway,
+  what's found is kept and you can finish it later.
+- Fixed: when OpenStreetMap was busy, runs after that point in a check lost
+  their places even when they were already known.
+
 ## 1.19.0 — 2026-10-20
 
 - Cards are now a collection that keeps growing for years. Every running set,

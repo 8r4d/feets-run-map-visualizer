@@ -241,6 +241,16 @@ test('cards: running cards found before yearly editions become editions of the y
   assert.ok((await a.client.call('cards')).body.cards.some(c => c.code === 'f:trees:elm'), 'just once');
 });
 
+test('cards: the look back for past travels is once only', async () => {
+  const a = await member();
+  assert.equal((await a.client.call('cards')).body.lookedBack, false);
+  const done = (await a.client.call('cards_looked_back', {})).body;
+  assert.equal(done.lookedBack, true);
+  assert.equal((await a.client.call('cards')).body.lookedBack, true);
+  const { client: viewer } = await member({ viewer: true });
+  assert.equal((await viewer.call('cards_looked_back', {})).status, 403);
+});
+
 test('finding areas: a turn twice a day, given back when OpenStreetMap was busy, and how it went kept', async () => {
   const a = await member();
   // Not a new account any more, so turns are 12 hours apart.

@@ -2961,3 +2961,9 @@ body.race-page {
 .card .editions:empty {
   display: none;
 }
+
+#card-sets .look-back {
+  align-self: flex-start;
+  margin: 2px 0 4px;
+  font-size: 12px;
+}

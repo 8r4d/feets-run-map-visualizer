@@ -202,6 +202,21 @@ test('cards: only from runs recorded from here on, shown by set in Questing', { 
   await page.eval(`document.querySelector('#mode [data-mode=tracks]').click()`);
 });
 
+test('cards: looking back once for past travels adds Passport and Places from older activities', { skip }, async () => {
+  // Stand-in answers for OpenStreetMap: the sample files' places count as somewhere in France.
+  await page.eval(`OSM.place = async () => ({ cc: 'fr', country: 'France', town: 'Lyon' }); localStorage.removeItem('feets-places'); placeCache = {}`);
+  await page.eval(`document.querySelector('#mode [data-mode=fog]').click(); document.getElementById('cards-box').open = true`);
+  await page.waitFor(`document.querySelector('#card-sets .look-back')`, { what: 'the look-back button' });
+  await page.eval(`document.querySelector('#card-sets .look-back').click()`);  // its confirm is accepted
+  await page.waitFor(`cards.some(c => c.code === 'p:fr') && cardsLookedBack`, { what: 'France from the past', timeout: 20000 });
+  assert.ok(await page.eval(`cards.some(c => c.code === 't:fr:lyon')`));
+  assert.equal(await page.eval(`!!document.querySelector('#card-sets .look-back')`), false, 'gone once done');
+  await page.reload();
+  await page.waitFor(`document.getElementById('auth').hidden && cardsSince !== null`, { what: 'the app again' });
+  assert.equal(await page.eval(`cardsLookedBack`), true, 'and stays gone');
+  await page.eval(`document.querySelector('#mode [data-mode=tracks]').click()`);
+});
+
 test('miles', { skip }, async () => {
   await page.eval(`localStorage.setItem('feets-units', 'mi')`);
   await page.reload();

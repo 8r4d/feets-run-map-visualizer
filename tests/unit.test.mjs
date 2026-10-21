@@ -185,6 +185,17 @@ test('cards: a new edition every year, Passport and Places, Globetrotter, climbs
   assert.equal(Cards.setTrophies(travels, 2026).filter(t => /passport|places/.test(t.code)).length, 0, 'never complete');
 });
 
+test('cards: the look back for past travels: each country and town once, from the first run there', () => {
+  const { Cards } = loadScripts(['coverage.js', 'cards.js']);
+  const run = (id, iso) => ({ id, name: id, time: iso, distance: 5000, segments: [[[0, 0], [0.01, 0]]] });
+  const places = new Map([['a', { cc: 'fr', country: 'France', town: 'Paris' }], ['b', { cc: 'fr', country: 'France', town: 'Lyon' }],
+    ['c', { cc: 'fr', country: 'France', town: 'Paris' }], ['d', { cc: 'jp', country: 'Japan', town: '' }]]);
+  const found = Cards.travels([run('c', '2019-05-03T08:00:00Z'), run('a', '2019-05-01T08:00:00Z'), run('b', '2019-05-02T08:00:00Z'),
+    run('d', '2023-01-01T08:00:00Z'), run('e', '2024-01-01T08:00:00Z')], places);
+  assert.equal(found.map(c => c.code).join(), 'p:fr,t:fr:paris,t:fr:lyon,p:jp');
+  assert.match(found[0].detail, /^France · a, /, 'from the first run in France');
+});
+
 test('cards: quests turn over a card not yet had, seasonal sets only in their month', () => {
   const { Cards } = loadScripts(['coverage.js', 'cards.js']);
   const oct = new Date(2026, 9, 20), mar = new Date(2027, 2, 1);

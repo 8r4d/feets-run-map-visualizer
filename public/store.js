@@ -135,9 +135,11 @@ const Store = (() => {
     achievements: () => json('GET', '?action=achievements'),
     addAchievements: achievements => json('POST', '?action=achievement_add', { achievements }),
     // Cards for the collection (see cards.js): { since (Unix ms: when activities started finding
-    // them), cards: [{ code, detail, earnedAt }] }, oldest first. addCards resolves the same.
+    // them), lookedBack, cards: [{ code, detail, earnedAt }] }, oldest first. addCards resolves the same.
     cards: () => json('GET', '?action=cards'),
     addCards: cards => json('POST', '?action=card_add', { cards }),
+    // The one-time look back for past travels (Passport and Places) is done; resolves as cards() does.
+    cardsLookedBack: () => json('POST', '?action=cards_looked_back'),
     // Experience points: { since (Unix ms), total, recent: [{ kind, points, detail, earnedAt }], refs,
     // idle: { ref: points } }.
     xp: () => json('GET', '?action=xp'),

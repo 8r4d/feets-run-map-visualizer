@@ -310,6 +310,22 @@ const Cards = (() => {
     return out;
   }
 
+  // Passport and Places from any activities, for the one-time look back at
+  // past travels: each country and town once, from the first run there.
+  // places: as evaluate takes. [{ code, detail }].
+  function travels(tracks, places) {
+    const out = new Map();
+    const runs = tracks.filter(t => t.time && places.get(t.id)).sort((a, b) => Date.parse(a.time) - Date.parse(b.time));
+    for (const t of runs) {
+      const where = places.get(t.id);
+      const run = `${t.name}, ${fmtDate(new Date(t.time))}`;
+      const add = (code, detail) => { if (!out.has(code)) out.set(code, { code, detail }); };
+      add(`p:${where.cc}`, `${where.country} · ${run}`);
+      if (where.town) add(`t:${where.cc}:${where.town.toLowerCase()}`, `${where.town}, ${where.country} · ${run}`);
+    }
+    return [...out.values()];
+  }
+
   // The quest set turning over now: a seasonal one in its month while it has
   // cards left, else the first evergreen one with cards left (null if none).
   function questSet(owned, now = new Date()) {
@@ -395,5 +411,5 @@ const Cards = (() => {
           : set.yearly ? `All ${set.cards.length} cards found in ${year}` : `All ${set.cards.length} cards collected` }));
   }
 
-  return { evaluate, pack, questSet, sets, setTrophies, legend, legendCard, flag, STREET_RUN, HOOD_PCT };
+  return { evaluate, travels, pack, questSet, sets, setTrophies, legend, legendCard, flag, STREET_RUN, HOOD_PCT };
 })();

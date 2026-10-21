@@ -118,8 +118,10 @@
 //   POST api.php?action=achievement_add      {achievements: [{code, title, detail}]}; already-earned codes are ignored
 //
 // Cards (worked out in the browser by cards.js; the server only remembers which were found)
-//   GET  api.php?action=cards                {since, cards: [{code, detail, earnedAt}]}, oldest first. since (Unix ms):
-//                                            when the account's activities started finding cards, set on the first call
+//   GET  api.php?action=cards                {since, lookedBack, cards: [{code, detail, earnedAt}]}, oldest first. since
+//                                            (Unix ms): when the account's activities started finding cards, set on the
+//                                            first call; lookedBack: the one-time look back for past travels is done
+//   POST api.php?action=cards_looked_back    marks that look back done; returns what GET does
 //   POST api.php?action=card_add             {cards: [{code, detail}]}; codes already found are ignored. Returns
 //                                            what GET does
 
@@ -171,6 +173,7 @@ const SCHEMA = [
       quests        TEXT         NULL,                    -- JSON: this week's quests, see save_quests()
       xp_since      TIMESTAMP    NULL,                    -- when experience points started counting, see xp()
       cards_since   TIMESTAMP    NULL,                    -- when activities started finding cards, see list_cards()
+      cards_lookback TIMESTAMP   NULL,                    -- when the one-time look back for past travels was done
       created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) CHARACTER SET utf8mb4
     SQL,
@@ -525,6 +528,10 @@ function db(): PDO {
             $pdo->exec("DELETE FROM xp_events WHERE ref LIKE 'trophy:cards:h%' OR ref IN ($refs)");
             $pdo->exec('UPDATE users SET cards_since = NOW() - INTERVAL 14 DAY');
             $pdo->exec("INSERT INTO settings (name, value) VALUES ('cards_per_run', NOW())");
+        }
+        // ...and the one-time look back for past travels (1.19.1).
+        if (!$pdo->query("SHOW COLUMNS FROM users LIKE 'cards_lookback'")->fetch()) {
+            $pdo->exec('ALTER TABLE users ADD COLUMN cards_lookback TIMESTAMP NULL AFTER cards_since');
         }
         // ...and running cards found again each year (1.19.0): the ones found so
         // far become editions of the year they were found in.
@@ -2640,11 +2647,19 @@ function add_achievements(int $userId, array $b): array {
 
 function list_cards(int $userId): array {
     db()->prepare('UPDATE users SET cards_since = NOW() - INTERVAL 1 DAY WHERE id = ? AND cards_since IS NULL')->execute([$userId]);
-    $since = db()->prepare('SELECT UNIX_TIMESTAMP(cards_since) FROM users WHERE id = ?');
-    $since->execute([$userId]);
+    $user = db()->prepare('SELECT UNIX_TIMESTAMP(cards_since) AS since, cards_lookback IS NOT NULL AS lookedBack FROM users WHERE id = ?');
+    $user->execute([$userId]);
+    $row = $user->fetch();
     $stmt = db()->prepare('SELECT code, detail, earned_at AS earnedAt FROM cards WHERE user_id = ? ORDER BY earned_at, code');
     $stmt->execute([$userId]);
-    return ['since' => (int) $since->fetchColumn() * 1000, 'cards' => $stmt->fetchAll()];
+    return ['since' => (int) $row['since'] * 1000, 'lookedBack' => (bool) $row['lookedBack'], 'cards' => $stmt->fetchAll()];
+}
+
+// The one-time look back: Passport and Places from every past activity, the
+// one exception to cards only counting from here on. Once it's done, it's done.
+function cards_looked_back(int $userId): array {
+    db()->prepare('UPDATE users SET cards_lookback = NOW() WHERE id = ? AND cards_lookback IS NULL')->execute([$userId]);
+    return list_cards($userId);
 }
 
 function add_cards(int $userId, array $b): array {
@@ -3228,6 +3243,8 @@ if ($method === 'POST' && $action === 'invite') {
     send_json(list_cards($userId));
 } elseif ($method === 'POST' && $action === 'card_add') {
     send_json(add_cards($userId, read_json()));
+} elseif ($method === 'POST' && $action === 'cards_looked_back') {
+    send_json(cards_looked_back($userId));
 } elseif ($method === 'GET' && $action === 'xp') {
     send_json(xp($userId));
 } elseif ($method === 'POST' && $action === 'xp_add') {
