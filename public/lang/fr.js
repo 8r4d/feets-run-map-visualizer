@@ -343,4 +343,12 @@ I18n.add('fr', {
   'Change your password': "Changez votre mot de passe",
   'Dark mode': "Mode sombre",
   'Light mode': "Mode clair",
+  'Colours': "Couleurs",
+  'classic': "classique",
+  'seasonal': "saisonnier",
+  'spring': "printemps",
+  'summer': "été",
+  'autumn': "automne",
+  'winter': "hiver",
+  'neon': "néon",
 });

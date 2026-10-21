@@ -343,4 +343,12 @@ I18n.add('zh', {
   'Change your password': '修改你的密码',
   'Dark mode': '深色模式',
   'Light mode': '浅色模式',
+  'Colours': '配色',
+  'classic': '经典',
+  'seasonal': '随季节',
+  'spring': '春',
+  'summer': '夏',
+  'autumn': '秋',
+  'winter': '冬',
+  'neon': '霓虹',
 });

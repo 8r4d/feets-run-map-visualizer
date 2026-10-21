@@ -4,6 +4,7 @@
 
 /* Colours. Light by default; dark when <html data-theme="dark">, set by the
    script in index.html's <head> and the toggle beside the title (app.js).
+   A palette picked beside it (data-palette, below) recolours either one.
    Things drawn on the map (markers, arrows) keep their own colours. */
 :root {
   color-scheme: light;
@@ -18,6 +19,9 @@
   --border-strong: #ccc;
   --track: #eee;
   --link: #1a73e8;
+  --primary: #2a7ae2;    /* buttons picked or pressed, focus edges */
+  --on-primary: #fff;    /* text on --primary */
+  --good: #2e9e44;       /* met, done */
   --danger: #c00;
   --danger-surface: #fff8f8;
   --danger-border: #f0b4b4;
@@ -55,6 +59,231 @@
   --cal-2: #3987e5;
   --cal-3: #86b6ef;
   --cal-4: #d3e5fb;
+}
+
+/* Palettes, picked beside the title (app.js). Each season has a light and a
+   dark side, so the light/dark toggle still works; neon is dark only (app.js
+   sets data-theme="dark" with it and hides the toggle). "Seasonal" in the
+   picker sets whichever season it is. */
+:root[data-palette="spring"] {
+  --bg: #f6faf3;
+  --surface: #fff;
+  --surface-2: #eef5e8;
+  --border: #dbe8d2;
+  --border-strong: #bcd3ad;
+  --track: #e4eedc;
+  --link: #2e7d32;
+  --primary: #c2185b;
+  --info-surface: #fbeef4;
+  --cal-1: #b5dfa0;
+  --cal-2: #7cc35b;
+  --cal-3: #43923a;
+  --cal-4: #1f5e24;
+}
+
+:root[data-palette="spring"][data-theme="dark"] {
+  --bg: #161c16;
+  --surface: #1f271f;
+  --surface-2: #283228;
+  --border: #344234;
+  --border-strong: #475a46;
+  --track: #2c372b;
+  --link: #8fd17a;
+  --primary: #f07aa8;
+  --on-primary: #1a1016;
+  --info-surface: #2f2230;
+  --cal-1: #1f5e24;
+  --cal-2: #43923a;
+  --cal-3: #7cc35b;
+  --cal-4: #c7ebb5;
+}
+
+:root[data-palette="summer"] {
+  --bg: #fffbf2;
+  --surface: #fff;
+  --surface-2: #fdf3dc;
+  --border: #f0e2c0;
+  --border-strong: #dcc795;
+  --track: #f6ead0;
+  --link: #b35400;
+  --primary: #00838f;
+  --info-surface: #fff1d6;
+  --cal-1: #ffe08a;
+  --cal-2: #ffc23d;
+  --cal-3: #f29100;
+  --cal-4: #b35400;
+}
+
+:root[data-palette="summer"][data-theme="dark"] {
+  --bg: #1b1912;
+  --surface: #25221a;
+  --surface-2: #302c21;
+  --border: #3f3a2b;
+  --border-strong: #574f3a;
+  --track: #332f24;
+  --link: #ffb74d;
+  --primary: #26c6da;
+  --on-primary: #062226;
+  --info-surface: #2e2818;
+  --cal-1: #b35400;
+  --cal-2: #f29100;
+  --cal-3: #ffc23d;
+  --cal-4: #ffe8a8;
+}
+
+:root[data-palette="autumn"] {
+  --bg: #fbf7f2;
+  --surface: #fff;
+  --surface-2: #f5ece2;
+  --border: #e9dacb;
+  --border-strong: #d3bca5;
+  --track: #efe3d6;
+  --link: #a0461b;
+  --primary: #bf4f1b;
+  --info-surface: #fbefe3;
+  --cal-1: #f2c078;
+  --cal-2: #e08a3c;
+  --cal-3: #b3501f;
+  --cal-4: #6e2a12;
+}
+
+:root[data-palette="autumn"][data-theme="dark"] {
+  --bg: #1c1814;
+  --surface: #26201b;
+  --surface-2: #312923;
+  --border: #42372e;
+  --border-strong: #5a4b3f;
+  --track: #352c25;
+  --link: #f0a060;
+  --primary: #e07b39;
+  --on-primary: #1c0f06;
+  --info-surface: #33261c;
+  --cal-1: #6e2a12;
+  --cal-2: #b3501f;
+  --cal-3: #e08a3c;
+  --cal-4: #f7d2a0;
+}
+
+:root[data-palette="winter"] {
+  --bg: #f5f8fb;
+  --surface: #fff;
+  --surface-2: #ebf1f7;
+  --border: #d8e2ec;
+  --border-strong: #b8c8d8;
+  --track: #e2eaf2;
+  --link: #2b6cb0;
+  --primary: #4a5fc1;
+  --info-surface: #e9f1fb;
+  --cal-1: #bcd7ee;
+  --cal-2: #7fb0dc;
+  --cal-3: #3f7bb8;
+  --cal-4: #1b3f6e;
+}
+
+:root[data-palette="winter"][data-theme="dark"] {
+  --bg: #121820;
+  --surface: #1a222c;
+  --surface-2: #232d39;
+  --border: #2f3b49;
+  --border-strong: #435264;
+  --track: #283340;
+  --link: #9cc8f2;
+  --primary: #8fa2ff;
+  --on-primary: #0d1230;
+  --info-surface: #1b2a3d;
+  --cal-1: #1b3f6e;
+  --cal-2: #3f7bb8;
+  --cal-3: #7fb0dc;
+  --cal-4: #dcecfa;
+}
+
+/* Neon: near-black with cyan light lines, a glow on the edges */
+:root[data-palette="neon"] {
+  color-scheme: dark;
+  --text: #d8f6ff;
+  --text-2: #b5e6f5;
+  --text-3: #8cc8dc;
+  --muted: #5f93a6;
+  --bg: #05070d;
+  --surface: #0a1020;
+  --surface-2: #10192e;
+  --border: #12405a;
+  --border-strong: #1e6a8a;
+  --track: #0f2236;
+  --link: #00e5ff;
+  --primary: #00e5ff;
+  --on-primary: #001014;
+  --good: #39ff14;
+  --danger: #ff3b6b;
+  --danger-surface: #2a0b16;
+  --danger-border: #7a1f3a;
+  --info-surface: #06202e;
+  --art: #ff2bd6;
+  --art-surface: #2a0a26;
+  --glow: 0 0 6px rgba(0, 229, 255, 0.45), 0 0 18px rgba(0, 229, 255, 0.15);
+  --cal-1: #08344a;
+  --cal-2: #00799a;
+  --cal-3: #00c8e8;
+  --cal-4: #a8f6ff;
+}
+
+[data-palette="neon"] #sidebar {
+  border-right-color: var(--primary);
+  box-shadow: var(--glow);
+}
+
+[data-palette="neon"] #sidebar h1 {
+  color: var(--primary);
+  letter-spacing: 0.06em;
+  text-shadow: 0 0 6px rgba(0, 229, 255, 0.8), 0 0 16px rgba(0, 229, 255, 0.4);
+}
+
+[data-palette="neon"] .panel {
+  box-shadow: var(--glow);
+}
+
+[data-palette="neon"] #mode button[aria-pressed="true"],
+[data-palette="neon"] #auth-form button,
+[data-palette="neon"] #race-submit,
+[data-palette="neon"] .progress .bar span {
+  box-shadow: var(--glow);
+}
+
+/* The palette picker: a round button like the light/dark one, the select
+   laid invisibly over it so its own list still opens. */
+#palette-button {
+  position: relative;
+  flex-shrink: 0;
+  margin-left: auto;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+#palette-button:hover {
+  background: var(--surface-2);
+}
+
+#palette-button:focus-within {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+#palette {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+[data-palette="neon"] .dark-tiles {
+  filter: invert(1) grayscale(1) brightness(0.6) contrast(1.4) sepia(1) hue-rotate(150deg) saturate(3);
 }
 
 html, body {
@@ -150,7 +379,7 @@ body {
 [data-theme="dark"] .leaflet-container .leaflet-control-attribution,
 [data-theme="dark"] .leaflet-control-scale-line {
   color: var(--text-3);
-  background: rgba(35, 37, 39, 0.8);
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
 }
 
 [data-theme="dark"] .leaflet-control-scale-line {
@@ -369,7 +598,7 @@ body {
 }
 
 #dropzone.over {
-  border-color: #2a7ae2;
+  border-color: var(--primary);
   background: var(--info-surface);
 }
 
@@ -543,8 +772,8 @@ body {
 }
 
 #mode button[aria-pressed="true"] {
-  color: #fff;
-  background: #2a7ae2;
+  color: var(--on-primary);
+  background: var(--primary);
 }
 
 #strava {
@@ -661,8 +890,8 @@ body {
   padding: 8px;
   font: inherit;
   font-weight: 600;
-  color: #fff;
-  background: #2a7ae2;
+  color: var(--on-primary);
+  background: var(--primary);
   border: none;
   border-radius: 6px;
   cursor: pointer;
@@ -805,8 +1034,8 @@ body {
   padding: 8px 16px;
   font: inherit;
   font-weight: 600;
-  color: #fff;
-  background: #2a7ae2;
+  color: var(--on-primary);
+  background: var(--primary);
   border: none;
   border-radius: 6px;
   cursor: pointer;
@@ -1078,7 +1307,7 @@ body {
 .progress .bar span {
   display: block;
   height: 100%;
-  background: #2e9e44;
+  background: var(--good);
 }
 
 .progress strong {
@@ -1252,7 +1481,7 @@ body {
 }
 
 #todo-list li:hover {
-  border-color: #1a73e8;
+  border-color: var(--primary);
 }
 
 #todo-list .swatch {
@@ -1619,7 +1848,7 @@ body {
   padding: 10px 14px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-left: 4px solid #2e9e44;
+  border-left: 4px solid var(--good);
   border-radius: 8px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
   cursor: pointer;
@@ -1753,11 +1982,11 @@ body {
 }
 
 .progress.goal .bar span {
-  background: #1a73e8;
+  background: var(--primary);
 }
 
 .progress.goal.met .bar span {
-  background: #2e9e44;
+  background: var(--good);
 }
 
 .goal-past {
@@ -1783,7 +2012,7 @@ body {
 }
 
 .goal-history span.met {
-  background: #2e9e44;
+  background: var(--good);
 }
 
 #goals-form {
@@ -2415,7 +2644,7 @@ body {
 #help-content .tip {
   padding: 8px 12px;
   background: var(--info-surface);
-  border-left: 3px solid #2a7ae2;
+  border-left: 3px solid var(--primary);
   border-radius: 4px;
 }
 
@@ -2615,8 +2844,8 @@ body.race-page {
   padding: 8px 16px;
   font: inherit;
   font-weight: 600;
-  color: #fff;
-  background: #2a7ae2;
+  color: var(--on-primary);
+  background: var(--primary);
   border: none;
   border-radius: 6px;
   cursor: pointer;

@@ -266,6 +266,28 @@ test('dark mode', { skip }, async () => {
   await snap(flipped);
 });
 
+test('palettes', { skip }, async () => {
+  const sidebarBg = () => page.eval(`getComputedStyle(document.getElementById('sidebar')).backgroundColor`);
+  const pick = value => page.eval(`(p => { p.value = ${JSON.stringify(value)}; p.onchange(); })(document.getElementById('palette'))`);
+  await pick('neon');
+  assert.equal(await page.eval(`document.documentElement.dataset.theme`), 'dark', 'neon is dark');
+  assert.equal(await page.eval(`document.getElementById('theme-toggle').hidden`), true);
+  assert.equal(await sidebarBg(), 'rgb(5, 7, 13)');
+  await page.reload();
+  assert.equal(await page.eval(`document.documentElement.dataset.palette`), 'neon', 'remembered');
+  await snap('neon');
+  for (const season of ['spring', 'summer', 'autumn', 'winter']) {
+    await pick(season);
+    await snap(season);
+  }
+  await pick('seasonal');
+  assert.match(await page.eval(`document.documentElement.dataset.palette`), /^(spring|summer|autumn|winter)$/);
+  assert.equal(await page.eval(`document.getElementById('theme-toggle').hidden`), false);
+  await pick('');
+  assert.equal(await page.eval(`document.documentElement.dataset.palette ?? null`), null);
+  assert.equal(await page.eval(`localStorage.getItem('feets-palette')`), null, 'classic is the default');
+});
+
 test('installable, and opens offline', { skip }, async () => {
   const manifest = await page.eval(`fetch(document.querySelector('link[rel=manifest]').href).then(r => r.json())`);
   assert.equal(manifest.display, 'standalone');

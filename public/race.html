@@ -9,13 +9,15 @@
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <meta name="theme-color" content="#fafafa">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=100">
-  <!-- Light or dark as the main page has it (see index.html). -->
+  <link rel="stylesheet" href="style.css?v=101">
+  <!-- Light or dark, and the palette, as the main page has them (see index.html). -->
   <script>
-    let feetsTheme = null;
-    try { feetsTheme = localStorage.getItem('feets-theme'); } catch {}
-    document.documentElement.dataset.theme = feetsTheme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-    document.querySelector('meta[name=theme-color]').content = document.documentElement.dataset.theme === 'dark' ? '#181a1b' : '#fafafa';
+    let feetsTheme = null, feetsPalette = null;
+    try { feetsTheme = localStorage.getItem('feets-theme'); feetsPalette = localStorage.getItem('feets-palette'); } catch {}
+    if (feetsPalette === 'seasonal') feetsPalette = ['winter', 'spring', 'summer', 'autumn'][Math.floor((new Date().getMonth() + 1) % 12 / 3)];
+    if (feetsPalette) document.documentElement.dataset.palette = feetsPalette;
+    document.documentElement.dataset.theme = feetsPalette === 'neon' ? 'dark' : feetsTheme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    document.querySelector('meta[name=theme-color]').content = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
   </script>
 </head>
 <body class="race-page">

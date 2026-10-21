@@ -343,4 +343,12 @@ I18n.add('ja', {
   'Change your password': 'パスワードを変更',
   'Dark mode': 'ダークモード',
   'Light mode': 'ライトモード',
+  'Colours': '配色',
+  'classic': 'クラシック',
+  'seasonal': '季節に合わせる',
+  'spring': '春',
+  'summer': '夏',
+  'autumn': '秋',
+  'winter': '冬',
+  'neon': 'ネオン',
 });

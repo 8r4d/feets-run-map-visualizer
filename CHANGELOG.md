@@ -5,6 +5,15 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.22.0 — 2026-10-21
+
+- Colour palettes, picked beside the title: classic (as before), spring,
+  summer, autumn and winter, or seasonal, which follows the season by month
+  (northern hemisphere) and turns over by itself. Each season works in light
+  and dark, so the toggle still does. Neon is a Tron-style dark palette, cyan
+  lines glowing on near-black; with it the light/dark toggle hides. The
+  phone's bar above the page and the virtual race page match the palette.
+
 ## 1.21.0 — 2026-10-21
 
 - Two new settings in `feets-config.php`, for whoever runs the site: `name`

@@ -61,7 +61,7 @@ const themeToggle = document.getElementById('theme-toggle');
 const systemDark = matchMedia('(prefers-color-scheme: dark)');
 function setTheme(theme) {
   document.documentElement.dataset.theme = theme;
-  document.querySelector('meta[name=theme-color]').content = theme === 'dark' ? '#181a1b' : '#fafafa';
+  document.querySelector('meta[name=theme-color]').content = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
   const dark = theme === 'dark';
   themeToggle.textContent = dark ? '☀' : '☾';
   themeToggle.title = dark ? t('Light mode') : t('Dark mode');
@@ -75,12 +75,42 @@ themeToggle.onclick = () => {
   } catch {}
   setTheme(theme);
 };
-systemDark.addEventListener('change', () => {
+// The light/dark it would be without neon: the one picked, else the system's.
+function chosenTheme() {
   let picked = null;
   try { picked = localStorage.getItem('feets-theme'); } catch {}
-  if (!picked) setTheme(systemDark.matches ? 'dark' : 'light');
+  return picked || (systemDark.matches ? 'dark' : 'light');
+}
+systemDark.addEventListener('change', () => {
+  if (document.documentElement.dataset.palette !== 'neon') setTheme(chosenTheme());
 });
-setTheme(document.documentElement.dataset.theme);
+
+// --- Palettes ---
+// Recolour light and dark alike (style.css): classic, a season, "seasonal"
+// for whichever season it is (northern, by month), or neon, which is dark
+// only, so the toggle hides with it. Remembered as feets-palette.
+const palettePicker = document.getElementById('palette');
+const seasonNow = (date = new Date()) => ['winter', 'spring', 'summer', 'autumn'][Math.floor((date.getMonth() + 1) % 12 / 3)];
+function setPalette(choice) {
+  const palette = choice === 'seasonal' ? seasonNow() : choice;
+  if (palette) document.documentElement.dataset.palette = palette;
+  else delete document.documentElement.dataset.palette;
+  palettePicker.value = choice;
+  themeToggle.hidden = palette === 'neon';
+  setTheme(palette === 'neon' ? 'dark' : chosenTheme());
+}
+palettePicker.onchange = () => {
+  try {
+    if (palettePicker.value) localStorage.setItem('feets-palette', palettePicker.value);
+    else localStorage.removeItem('feets-palette');
+  } catch {}
+  setPalette(palettePicker.value);
+};
+{
+  let picked = '';
+  try { picked = localStorage.getItem('feets-palette') || ''; } catch {}
+  setPalette(picked);
+}
 
 // --- Install as an app ---
 // sw.js keeps a copy of the page and its scripts so it opens without a
