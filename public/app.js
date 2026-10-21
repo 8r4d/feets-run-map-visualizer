@@ -313,7 +313,7 @@ function passClicks(renderer, pass) {
 
 // --- Fog of war ---
 // Fog mode hides the map under a dark layer, cleared fogWidth metres wide
-// (the Clearing slider) along every on-foot activity on the map (the filters and checkboxes count),
+// (the Clearing slider) along every activity in the primary sport on the map (the filters and checkboxes count),
 // so the places you've never been stand out as the dark bits. A canvas over
 // the view, redrawn when the map stops moving, half a view beyond each edge
 // so a pan doesn't show its edge before the redraw.
@@ -452,7 +452,7 @@ const FogLayer = L.Layer.extend({
     const levels = new Map();  // level -> lines of points
     const now = Date.now();
     for (const { track } of loaded.values()) {
-      if (!onMap(track) || !Stats.onFoot(track)) continue;
+      if (!onMap(track) || !Sport.counts(track)) continue;
       const level = Math.round(fogClearness(track, now) * FOG_LEVELS);
       if (!level) continue;
       const [ts, tw, tn, te] = this.box(track);
@@ -711,7 +711,9 @@ function speedText(track) {
   return isRide(track) ? Units.speed(track.distance / moving) : paceText(moving / (track.distance / 1000));
 }
 
+// Best efforts' names: on a cycling site, just their km (sport.js).
 const EFFORT_LABELS = { 1000: '1K', 5000: '5K', 10000: '10K', 21097: 'Half', 42195: 'Marathon' };
+const effortLabel = d => (Sport.current.speed ? Sport.current.efforts[d] : EFFORT_LABELS[d]) || d;
 
 // Profiles are fetched when a popup first needs one: id -> promise of [[km, metres]] or null.
 const profiles = new Map();
@@ -745,7 +747,7 @@ function trackPopup(track, latlng) {
     fact(isRide(track) ? 'Speed' : 'Pace', speedText(track));
     fact('Climb', m.climb !== null && m.climb !== undefined && climbText(m.climb));
     if (!isRide(track)) {
-      const efforts = Object.entries(m.efforts || {}).map(([d, s]) => `${EFFORT_LABELS[d] || d} ${clock(s)}`);
+      const efforts = Object.entries(m.efforts || {}).map(([d, s]) => `${effortLabel(d)} ${clock(s)}`);
       fact('Best', efforts.join(' · '));
     }
   }
@@ -940,13 +942,14 @@ function renderStats(tracks) {
     row('Activities', s.count.toLocaleString(), s.activeDays && `on ${plural(s.activeDays, 'day')}`);
     row('Average', `${statKm(s.average)} each`, s.weeklyAverage !== null && `${statKm(s.weeklyAverage)} a week`);
     if (s.moving) row('Time', hours(s.moving.seconds), `moving, over ${plural(s.moving.count, 'activity', 'activities')} with times`);
-    if (s.pace) row('Pace', paceText(s.pace), 'average on foot');
+    if (s.pace && Sport.current.speed) row('Speed', Units.speed(1000 / s.pace), `average ${Sport.current.onWhat}`);
+    else if (s.pace) row('Pace', paceText(s.pace), `average ${Sport.current.onWhat}`);
     if (s.climb) {
       const most = s.climb.most;
       row('Climb', Units.height(s.climb.metres), most.metrics.climb && `most: ${Units.height(most.metrics.climb)}, ${most.name}`);
     }
     if (s.fastest.length) {
-      const [first, ...others] = s.fastest.map(f => `${EFFORT_LABELS[f.metres]} ${clock(f.seconds)}`
+      const [first, ...others] = s.fastest.map(f => `${effortLabel(f.metres)} ${clock(f.seconds)}`
         + (f.track.time ? ` · ${new Date(f.track.time).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: filters.year ? undefined : 'numeric' })}` : ''));
       row('Fastest', first, ...others);
     }
@@ -2310,10 +2313,10 @@ const ownedCards = () => new Map(cards.map(c => [c.code, c]));
 async function checkCards() {
   if (!currentUser || readOnly() || cardsSince === null) return;
   const owned = ownedCards();
-  const onFoot = [...loaded.values()].map(e => e.track).filter(Stats.onFoot);
-  const tracks = onFoot.filter(t => Xp.counts(t, cardsSince));
+  const counted = [...loaded.values()].map(e => e.track).filter(Sport.counts);
+  const tracks = counted.filter(t => Xp.counts(t, cardsSince));
   const places = await runPlaces(tracks);
-  const fresh = Cards.evaluate(tracks, areas, { home: homeBase(onFoot), places }).filter(c => !owned.has(c.code));
+  const fresh = Cards.evaluate(tracks, areas, { home: homeBase(counted), places }).filter(c => !owned.has(c.code));
   await saveCards(fresh);
   if (!fresh.length) renderCards();  // areas may have changed: a new one's neighbourhoods
 }
@@ -2384,7 +2387,7 @@ async function lookBack(button) {
     + "and Places? This can only be done once, and it may take a minute or two. Nothing else is added from the past.")) return;
   button.disabled = true;
   try {
-    const tracks = [...loaded.values()].map(e => e.track).filter(Stats.onFoot);
+    const tracks = [...loaded.values()].map(e => e.track).filter(Sport.counts);
     const places = await runPlaces(tracks, { limit: Infinity, progress: (n, of) => { button.textContent = `Looking up place ${n} of ${of}…`; } });
     const owned = ownedCards();
     const fresh = Cards.travels(tracks, places).filter(c => !owned.has(c.code));
@@ -2564,7 +2567,7 @@ function toast(title, detail) {
 }
 
 // --- Goals ---
-// A distance to cover each week and/or month, on foot. Stats.goal does the
+// A distance to cover each week and/or month, in the primary sport. Stats.goal does the
 // sums; the goals themselves are saved on the server, so they follow you
 // between devices. Reaching one while the page is open gets a note.
 const GOAL_PERIODS = { week: { label: 'Week', every: 'week' }, month: { label: 'Month', every: 'month' } };
@@ -4610,7 +4613,7 @@ function unmappedPlaces(skip) {
   const places = new Map();
   const outside = (lat, lon) => !areas.some(a => OSM.inArea(a, lat, lon));
   for (const { track } of loaded.values()) {
-    if (!Stats.onFoot(track)) continue;
+    if (!Sport.counts(track)) continue;
     const counted = new Set(), tries = new Map();
     for (const seg of track.segments) {
       for (const [lat, lon] of seg) {
@@ -5296,7 +5299,7 @@ function showRace() {
 // --- Segments ---
 // Short stretches you time yourself on (see segments.js). Made from an
 // activity's popup; the efforts on each are found a little after activities
-// change, checking each on-foot activity once and keeping what's found on the
+// change, checking each activity in the primary sport once and keeping what's found on the
 // server. A new best gets a note.
 const segmentsBox = document.getElementById('segments-box');
 let segments = [];     // as from Store.segments()
@@ -5337,7 +5340,7 @@ function segmentEfforts(seg) {
 async function updateSegments() {
   if (!currentUser || readOnly() || !segments.length) return;
   const run = ++segmentRun;
-  const tracks = [...loaded.values()].map(e => e.track).filter(t => Stats.onFoot(t) && t.metrics && t.metrics.moving);
+  const tracks = [...loaded.values()].map(e => e.track).filter(t => Sport.counts(t) && t.metrics && t.metrics.moving);
   const timed = new Map();
   for (const seg of segments) {
     const firstLook = !Object.keys(seg.efforts).length;
@@ -5545,7 +5548,7 @@ function stopSegmentPick() {
 
 // --- Streaks and weekly quests ---
 // See quests.js. Worked out again a little after activities or areas change,
-// with every on-foot activity (whatever the filters say). This week's quests
+// with every activity in the primary sport (whatever the filters say). This week's quests
 // are made the first time feets is open in a new week, and saved, so every
 // device shows the same ones; finishing one gets a note.
 const questsBox = document.getElementById('quests-box');
@@ -5560,10 +5563,10 @@ function scheduleQuests() {
 async function updateQuests() {
   if (!currentUser || readOnly()) return;
   const run = ++questRun;
-  const tracks = [...loaded.values()].map(e => e.track).filter(Stats.onFoot);
+  const tracks = [...loaded.values()].map(e => e.track).filter(Sport.counts);
   const firsts = await Quests.firsts(tracks, areas);
   if (run !== questRun) return;
-  // Coverage with every on-foot activity, worked out once per area per update.
+  // Coverage with every activity in the primary sport, worked out once per area per update.
   const coverage = new Map();
   const coverageFor = area => {
     if (!coverage.has(area)) coverage.set(area, Coverage.compute(Coverage.prepared(area), tracks.map(t => t.segments)));
@@ -5605,8 +5608,8 @@ async function updateQuests() {
     dirty = true;
   }
   // One made before long runs were capped comes down to the cap.
-  if (questState.boss.kind === 'long' && questState.boss.target > Quests.BOSS_LONG_MAX) {
-    questState.boss.target = Quests.BOSS_LONG_MAX;
+  if (questState.boss.kind === 'long' && questState.boss.target > Sport.current.bossLong.max) {
+    questState.boss.target = Sport.current.bossLong.max;
     dirty = true;
   }
   // A street marked off-limits since the quests were made: swap in another
@@ -5742,7 +5745,7 @@ function awardXp(extra = []) {
     const fresh = [...Xp.events({
       since: xpState.since,
       tracks,
-      onFoot: Stats.onFoot,
+      primary: Sport.counts,
       firsts: xpFirsts,
       segments,
       weekId: Quests.weekId,
@@ -5942,6 +5945,16 @@ function planQuest(q) {
 }
 
 // --- Startup ---
+// The site's name and primary sport, from feets-config.php (see sport.js).
+// The name only replaces the page title when it isn't the usual one, so a
+// site that hasn't set one looks as it always did.
+function useSite(site) {
+  if (!site) return;
+  Sport.use(site.sport);
+  document.getElementById('site-name').textContent = t(site.name);
+  if (site.name !== 'feets dashboard') document.title = site.name;
+}
+
 (async () => {
   // A password reset link comes first, even if this browser is logged in as someone else.
   if (resetCode) {
@@ -5957,7 +5970,8 @@ function planQuest(q) {
     }
   }
   try {
-    const { user, needsSetup, viewLinkOff } = await Store.me();
+    const { user, needsSetup, viewLinkOff, site } = await Store.me();
+    useSite(site);
     if (user) {
       await signedIn(user);
     } else {

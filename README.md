@@ -20,6 +20,21 @@ created by invitation.
 
 The database tables are created automatically on the first request.
 
+### The site's name and primary sport
+
+Two settings at the top of `feets-config.php` belong to whoever runs the site.
+They live only in that file, so they can't be changed from the app:
+
+- `'name'`: the name at the top of the sidebar. It defaults to `feets dashboard`.
+- `'sport'`: the primary sport, `run`, `walk` or `cycle`. It defaults to `run`.
+  It decides which activities count for trophies, quests, cards, streaks, XP,
+  the fog and the stats, and what distances they aim for. On a cycling site
+  rides count, runs don't, and targets are about three times longer. Other
+  activities still show on the map. Choose it when you set the site up.
+  Trophies and cards already earned are kept if you change it later, but from
+  then on different activities count. Any other value stops the site with an
+  error, so a typo can't quietly count the wrong activities.
+
 ## Inviting people
 
 Open **Account & admin** and click **Invite member** (only the admin sees it) to get a link. Each link works once,
@@ -246,7 +261,7 @@ load quickly. The original GPX is kept for the ↓ download.
 
 | File                 | Purpose                                                  |
 |----------------------|----------------------------------------------------------|
-| `feets-config.php`   | Database credentials, the setup/recovery password, and Strava app keys. Ignored by git. |
+| `feets-config.php`   | The site's name and primary sport, database credentials, the setup/recovery password, and Strava app keys. Ignored by git. |
 | `feets-config.example.php` | The same file with placeholders, kept in git. Copy it to `feets-config.php` to set up a new install. |
 | `public/api.php`     | Accounts, logins, invites, tracks and Strava import, all in MySQL. It's the only backend code. |
 | `public/index.html`  | Page layout. Loads Leaflet from a CDN.                   |
@@ -261,6 +276,7 @@ load quickly. The original GPX is kept for the ↓ download.
 | `public/osm.js`      | Fetches an area's boundary and streets from OpenStreetMap and prepares them. |
 | `public/coverage.js` | Works out which streets the tracks cover.                |
 | `public/planner.js`  | Routes planned routes along the areas' streets.          |
+| `public/sport.js`    | The primary sport's profile: which activities count and the distances trophies, quests and cards aim for. |
 | `public/stats.js`    | The Stats box's sums, and progress towards goals.        |
 | `public/achievements.js` | Which trophies are earned.                           |
 | `public/xp.js`       | Experience points and levels: what's earned XP.          |

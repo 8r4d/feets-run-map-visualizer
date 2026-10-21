@@ -8,6 +8,17 @@
 // It is still safe there, because the web server runs .php files instead of showing them.
 
 return [
+    // The site's name, shown at the top of the sidebar (and as the browser
+    // tab's title, when it isn't "feets dashboard").
+    'name' => 'feets dashboard',
+
+    // The primary sport: run, walk or cycle. It decides which activities count
+    // for trophies, quests, cards, streaks, XP and stats, and the distances
+    // they aim for (see public/sport.js). Pick it once, when you set the site
+    // up: changing it later keeps the trophies and cards already earned, but
+    // counts different activities from then on.
+    'sport' => 'run',
+
     // Setup password: creates the first (admin) account on the very first visit,
     // and later unlocks "Forgot password?" on the login screen, which can reset
     // any account. Make it long and random, and don't reuse it anywhere.

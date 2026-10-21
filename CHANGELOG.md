@@ -5,6 +5,17 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.21.0 — 2026-10-21
+
+- Two new settings in `feets-config.php`, for whoever runs the site: `name`
+  (the sidebar title, `feets dashboard` by default) and `sport`, the primary
+  sport (`run`, `walk` or `cycle`, `run` by default). The sport decides which
+  activities count for trophies, quests, cards, streaks, XP, the fog and the
+  stats, and what distances they aim for: on a cycling site rides count and
+  targets run longer (100 km long bosses, a Century trophy, a speed in place
+  of a pace). Running sites work exactly as before. Any other sport stops
+  the site with an error saying so.
+
 ## 1.20.3 — 2026-10-20
 
 - Your streak is a card too, under a small "This week" heading with the

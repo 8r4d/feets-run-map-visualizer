@@ -34,12 +34,12 @@ const Cards = (() => {
   const STREET_RUN = 200;  // metres of a street to cover for it to count, or most of it if shorter
   const HOOD_PCT = 25;
 
-  // A street-name card: matches a whole word in a street's name.
-  const word = (name, icon, pattern = name) => ({ id: name.toLowerCase().replace(/\W+/g, '-'), name, icon,
-    hint: `Run a street with "${name}" in its name`, words: new RegExp(`\\b(${pattern})\\b`, 'i') });
+  // A street-name card: matches a whole word in a street's name. Its hint
+  // says what to do in the primary sport (sport.js): "Run a street with…".
+  const word = (name, icon, pattern = name, what = `a street with "${name}" in its name`) => ({
+    id: name.toLowerCase().replace(/\W+/g, '-'), name, icon,
+    get hint() { return `${Sport.current.verb} ${what}`; }, words: new RegExp(`\\b(${pattern})\\b`, 'i') });
 
-  const DISTANCES = [[5000, '5K', '👟'], [10000, '10K', '🏃'], [15000, '15K', '🌤️'], [21097, 'Half marathon', '🥈'],
-    [30000, '30K', '⛰️'], [42195, 'Marathon', '🥇'], [50000, 'Ultra', '🦄']];
   const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October',
     'November', 'December'];
   const MONTH_ICONS = ['❄️', '💘', '🍁', '🌱', '🌷', '☀️', '🏖️', '🌻', '🍎', '🎃', '🌨️', '🎄'];
@@ -47,9 +47,12 @@ const Cards = (() => {
   // Sets found by running. test(run, s) gives the detail to keep if this run
   // finds the card, or nothing; s.before is the runs before it (see evaluate).
   const FOUND = [
+    // Its distances are the primary sport's (sport.js).
     { id: 'distance', name: 'Long Way Round', icon: '🛣️', color: '#e65100',
-      cards: DISTANCES.map(([m, name, icon]) => ({ id: String(m), name, icon, hint: `Go ${name === 'Ultra' ? '50 km' : name} in one go`,
-        test: (t, s) => (t.distance >= m ? s.detail(t) : null) })) },
+      get cards() {
+        return Sport.current.cards.map(([m, name, icon, howFar = name]) => ({ id: String(m), name, icon, hint: `Go ${howFar} in one go`,
+          test: (t, s) => (t.distance >= m ? s.detail(t) : null) }));
+      } },
     { id: 'month', name: 'Twelve Months', icon: '📅', color: '#00897b',
       cards: MONTHS.map((name, i) => ({ id: String(i + 1), name, icon: MONTH_ICONS[i], hint: `Get out in ${name}`,
         test: (t, s) => (s.date(t).getMonth() === i ? s.detail(t) : null) })) },
@@ -77,13 +80,13 @@ const Cards = (() => {
     { id: 'numbers', name: 'Count Up', icon: '🔢', color: '#c62828',
       cards: ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh', 'Eighth', 'Ninth', 'Tenth'].map((name, i) => {
         const nth = `${i + 1}${['st', 'nd', 'rd'][i] || 'th'}`;  // 1st, 2nd, 3rd, 4th…
-        return { ...word(name, ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'][i], `${name}|${nth}`),
-          id: String(i + 1), hint: `Run a ${name} or ${nth} street` };
+        return Object.assign(word(name, ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'][i], `${name}|${nth}`,
+          `a ${name} or ${nth} street`), { id: String(i + 1) });
       }) },
     { id: 'types', name: 'Street Types', icon: '🪧', color: '#6d4c41',
       cards: [['Avenue', '🏙️'], ['Road', '🛣️'], ['Drive', '🚗'], ['Lane', '🌾'], ['Way', '🧭'], ['Crescent', '🌙'],
         ['Close', '🏡'], ['Court', '⛲'], ['Boulevard', '🌴'], ['Place', '📍'], ['Terrace', '🏘️'], ['Trail', '🥾']]
-        .map(([name, icon]) => ({ ...word(name, icon), hint: `Run a ${name}` })) },
+        .map(([name, icon]) => word(name, icon, name, `a ${name}`)) },
     { id: 'land', name: 'Lay of the Land', icon: '🗺️', color: '#558b2f',
       cards: [['Hill', '⛰️', 'Hill|Hills'], ['Park', '🌳'], ['Lake', '🏞️'], ['River', '🌊'], ['Valley', '🏞️'],
         ['Ridge', '🏔️'], ['Creek', '💧'], ['View', '🔭', 'View|Vista'], ['Meadow', '🌼', 'Meadow|Meadows'], ['Bay', '⛵']]
@@ -307,8 +310,8 @@ const Cards = (() => {
     return { named: named.sort((a, b) => a.localeCompare(b)), hoods };
   }
 
-  // The found cards activities have found: [{ code, detail }]. tracks: on-foot
-  // activities that count (see app.js). They're gone through oldest first,
+  // The found cards activities have found: [{ code, detail }]. tracks:
+  // activities in the primary sport that count (see app.js). They're gone through oldest first,
   // each finding at most one card per set, picked by hashing the run's id
   // with the set's, so it's the same pick every time and on every device.
   // home: [lat, lon] for Globetrotter and local times; places: Map(track id ->

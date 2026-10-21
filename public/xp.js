@@ -29,7 +29,6 @@ const Xp = (() => {
   const IDLE_STEP = 5;        // XP lost on the first day after that, then 5 more each day...
   const IDLE_MAX = 50;        // ...up to this much a day
   const TROPHY_BATCH = 3;
-  const BEST_NAMES = { 1000: '1K', 5000: '5K', 10000: '10K', 21097: 'half marathon', 42195: 'marathon' };
 
   const timeOf = t => Date.parse(t.time);
 
@@ -43,20 +42,22 @@ const Xp = (() => {
 
   // An activity's own points: 10, and more the longer it is, but less and
   // less for each extra km, so a long run doesn't outdo a week of short ones.
-  // Rides count a third of the distance.
-  function activityPoints(track, onFoot) {
-    const km = track.distance / 1000 / (onFoot ? 1 : 3);
+  // Its km are divided by the primary sport's xp (sport.js): on a running
+  // site, rides count a third of the distance; on a cycling site, rides count
+  // a third and runs in full.
+  function activityPoints(track, primary) {
+    const km = track.distance / 1000 / Sport.current.xp[primary ? 0 : 1];
     return 10 + Math.round(10 * Math.sqrt(Math.max(0, km)));
   }
 
   // The events worked out from data: [{ kind, ref, track, points, detail }].
   //   tracks: every activity (all of it, old ones too: a best is a best
   //     against everything you've done)
-  //   onFoot(track): whether it was on foot (Stats.onFoot)
+  //   primary(track): whether it's in the primary sport (Sport.counts)
   //   firsts: Quests.firsts' map, or null before it's worked out
   //   segments: [{ id, name, efforts: { track id: [[start, seconds], ...] } }]
   //   weekId(date) (the Monday it's in, as YYYY-MM-DD) and streakMin: from Quests
-  function events({ since, tracks, onFoot, firsts = null, segments = [], weekId, streakMin }) {
+  function events({ since, tracks, primary, firsts = null, segments = [], weekId, streakMin }) {
     const out = [];
     const sorted = tracks.filter(t => t.time && !isNaN(timeOf(t))).sort((a, b) => timeOf(a) - timeOf(b) || a.id - b.id);
     // The same activity twice (from Strava and a file, say): only the first counts.
@@ -70,7 +71,7 @@ const Xp = (() => {
 
     for (const t of sorted) {
       if (!earning.has(t.id)) continue;
-      out.push({ kind: 'activity', ref: `activity:${t.id}`, track: t.id, points: activityPoints(t, onFoot(t)), detail: t.name });
+      out.push({ kind: 'activity', ref: `activity:${t.id}`, track: t.id, points: activityPoints(t, primary(t)), detail: t.name });
       const fresh = firsts && firsts.get(t.id);
       const streetPoints = fresh ? Math.round(fresh.metres / 100) : 0;  // 10 a km
       if (streetPoints >= 1) {
@@ -78,14 +79,14 @@ const Xp = (() => {
       }
     }
 
-    // Bests over the standard distances, on foot: faster than every earlier
+    // Bests over the standard distances, in the primary sport: faster than every earlier
     // activity (the first time doesn't count: there's nothing to beat).
     const best = {};
     for (const t of sorted) {
-      const efforts = (onFoot(t) && t.metrics && t.metrics.efforts) || {};
+      const efforts = (primary(t) && t.metrics && t.metrics.efforts) || {};
       for (const [d, seconds] of Object.entries(efforts)) {
         if (earning.has(t.id) && best[d] !== undefined && seconds < best[d]) {
-          out.push({ kind: 'best', ref: `best:${d}:${t.id}`, track: t.id, points: POINTS.best, detail: `New ${BEST_NAMES[d] || `${d} m`} best: ${t.name}` });
+          out.push({ kind: 'best', ref: `best:${d}:${t.id}`, track: t.id, points: POINTS.best, detail: `New ${Sport.current.efforts[d] || `${d} m`} best: ${t.name}` });
         }
         if (best[d] === undefined || seconds < best[d]) best[d] = seconds;
       }

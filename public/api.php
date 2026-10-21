@@ -2,7 +2,8 @@
 // feets API: user accounts and GPX tracks, stored in MySQL. Called by store.js.
 //
 // Accounts
-//   GET  api.php?action=me             {user, needsSetup}
+//   GET  api.php?action=me             {user, needsSetup, viewLinkOff, site: {name, sport}}
+//                                      site: the name and primary sport from feets-config.php
 //   POST api.php?action=setup          {setupPassword, username, password}  first account only, becomes admin
 //   POST api.php?action=login          {username, password}
 //   POST api.php?action=logout
@@ -445,6 +446,17 @@ if (!$config) {
     fail('feets-config.php not found', 500);
 }
 
+// The site's name and its primary sport (see sport.js) are the sysop's to
+// choose, in feets-config.php only, so they can't change by accident. A
+// sport that isn't one of these stops everything, rather than quietly
+// counting the wrong activities.
+const SPORTS = ['run', 'walk', 'cycle'];
+$config['sport'] = $config['sport'] ?? 'run';
+$config['name'] = trim((string) ($config['name'] ?? '')) ?: 'feets dashboard';
+if (!in_array($config['sport'], SPORTS, true)) {
+    fail("feets-config.php: 'sport' must be one of " . implode(', ', SPORTS), 500);
+}
+
 function db(): PDO {
     global $config;
     static $pdo = null;
@@ -730,9 +742,11 @@ function needs_setup(): bool {
 }
 
 function me(): array {
+    global $config;
     $user = current_user();
     return ['user' => $user ? user_json($user) : null, 'needsSetup' => !$user && needs_setup(),
-            'viewLinkOff' => !$user && isset($_GET['view'])];
+            'viewLinkOff' => !$user && isset($_GET['view']),
+            'site' => ['name' => $config['name'], 'sport' => $config['sport']]];
 }
 
 // Creates the first (admin) account. Guarded by app_password from feets-config.php,

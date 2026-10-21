@@ -93,7 +93,7 @@ test('read: .fit.gz is unpacked and kept as .gpx', async () => {
 
 // --- Cards (cards.js), with the street coverage they look at ---
 test('cards: found by running, at most one per set per run, the same picks every time', () => {
-  const { Cards } = loadScripts(['coverage.js', 'cards.js']);
+  const { Cards } = loadScripts(['sport.js', 'coverage.js', 'cards.js']);
   const O = [53.45, -113.55];
   const at = (e, n) => [O[0] + n / 111320, O[1] + e / (111320 * Math.cos(O[0] * Math.PI / 180))];
   // A street from (e1, n) to (e2, n), with a point every 20 m, and a run along part of it.
@@ -145,7 +145,7 @@ test('cards: found by running, at most one per set per run, the same picks every
 });
 
 test('cards: a new edition every year, Passport and Places, Globetrotter, climbs, and local time on a trip', () => {
-  const { Cards } = loadScripts(['coverage.js', 'cards.js']);
+  const { Cards } = loadScripts(['sport.js', 'coverage.js', 'cards.js']);
   const edmonton = [53.5, -113.5], paris = [48.86, 2.35], lima = [-12.05, -77.04];
   // A run from a place: a 1 km line north from it.
   const run = (id, at, when, { km = 5, climb = 0 } = {}) => ({ id, name: id, time: when.toISOString(), distance: km * 1000,
@@ -186,7 +186,7 @@ test('cards: a new edition every year, Passport and Places, Globetrotter, climbs
 });
 
 test('cards: the look back for past travels: each country and town once, from the first run there', () => {
-  const { Cards } = loadScripts(['coverage.js', 'cards.js']);
+  const { Cards } = loadScripts(['sport.js', 'coverage.js', 'cards.js']);
   const run = (id, iso) => ({ id, name: id, time: iso, distance: 5000, segments: [[[0, 0], [0.01, 0]]] });
   const places = new Map([['a', { cc: 'fr', country: 'France', town: 'Paris' }], ['b', { cc: 'fr', country: 'France', town: 'Lyon' }],
     ['c', { cc: 'fr', country: 'France', town: 'Paris' }], ['d', { cc: 'jp', country: 'Japan', town: '' }]]);
@@ -197,7 +197,7 @@ test('cards: the look back for past travels: each country and town once, from th
 });
 
 test('cards: quests turn over a card not yet had, seasonal sets only in their month', () => {
-  const { Cards } = loadScripts(['coverage.js', 'cards.js']);
+  const { Cards } = loadScripts(['sport.js', 'coverage.js', 'cards.js']);
   const oct = new Date(2026, 9, 20), mar = new Date(2027, 2, 1);
   const q = { id: '2026-10-19:any' };
   const first = Cards.pack(q, new Set(), 'Cover 5 km', oct);
@@ -221,7 +221,7 @@ test('cards: quests turn over a card not yet had, seasonal sets only in their mo
 });
 
 // --- Streak shields and monthly bosses (quests.js) ---
-const questScripts = () => loadScripts(['units.js', 'stats.js', 'achievements.js', 'coverage.js', 'planner.js', 'cards.js', 'quests.js'],
+const questScripts = () => loadScripts(['units.js', 'sport.js', 'stats.js', 'achievements.js', 'coverage.js', 'planner.js', 'cards.js', 'quests.js'],
   { navigator: { language: 'en-CA', languages: ['en-CA'] } });
 // firsts() as quests.js makes it, for a few weeks: each record a run's new street that week.
 const weekFirsts = (weeks, metres = 500) => new Map(weeks.map((w, i) => {
@@ -321,4 +321,35 @@ test('expeditions: a theme with cards left (not the last one), progress in its o
   const garden = Cards.sets(new Map(), [], 2026).find(st => st.id === 'garden');
   assert.equal(Cards.expeditionCard(exp, new Set(garden.cards.map(c => c.code)), 'x'), null, 'a complete theme turns over nothing');
   for (let i = 0; i < 40; i++) assert.ok(!/^q:(sky|garden|daybreak):/.test(Cards.pack({ id: `w${i}` }, new Set(), 'x', new Date(2027, 2, 1)).code));
+});
+
+// --- The primary sport (sport.js) ---
+test('primary sport: running is the default; walking and cycling count their own and scale their targets', () => {
+  const { Sport, Quests, Achievements, Cards, Stats } = questScripts();
+  const at = (sport, km, day = 5) => ({ id: `${sport}${km}${day}`, name: sport, sport, time: new Date(2026, 9, day, 9).toISOString(),
+    distance: km * 1000, segments: [] });
+  const oct20 = new Date(2026, 9, 20, 9);
+  assert.equal(Sport.current.id, 'run');
+  assert.ok(Sport.counts(at('Run', 5)) && Sport.counts(at('Hike', 5)) && Sport.counts(at(null, 5)), 'on foot, or no type');
+  assert.ok(!Sport.counts(at('Ride', 5)));
+  assert.equal(Sport.scaled(10000), 10000, 'running targets as they always were');
+
+  Sport.use('cycle');
+  assert.ok(Sport.counts(at('Ride', 40)) && Sport.counts(at('GravelRide', 40)) && Sport.counts(at(null, 40)));
+  assert.ok(!Sport.counts(at('Run', 10)));
+  const rides = [at('Ride', 60, 10), at('Run', 30, 11)];
+  const codes = Achievements.evaluate(rides, []).map(a => a.code);
+  assert.ok(codes.includes('longest:50000'), 'a 60 km ride is the 50 km trophy');
+  assert.ok(!codes.includes('longest:10000'), "running's distances aren't a cycling site's");
+  assert.equal(Stats.goal(rides, 'month', oct20).metres, 60000, 'the run is left out');
+  const boss = Quests.makeBoss([], () => null, new Map(), [at('Ride', 200, 15)], [53.5, -113.5], oct20);
+  assert.equal(boss.target, 100000, 'a cycling long boss tops out at 100 km');
+  assert.equal(Cards.sets(new Map(), []).find(s => s.id === 'distance').cards[0].hint, 'Go 20 km in one go');
+  assert.match(Cards.sets(new Map(), []).find(s => s.id === 'birds').cards[0].hint, /^Ride a street/);
+
+  Sport.use('walk');
+  assert.ok(Sport.counts(at('Walk', 3)) && !Sport.counts(at('Ride', 3)));
+  assert.equal(Sport.scaled(10000), 5000);
+  Sport.use('swim');
+  assert.equal(Sport.current.id, 'walk', 'an unknown sport changes nothing');
 });

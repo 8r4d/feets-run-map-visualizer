@@ -30,6 +30,11 @@ test('login: right and wrong passwords', async () => {
   assert.equal((await c.call('me')).body.user.username, ADMIN.username);
 });
 
+test("me: the site's name and primary sport, from feets-config.php, even before logging in", async () => {
+  const { body } = await new Client().call('me');
+  assert.deepEqual(body.site, { name: 'feets dashboard', sport: 'run' }, 'the defaults when the config leaves them out');
+});
+
 test('password guessing: 5 tries per username, then even the right password waits', async () => {
   forgetTries();
   const { username, password } = await member();

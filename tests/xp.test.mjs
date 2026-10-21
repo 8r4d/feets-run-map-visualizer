@@ -3,16 +3,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadScripts } from './lib.mjs';
 
-const { Xp } = loadScripts(['xp.js']);
+const { Xp } = loadScripts(['sport.js', 'xp.js']);
 const DAY = 86400000;
 const since = Date.UTC(2026, 9, 1);
 const iso = ms => new Date(ms).toISOString();
 let nextId = 1;
 const run = ({ at, km = 5, added = at + 3600000, moving = 1800, efforts = {}, sport = 'Run', name = `Run ${nextId}` } = {}) =>
   ({ id: nextId++, name, sport, time: iso(at), addedAt: added, distance: km * 1000, metrics: moving ? { moving, efforts } : null });
-const onFoot = t => t.sport !== 'Ride';
+const primary = t => t.sport !== 'Ride';
 const weekId = d => d.toISOString().slice(0, 10);  // good enough here: one id per day
-const events = (tracks, extra = {}) => [...Xp.events({ since, tracks, onFoot, weekId, streakMin: 100, ...extra })];
+const events = (tracks, extra = {}) => [...Xp.events({ since, tracks, primary, weekId, streakMin: 100, ...extra })];
 const kinds = list => list.map(e => e.kind);
 const plain = v => JSON.parse(JSON.stringify(v));  // objects made in the script's own context, as ordinary ones
 

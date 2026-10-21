@@ -1,6 +1,7 @@
 // Streaks and weekly quests: small reasons to go somewhere new.
 //
-// Both rest on firsts(): going through your on-foot activities in date order,
+// Both rest on firsts(): going through your activities in the primary sport
+// (sport.js) in date order,
 // the street each one covered for the first time. A week with at least
 // STREAK_MIN metres of new street keeps the streak going. Each week (from
 // Monday, as goals do) also gets three quests, made from your own gaps:
@@ -26,10 +27,10 @@ const Quests = (() => {
   // --- What each activity covered first ---
 
   // Map(track id -> { time, metres, ways: Map(OSM way id -> metres) }): the
-  // street each on-foot activity covered before any earlier one had. A way in
+  // street each activity in the primary sport covered before any earlier one had. A way in
   // two overlapping areas counts once. Yields to the browser now and then.
   async function firsts(tracks, areas) {
-    const sorted = tracks.filter(t => t.time && Stats.onFoot(t)).sort((a, b) => a.time.localeCompare(b.time));
+    const sorted = tracks.filter(t => t.time && Sport.counts(t)).sort((a, b) => a.time.localeCompare(b.time));
     const boxes = sorted.map(t => {
       let [s, w, n, e] = [Infinity, Infinity, -Infinity, -Infinity];
       for (const seg of t.segments) for (const [la, lo] of seg) {
@@ -197,7 +198,7 @@ const Quests = (() => {
 
   // The gaps quests are made from: neighbourhoods (or areas without any)
   // with new street left, and named streets mostly covered. coverageFor(area):
-  // Coverage.compute's result for the area with every on-foot activity.
+  // Coverage.compute's result for the area with every activity in the primary sport.
   function gaps(areas, coverageFor) {
     const units = [], streetsLeft = [];
     for (const area of areas) {
@@ -207,7 +208,7 @@ const Quests = (() => {
       const tally = t => Object.values(t).reduce((s, c) => ({ len: s.len + c.len, covered: s.covered + c.covered }), { len: 0, covered: 0 });
       const add = (hood, name, t) => {
         const left = t.len - t.covered;
-        if (left < AREA_TARGET / 2 || t.covered / Math.max(1, t.len) > 0.95) return;
+        if (left < Sport.scaled(AREA_TARGET) / 2 || t.covered / Math.max(1, t.len) > 0.95) return;
         const runs = streets.filter(s => hood < 0 || s.hood === hood).flatMap(s => s.runs);
         units.push({ areaId: area.id, hood, name, left, place: middleOf(runs) });
       };
@@ -233,7 +234,7 @@ const Quests = (() => {
   }
 
   // This week's quests. coverageFor(area): Coverage.compute's result for the
-  // area with every on-foot activity. near: where to look first ([lat, lon]).
+  // area with every activity in the primary sport. near: where to look first ([lat, lon]).
   function make(areas, coverageFor, firstsMap, near, now = new Date()) {
     const week = weekId(now);
     const quests = [];
@@ -242,7 +243,7 @@ const Quests = (() => {
 
     const unit = nearest(units);
     if (unit) {
-      const target = Math.max(200, Math.min(AREA_TARGET, Math.round(unit.left / 2 / 100) * 100));
+      const target = Math.max(200, Math.min(Sport.scaled(AREA_TARGET), Math.round(unit.left / 2 / 100) * 100));
       quests.push({ id: `${week}:area`, kind: 'area', title: `Cover ${kmText(target)} of new streets in ${unit.name}`, where: unit.name, target, areaId: unit.areaId, hood: unit.hood, place: unit.place });
     }
     const street = nearest(streetsLeft);
@@ -251,7 +252,7 @@ const Quests = (() => {
     }
     // Anywhere: a little more than a usual recent week, rounded to half a km.
     const usual = usualWeek(firstsMap, now);
-    const target = Math.min(10000, Math.max(1000, Math.round(usual * 1.2 / 500) * 500));
+    const target = Math.min(Sport.scaled(10000), Math.max(Sport.scaled(1000), Math.round(usual * 1.2 / 500) * 500));
     quests.push({ id: `${week}:any`, kind: 'any', title: `Cover ${kmText(target)} of new streets anywhere`, target });
     return { week, quests };
   }
@@ -265,13 +266,15 @@ const Quests = (() => {
   // Which kind goes by the month, from the kinds there's data for. A boss
   // made partway through a month (the first one, say) is scaled to the days
   // left. Only activities from `since` count: from here on, like XP.
+  // A long-run boss's distances come from the primary sport (sport.js):
+  // for running, never more than a half marathon. Other targets are scaled
+  // to it (Sport.scaled).
   const BOSS_KINDS = ['long', 'area', 'any'];
-  const BOSS_LONG_MAX = 21097;  // metres: a long-run boss is never more than a half marathon
   const monthId = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   const monthEnd = d => new Date(d.getFullYear(), d.getMonth() + 1, 1);
   const round = (m, step) => Math.round(m / step) * step;
 
-  // tracks: on-foot activities, for the long run.
+  // tracks: activities in the primary sport, for the long run.
   function makeBoss(areas, coverageFor, firstsMap, tracks, near, now = new Date()) {
     const days = (monthEnd(now) - new Date(now.getFullYear(), now.getMonth(), 1)) / DAY;
     const share = Math.max(0.25, (monthEnd(now) - now) / DAY / days);
@@ -279,10 +282,11 @@ const Quests = (() => {
     // The longest of the last 90 days, a little further.
     const recent = tracks.filter(t => t.time && now - Date.parse(t.time) < 90 * DAY && Date.parse(t.time) <= now.getTime());
     const longest = Math.max(0, ...recent.map(t => t.distance));
+    const long = Sport.current.bossLong;
     const options = {
-      long: recent.length ? Math.min(BOSS_LONG_MAX, Math.max(5000, round(longest * 1.15, 1000))) : 8000,
-      area: unit && Math.max(1000, Math.min(round(unit.left * 0.6, 500), round(5000 * share, 500))),
-      any: areas.length ? Math.min(20000, Math.max(1000, round(usualWeek(firstsMap, now) * 4.3 * 1.5 * share, 500))) : null,
+      long: recent.length ? Math.min(long.max, Math.max(long.min, round(longest * 1.15, 1000))) : long.start,
+      area: unit && Math.max(Sport.scaled(1000), Math.min(round(unit.left * 0.6, 500), round(Sport.scaled(5000) * share, 500))),
+      any: areas.length ? Math.min(Sport.scaled(20000), Math.max(Sport.scaled(1000), round(usualWeek(firstsMap, now) * 4.3 * 1.5 * share, 500))) : null,
     };
     const kinds = BOSS_KINDS.filter(k => options[k]);
     const kind = kinds[now.getMonth() % kinds.length];
@@ -326,14 +330,15 @@ const Quests = (() => {
 
   // --- Expeditions ---
   // { id, theme, goal, since (Unix ms) }: the goal is in the theme's unit
-  // (EXPEDITIONS), and only activities from `since` count.
+  // (EXPEDITIONS), and only activities from `since` count. Goals in metres
+  // (scaled) are for running, scaled to the primary sport when one is made.
   const EXPEDITIONS = {
     sky: { goal: 4, task: n => `Get out after dark ${n} times` },
-    daybreak: { goal: 3, task: n => `Start ${n} runs around sunrise` },
-    wild: { goal: 3000, task: m => `Cover ${kmText(m)} of trails`, km: true },
-    mapmaker: { goal: 3000, task: m => `Cover ${kmText(m)} of streets you've never run`, km: true },
-    voyage: { goal: 40000, task: m => `Go ${kmText(m)} in all`, km: true },
-    peaks: { goal: 400, task: m => `Climb ${m.toLocaleString()} m in all` },
+    daybreak: { goal: 3, task: n => `Start ${n} ${Sport.current.nouns} around sunrise` },
+    wild: { goal: 3000, task: m => `Cover ${kmText(m)} of trails`, km: true, scaled: true },
+    mapmaker: { goal: 3000, task: m => `Cover ${kmText(m)} of streets you've never ${Sport.current.done}`, km: true, scaled: true },
+    voyage: { goal: 40000, task: m => `Go ${kmText(m)} in all`, km: true, scaled: true },
+    peaks: { goal: 400, task: m => `Climb ${m.toLocaleString()} m in all`, scaled: true },
     garden: { goal: 8, task: n => `Get out on ${n} different days` },
   };
 
@@ -390,13 +395,14 @@ const Quests = (() => {
     const pool = fresh.length ? fresh : usable;
     if (!pool.length) return null;
     const theme = pool[Math.floor(random() * pool.length)];
-    return { id: `exp:${now}`, theme: theme.id, goal: EXPEDITIONS[theme.id].goal, since: now };
+    const { goal, scaled } = EXPEDITIONS[theme.id];
+    return { id: `exp:${now}`, theme: theme.id, goal: scaled ? Sport.scaled(goal, 100) : goal, since: now };
   }
 
   const expeditionTask = exp => EXPEDITIONS[exp.theme].task(exp.goal);
 
   // How far along an expedition is: { have, of, done }, in its unit. tracks:
-  // on-foot activities; firstsMap: as from firsts(), for Cartographer.
+  // activities in the primary sport; firstsMap: as from firsts(), for Cartographer.
   function expeditionProgress(exp, tracks, areas, firstsMap) {
     const runs = tracks.filter(t => t.time && Date.parse(t.time) >= exp.since);
     let have = 0;
@@ -465,6 +471,6 @@ const Quests = (() => {
     return { have, of: quest.target, done: have >= quest.target };
   }
 
-  return { sunAltitude, makeExpedition, expeditionTask, expeditionProgress, STREAK_MIN, SHIELD_MAX, BOSS_LONG_MAX, firsts, streak, streakTrophies, useShields, weekId, monthId, make, makeBoss, bossTitle,
+  return { sunAltitude, makeExpedition, expeditionTask, expeditionProgress, STREAK_MIN, SHIELD_MAX, firsts, streak, streakTrophies, useShields, weekId, monthId, make, makeBoss, bossTitle,
     bossProgress, offLimits, progress, kmText, title };
 })();

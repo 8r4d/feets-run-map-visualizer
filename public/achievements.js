@@ -2,8 +2,8 @@
 // areas. api.php only remembers which ones were earned, so once earned they're
 // kept even if coverage later drops (a refreshed area gains new streets, say).
 //
-// They always count every on-foot track, whatever the filters or checkboxes
-// say, so hiding tracks can't take a trophy away or earn one.
+// They always count every track of the primary sport (sport.js), whatever
+// the filters or checkboxes say, so hiding tracks can't take a trophy away or earn one.
 //
 // There are two sets: all-time, and per calendar year from FIRST_YEAR on.
 // A year's trophies count only that year's tracks, so "Brander Gardens
@@ -11,28 +11,24 @@
 // (Streak trophies come from quests.js, as they need what each activity
 // covered first.)
 const Achievements = (() => {
-  // Tracks with no type (most GPX uploads) count too.
-  const ON_FOOT = new Set(['Run', 'TrailRun', 'Walk', 'Hike']);
-  const counts = track => !track.sport || ON_FOOT.has(track.sport);
-
   const FIRST_YEAR = 2026;  // years before this get no yearly trophies
 
-  const LONGEST = [[10000, '10K'], [21097, 'Half marathon'], [42195, 'Marathon'], [50000, 'Ultra']];
+  // Distance and longest come from the primary sport (sport.js).
   const ALL_TIME = {
     areaSteps: [25, 50, 75],  // % of an area's length; complete means every street done
     hoodSteps: [50],
     streetKm: [5, 10, 25, 50, 100, 250, 500],  // unique km of street covered, all areas
     hoodsDone: [1, 5, 10, 25],
-    totalKm: [100, 250, 500, 1000, 2500, 5000],
-    longest: LONGEST,
+    get totalKm() { return Sport.current.totalKm.allTime; },
+    get longest() { return Sport.current.longest; },
   };
   const YEARLY = {
     areaSteps: [],
     hoodSteps: [],
     streetKm: [5, 10, 25, 50, 100, 250],
     hoodsDone: [1, 3, 5, 10],
-    totalKm: [100, 250, 500, 1000, 2000, 3000],
-    longest: LONGEST,
+    get totalKm() { return Sport.current.totalKm.yearly; },
+    get longest() { return Sport.current.longest; },
   };
 
   // Adds up road, path and trail.
@@ -96,7 +92,7 @@ const Achievements = (() => {
 
     const totalM = tracks.reduce((sum, t) => sum + t.distance, 0);
     for (const n of rules.totalKm) {
-      if (totalM >= n * 1000) add(`distance:${n}`, `${n.toLocaleString()} km`, 'Total distance on foot');
+      if (totalM >= n * 1000) add(`distance:${n}`, `${n.toLocaleString()} km`, `Total distance ${Sport.current.onWhat}`);
     }
     for (const [m, name] of rules.longest) {
       const first = tracks.filter(t => t.distance >= m)
@@ -109,11 +105,11 @@ const Achievements = (() => {
   // tracks: every loaded track; areas: as from Store.areas().
   // Returns every achievement currently met: [{ code, title, detail }].
   function evaluate(tracks, areas) {
-    const onFoot = tracks.filter(counts);
-    const earned = milestones(onFoot, areas, ALL_TIME, '', '');
-    const years = [...new Set(onFoot.map(yearOf))].filter(y => y >= FIRST_YEAR).sort();
+    const counted = tracks.filter(Sport.counts);
+    const earned = milestones(counted, areas, ALL_TIME, '', '');
+    const years = [...new Set(counted.map(yearOf))].filter(y => y >= FIRST_YEAR).sort();
     for (const year of years) {
-      earned.push(...milestones(onFoot.filter(t => yearOf(t) === year), areas, YEARLY, `year:${year}:`, `${year}: `));
+      earned.push(...milestones(counted.filter(t => yearOf(t) === year), areas, YEARLY, `year:${year}:`, `${year}: `));
     }
     return earned;
   }

@@ -5,13 +5,10 @@
 // or elevations). Days are local calendar days; tracks without a time count
 // toward distance but not toward days, streaks, weeks or months.
 //
-// Also distance goals per week or month (see goal), and which tracks count as
-// on foot: pace and fastest times only make sense for those.
+// Also distance goals per week or month (see goal). Pace and fastest times
+// only count activities of the primary sport (sport.js).
 const Stats = (() => {
   const DAY = 86400000;
-  // Tracks with no type (most GPX uploads) count as on foot, as in achievements.js.
-  const ON_FOOT = new Set(['Run', 'TrailRun', 'Walk', 'Hike']);
-  const onFoot = track => !track.sport || ON_FOOT.has(track.sport);
   const EFFORTS = [1000, 5000, 10000, 21097, 42195];  // as in api.php
 
   // A local calendar day as a whole number, safe across daylight saving changes.
@@ -42,7 +39,7 @@ const Stats = (() => {
   // weeklyAverage, activeDays, longestTrack, streaks: { longest: { days,
   // start, end }, current }, bestWeek: { start, metres }, bestMonth: { month
   // ('YYYY-MM'), metres }, byType: [{ sport, count, metres }], moving: {
-  // seconds, count }, pace (seconds per km on foot), climb: { metres, count,
+  // seconds, count }, pace (seconds per km, primary sport), climb: { metres, count,
   // most }, fastest: [{ metres, seconds, track }] }, with null (or nothing in
   // a list) for anything there's no data for.
   function summarize(tracks, now = new Date()) {
@@ -86,7 +83,7 @@ const Stats = (() => {
     // Time and pace: only tracks whose GPX had times.
     const timed = tracks.filter(t => t.metrics && t.metrics.moving);
     const moving = timed.length ? { seconds: timed.reduce((sum, t) => sum + t.metrics.moving, 0), count: timed.length } : null;
-    const timedFoot = timed.filter(onFoot);
+    const timedFoot = timed.filter(Sport.counts);
     const footSeconds = timedFoot.reduce((sum, t) => sum + t.metrics.moving, 0);
     const footMetres = timedFoot.reduce((sum, t) => sum + t.distance, 0);
     const climbed = tracks.filter(t => t.metrics && t.metrics.climb !== null && t.metrics.climb !== undefined);
@@ -99,7 +96,7 @@ const Stats = (() => {
     for (const m of EFFORTS) {
       let top = null;
       for (const t of tracks) {
-        const s = onFoot(t) && t.metrics && t.metrics.efforts && t.metrics.efforts[m];
+        const s = Sport.counts(t) && t.metrics && t.metrics.efforts && t.metrics.efforts[m];
         if (s && (!top || s < top.seconds)) top = { metres: m, seconds: s, track: t };
       }
       if (top) fastest.push(top);
@@ -139,8 +136,8 @@ const Stats = (() => {
     return d;
   }
 
-  // Distance on foot in this week or month (period), and in the `past` ones
-  // before it. Counts every on-foot track, whatever the filters say, so a
+  // Distance in the primary sport in this week or month (period), and in the
+  // `past` ones before it. Counts every track of it, whatever the filters say, so a
   // goal doesn't change with them. Returns { start, metres, daysLeft (today
   // included), history: [{ start, metres }] oldest first }.
   function goal(tracks, period, now = new Date(), past = 8) {
@@ -148,7 +145,7 @@ const Stats = (() => {
     for (let i = -past; i <= 1; i++) starts.push(shift(periodStart(now, period), period, i).getTime());
     const metres = new Array(past + 1).fill(0);
     for (const t of tracks) {
-      if (!t.time || !onFoot(t)) continue;
+      if (!t.time || !Sport.counts(t)) continue;
       const ms = new Date(t.time).getTime();
       for (let i = past; i >= 0; i--) {
         if (ms >= starts[i]) {
@@ -166,5 +163,5 @@ const Stats = (() => {
     };
   }
 
-  return { summarize, goal, onFoot };
+  return { summarize, goal };
 })();
