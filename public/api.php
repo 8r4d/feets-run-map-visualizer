@@ -310,7 +310,7 @@ const SCHEMA = [
     <<<SQL
     CREATE TABLE IF NOT EXISTS cards (  -- cards found for the collection in Questing, kept forever
       user_id    INT          NOT NULL,
-      code       VARCHAR(191) NOT NULL,  -- e.g. f:trees:oak, q:creatures:fox, h:12345:Brander Gardens:gold
+      code       VARCHAR(191) NOT NULL,  -- e.g. f:trees:oak@2026, q:creatures:fox, h:12345:Brander Gardens@2026:gold, p:ca
       detail     VARCHAR(255) NULL,      -- what found it, e.g. the street or the quest
       earned_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (user_id, code)
@@ -525,6 +525,19 @@ function db(): PDO {
             $pdo->exec("DELETE FROM xp_events WHERE ref LIKE 'trophy:cards:h%' OR ref IN ($refs)");
             $pdo->exec('UPDATE users SET cards_since = NOW() - INTERVAL 14 DAY');
             $pdo->exec("INSERT INTO settings (name, value) VALUES ('cards_per_run', NOW())");
+        }
+        // ...and running cards found again each year (1.19.0): the ones found so
+        // far become editions of the year they were found in.
+        if (!$pdo->query("SELECT 1 FROM settings WHERE name = 'cards_yearly'")->fetch()) {
+            $rows = $pdo->query("SELECT user_id, code, YEAR(earned_at) AS y FROM cards
+                                 WHERE (code LIKE 'f:%' OR code LIKE 'h:%') AND code NOT LIKE '%@%'")->fetchAll();
+            $rename = $pdo->prepare('UPDATE IGNORE cards SET code = ? WHERE user_id = ? AND code = ?');
+            foreach ($rows as $r) {
+                $code = $r['code'];
+                $new = substr($code, -5) === ':gold' ? substr($code, 0, -5) . '@' . $r['y'] . ':gold' : $code . '@' . $r['y'];
+                $rename->execute([$new, $r['user_id'], $code]);
+            }
+            $pdo->exec("INSERT INTO settings (name, value) VALUES ('cards_yearly', NOW())");
         }
         // ...and view links that expire.
         if (!$pdo->query("SHOW COLUMNS FROM view_links LIKE 'expires_at'")->fetch()) {

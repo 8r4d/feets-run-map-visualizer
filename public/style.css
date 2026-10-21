@@ -2942,3 +2942,22 @@ body.race-page {
     color-mix(in srgb, #80deea 25%, var(--surface)));
   box-shadow: inset 0 0 0 3px rgba(123, 31, 162, 0.25);
 }
+
+/* A yearly card found in an earlier year, not yet this one */
+.card.past {
+  position: relative;
+  opacity: 0.55;
+  border-style: dashed;
+  box-shadow: none;
+}
+
+/* How many years a card has been found in */
+.card .editions {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--set);
+}
+
+.card .editions:empty {
+  display: none;
+}

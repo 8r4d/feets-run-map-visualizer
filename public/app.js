@@ -2309,10 +2309,58 @@ const ownedCards = () => new Map(cards.map(c => [c.code, c]));
 async function checkCards() {
   if (!currentUser || readOnly() || cardsSince === null) return;
   const owned = ownedCards();
-  const tracks = [...loaded.values()].map(e => e.track).filter(t => Stats.onFoot(t) && Xp.counts(t, cardsSince));
-  const fresh = Cards.evaluate(tracks, areas).filter(c => !owned.has(c.code));
+  const onFoot = [...loaded.values()].map(e => e.track).filter(Stats.onFoot);
+  const tracks = onFoot.filter(t => Xp.counts(t, cardsSince));
+  const places = await runPlaces(tracks);
+  const fresh = Cards.evaluate(tracks, areas, { home: homeBase(onFoot), places }).filter(c => !owned.has(c.code));
   await saveCards(fresh);
   if (!fresh.length) renderCards();  // areas may have changed: a new one's neighbourhoods
+}
+
+// Where home is, for Globetrotter and runs' local times: the middle of the
+// ~5 km square most runs start in, else the map's home. [lat, lon] or null.
+function homeBase(tracks) {
+  const squares = new Map();
+  for (const t of tracks) {
+    const at = t.segments.find(g => g.length)?.[0];
+    if (!at) continue;
+    const key = `${Math.round(at[0] / 0.05)},${Math.round(at[1] / 0.05)}`;
+    const sq = squares.get(key) || { n: 0, lat: 0, lon: 0 };
+    sq.n++; sq.lat += at[0]; sq.lon += at[1];
+    squares.set(key, sq);
+  }
+  const best = [...squares.values()].sort((a, b) => b.n - a.n)[0];
+  return best ? [best.lat / best.n, best.lon / best.n] : home ? [home.lat, home.lon] : null;
+}
+
+// The country and town each run started in, for Passport and Places:
+// Map(track id -> { cc, country, town }). Looked up from OpenStreetMap
+// (OSM.place) once per ~5 km square and kept in this browser; at most
+// PLACE_LOOKUPS new squares a check, a second apart, as OSM asks.
+const PLACE_LOOKUPS = 10;
+let placeCache = {};
+try { placeCache = JSON.parse(localStorage.getItem('feets-places')) || {}; } catch {}
+async function runPlaces(tracks) {
+  const out = new Map();
+  let asked = 0;
+  for (const t of tracks) {
+    const at = t.segments.find(g => g.length)?.[0];
+    if (!at) continue;
+    const key = `${Math.round(at[0] / 0.05)},${Math.round(at[1] / 0.05)}`;
+    if (!(key in placeCache)) {
+      if (asked >= PLACE_LOOKUPS) continue;  // the rest next time
+      if (asked++) await new Promise(r => setTimeout(r, 1100));
+      try {
+        placeCache[key] = await OSM.place(at[0], at[1]);
+      } catch (err) {
+        console.error('Places:', err);
+        break;  // busy: next time
+      }
+      try { localStorage.setItem('feets-places', JSON.stringify(placeCache)); } catch {}
+    }
+    if (placeCache[key]) out.set(t.id, placeCache[key]);
+  }
+  return out;
 }
 
 // Keeps new cards, says so, and gives the trophy for any set they complete.
@@ -2326,8 +2374,10 @@ async function saveCards(fresh) {
     const set = sets.find(st => st.cards.some(k => k.code === c.code || `${k.code}:gold` === c.code));
     const card = set && set.cards.find(k => k.code === c.code || `${k.code}:gold` === c.code);
     if (!card) continue;
-    const have = set.cards.filter(k => k.owned).length;
-    toast(`🃏 ${c.code.endsWith(':gold') ? 'Gold card' : 'New card'}: ${card.icon} ${card.name}`, `${set.name} ${have}/${set.cards.length} · ${c.detail}`);
+    const tally = set.kind === 'open' ? `${set.cards.length - 1} so far`
+      : `${set.cards.filter(k => k.owned).length}/${set.cards.length}${set.yearly ? ` in ${new Date().getFullYear()}` : ''}`;
+    const again = card.years && card.years.length > 1 ? ` (${card.years.length} years now)` : '';
+    toast(`🃏 ${c.code.endsWith(':gold') ? 'Gold card' : 'New card'}: ${card.icon} ${card.name}${again}`, `${set.name} ${tally} · ${c.detail}`);
   }
   if (fresh.length > 3) toast(`🃏 ${fresh.length - 3} more cards`, 'See them under Cards, in Questing.');
   const done = Cards.setTrophies(sets).filter(a => !knownTrophies.has(a.code));
@@ -2346,15 +2396,16 @@ function renderCards() {
   const sets = Cards.sets(ownedCards(), areas);
   const month = new Date().getMonth();
   const now = Cards.questSet(new Set(cards.map(c => c.code)));
-  let owned = 0, all = 0;
+  const year = new Date().getFullYear();
   // In each group: legends, this month's season, evergreen sets, then the
   // other seasons from next month round; found sets as cards.js lists them.
   const rank = st => (st.boss ? 0 : st.month === month ? 1 : st.month === undefined ? 2 : 3 + (st.month - month + 12) % 12);
   const groups = [
     ['From quests', st => st.kind === 'quest' && (st.month === undefined || st.month === month)],
     ['Other seasons', st => st.kind === 'quest' && st.month !== undefined && st.month !== month],
-    ['Found by running', st => st.kind === 'found'],
-    ['Neighbourhoods', st => st.kind === 'hood'],
+    [`Found by running in ${year}`, st => st.kind === 'found'],
+    ['Travels', st => st.kind === 'open'],
+    [`Neighbourhoods in ${year}`, st => st.kind === 'hood'],
   ];
   const items = [];
   for (const [title, belongs] of groups) {
@@ -2366,43 +2417,49 @@ function renderCards() {
     items.push(h);
     for (const set of list) {
       const have = set.cards.filter(c => c.owned).length;
-      owned += have;
-      all += set.cards.length;
+      const earlier = set.yearly ? set.cards.reduce((n, c) => n + c.years.filter(y => y < year).length, 0) : 0;
       const box = document.createElement('details');
       box.className = 'card-set';
       box.style.setProperty('--set', set.color);
       box.open = openSets.has(set.id);
       box.ontoggle = () => (box.open ? openSets.add(set.id) : openSets.delete(set.id));
-      const complete = set.cards.every(c => (set.kind === 'hood' ? c.gold : c.owned));
+      const complete = set.kind !== 'open' && set.cards.every(c => (set.kind === 'hood' ? c.gold : c.owned));
       box.innerHTML = '<summary><span class="set-icon"></span><span class="set-name"></span><small></small>'
         + '<span class="bar"><span></span></span></summary><div class="card-grid"></div>';
       box.querySelector('.set-icon').textContent = set.icon;
       box.querySelector('.set-name').textContent = set.name;
-      box.querySelector('small').textContent = (complete ? '✓ ' : '') + `${have}/${set.cards.length}`
+      box.querySelector('small').textContent = set.kind === 'open' ? `${have} so far` : (complete ? '✓ ' : '') + `${have}/${set.cards.length}`
+        + (earlier ? ` · ${earlier} before` : '')
         + (set.month !== undefined && set.month !== month && have < set.cards.length ? ` · ${new Date(2026, set.month, 1).toLocaleString(undefined, { month: 'short' })} only` : '')
         + (set.boss ? ' · bosses' : '')
         + (now && now.id === set.id ? ' · now' : '');
-      box.querySelector('.bar span').style.width = `${(have / set.cards.length * 100).toFixed(1)}%`;
+      box.querySelector('.bar span').style.width = set.kind === 'open' ? '100%' : `${(have / set.cards.length * 100).toFixed(1)}%`;
       box.querySelector('.card-grid').append(...set.cards.map(c => {
+        // A yearly card found in an earlier year but not yet this one shows faded, with its years.
+        const past = !c.owned && c.years && c.years.length > 0;
         const el = document.createElement('div');
-        el.className = 'card' + (c.owned ? '' : ' missing') + (c.gold ? ' gold' : '') + (set.boss ? ' legend' : '');
-        el.innerHTML = '<span class="card-icon"></span><strong></strong><small></small>';
-        el.querySelector('.card-icon').textContent = c.owned ? c.icon : '?';
-        el.querySelector('strong').textContent = c.owned || set.kind === 'hood' ? c.name : '';
+        el.className = 'card' + (c.owned ? '' : past ? ' past' : ' missing') + (c.gold ? ' gold' : '') + (set.boss ? ' legend' : '');
+        el.innerHTML = '<span class="card-icon"></span><strong></strong><small></small><span class="editions"></span>';
+        el.querySelector('.card-icon').textContent = c.owned || past ? c.icon : '?';
+        el.querySelector('strong').textContent = c.owned || past || set.kind === 'hood' ? c.name : '';
         // A quest card face down says nothing more than the note under the sets.
-        el.querySelector('small').textContent = c.owned ? c.detail : set.kind === 'quest' && !set.boss ? '' : c.hint;
-        el.title = c.owned ? `${c.name}: ${c.detail}` : c.hint;
+        el.querySelector('small').textContent = past ? `Found ${c.years.join(', ')}. ${c.hint}.`
+          : c.owned ? c.detail : set.kind === 'quest' && !set.boss ? '' : c.hint;
+        el.querySelector('.editions').textContent = c.owned && c.years && c.years.length > 1 ? `×${c.years.length}` : '';
+        el.title = c.owned ? `${c.name}: ${c.detail}` + (c.years && c.years.length > 1 ? ` (found in ${c.years.join(', ')})` : '')
+          : past ? `${c.name}: found in ${c.years.join(', ')}. ${c.hint} in ${year} for this year's.` : c.hint;
         return el;
       }));
       items.push(box);
     }
   }
   document.getElementById('card-sets').replaceChildren(...items);
-  document.getElementById('cards-count').textContent = `${owned}/${all}`;
+  // Everything found, every year: it only ever goes up.
+  document.getElementById('cards-count').textContent = `${cards.length} found`;
   document.getElementById('cards-note').textContent = (now
     ? `Each quest you finish turns over a ${now.icon} ${now.name} card.`
     : 'Every quest set you can collect now is complete: next month brings a new season.')
-    + " Beat the month's boss for its legend.";
+    + " Beat the month's boss for its legend. Running sets start again every January, and last year's cards stay.";
 }
 
 // Shows this year's trophies, then all-time ones. Earlier years' are kept on

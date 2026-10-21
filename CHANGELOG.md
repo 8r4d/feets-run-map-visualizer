@@ -5,6 +5,21 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.19.0 — 2026-10-20
+
+- Cards are now a collection that keeps growing for years. Every running set,
+  and each area's neighbourhoods, has a new edition every year: on 1 January
+  they start again, last year's cards stay (shown faded until found again),
+  and a card found in several years shows how many. A finished set's trophy
+  is for its year. The card count is now everything found, all time.
+- New sets: Passport (a stamp with its flag for every country you run in)
+  and Places (every town or city), which never finish; Globetrotter (how far
+  from home, each half of the world, the tropics and the Arctic); and Up and
+  Over (climbs of 50 to 500 m in a run).
+- On a trip, times of day are the trip's own: a run's time moves an hour for
+  every 15° of longitude from home.
+- Cards found so far become editions of 2026.
+
 ## 1.18.4 — 2026-10-20
 
 - A run finds at most one card in each running set (and each area's

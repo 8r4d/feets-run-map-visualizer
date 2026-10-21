@@ -230,6 +230,17 @@ test('cards: found by running cleared once more for one a set per run, quest and
   assert.equal((await a.client.call('cards')).body.cards.length, 3, 'just once');
 });
 
+test('cards: running cards found before yearly editions become editions of the year they were found', async () => {
+  const a = await member();
+  await a.client.call('card_add', { cards: [{ code: 'f:trees:oak', detail: 'x' }, { code: 'h:77:North', detail: 'x' },
+    { code: 'h:77:North:gold', detail: 'x' }, { code: 'q:creatures:fox', detail: 'x' }] });
+  execSync(`${process.env.FEETS_DB} -e "UPDATE cards SET earned_at = '2026-10-18 12:00:00'; DELETE FROM settings WHERE name = 'cards_yearly'"`);
+  const codes = (await a.client.call('cards')).body.cards.map(c => c.code).sort();
+  assert.deepEqual(codes, ['f:trees:oak@2026', 'h:77:North@2026', 'h:77:North@2026:gold', 'q:creatures:fox']);
+  await a.client.call('card_add', { cards: [{ code: 'f:trees:elm', detail: 'x' }] });
+  assert.ok((await a.client.call('cards')).body.cards.some(c => c.code === 'f:trees:elm'), 'just once');
+});
+
 test('finding areas: a turn twice a day, given back when OpenStreetMap was busy, and how it went kept', async () => {
   const a = await member();
   // Not a new account any more, so turns are 12 hours apart.

@@ -2,13 +2,20 @@
 // trophies, they're worked out in the browser and api.php only remembers
 // which were found, and when.
 //
-// Two kinds of set:
-// - found by running (evaluate): distances, months, times of day, street
-//   names (a street counts once a run has covered some of it: STREET_RUN),
-//   and one set per area with neighbourhoods: a card for each at HOOD_PCT
-//   coverage, turned gold when every street in it is done. A run finds at
-//   most one card in each set: of the ones it could, one at random (the same
-//   one on every device). The rest wait for another run that does it too.
+// It's meant to keep going for years, a little at a time, so most sets come
+// round again: the kinds of set are
+// - found by running (evaluate), a new edition every year: distances,
+//   months, times of day, street names (a street counts once a run has
+//   covered some of it: STREET_RUN), how far from home and which part of
+//   the world (Globetrotter), climbs, and one set per area with
+//   neighbourhoods: a card for each at HOOD_PCT of its streets that year,
+//   turned gold when every street in it has been done that year. Last year's
+//   cards stay, and show while this year's are still to find.
+// - open-ended, found once and never complete: Passport, a stamp for each
+//   country you run in, and Places, a card for each town. app.js looks up
+//   where each run was (OSM.place).
+//   A run finds at most one card in each set: of the ones it could, one at
+//   random (the same one on every device). The rest wait for another run.
 // - from quests (pack): each quest finished turns over one card you don't
 //   have yet, from the quest set of the moment: the month's season while it
 //   has cards left (each month has its own, back every year), then the first
@@ -17,8 +24,10 @@
 // - Legends: one per month, only for beating that month's boss (see
 //   Quests.makeBoss). A legend missed comes round again the next year.
 //
-// Codes: f:SET:CARD (found), q:SET:CARD (quests), h:OSM_ID:NEIGHBOURHOOD and
-// h:…:gold. Finishing a set earns a trophy (setTrophies).
+// Codes: f:SET:CARD@YEAR (found), h:OSM_ID:NEIGHBOURHOOD@YEAR and …@YEAR:gold,
+// p:COUNTRY (two-letter code), t:COUNTRY:TOWN, q:SET:CARD (quests and
+// legends). Finishing a set earns a trophy (setTrophies): for that year, for
+// the yearly ones.
 const Cards = (() => {
   const STREET_RUN = 200;  // metres of a street to cover for it to count, or most of it if shorter
   const HOOD_PCT = 25;
@@ -77,7 +86,28 @@ const Cards = (() => {
       cards: [['Hill', '⛰️', 'Hill|Hills'], ['Park', '🌳'], ['Lake', '🏞️'], ['River', '🌊'], ['Valley', '🏞️'],
         ['Ridge', '🏔️'], ['Creek', '💧'], ['View', '🔭', 'View|Vista'], ['Meadow', '🌼', 'Meadow|Meadows'], ['Bay', '⛵']]
         .map(([name, icon, pattern]) => word(name, icon, pattern)) },
+    { id: 'globe', name: 'Globetrotter', icon: '🌐', color: '#1e88e5',
+      cards: [
+        ...[[25, 'Next Town Over', '🚌'], [100, 'Road Trip', '🚗'], [500, 'Long Haul', '🚆'], [2000, 'Far Afield', '✈️'],
+          [5000, 'Overseas', '🌍'], [10000, 'Other Side of the World', '🌏']]
+          .map(([km, name, icon]) => ({ id: `${km}km`, name, icon, hint: `Get out ${km.toLocaleString()} km or more from home`,
+            test: (t, s) => (s.fromHome(t) >= km * 1000 ? `${Math.round(s.fromHome(t) / 1000).toLocaleString()} km from home · ${s.detail(t)}` : null) })),
+        ...[['north', 'Northern Half', '⬆️', ([la]) => la >= 0], ['south', 'Southern Half', '⬇️', ([la]) => la < 0],
+          ['east', 'Eastern Half', '➡️', ([, lo]) => lo >= 0], ['west', 'Western Half', '⬅️', ([, lo]) => lo < 0],
+          ['tropics', 'The Tropics', '🌴', ([la]) => Math.abs(la) < 23.44], ['polar', 'Midnight Sun', '🧊', ([la]) => Math.abs(la) > 66.56]]
+          .map(([id, name, icon, where]) => ({ id, name, icon,
+            hint: { north: 'Get out north of the equator', south: 'Get out south of the equator', east: 'Get out east of Greenwich',
+              west: 'Get out west of Greenwich', tropics: 'Get out in the tropics', polar: 'Get out north of the Arctic Circle (or south of the Antarctic)' }[id],
+            test: (t, s) => (s.start(t) && where(s.start(t)) ? s.detail(t) : null) })),
+      ] },
+    { id: 'climb', name: 'Up and Over', icon: '⛰️', color: '#6d4c41',
+      cards: [[50, 'Bump in the Road', '🪜'], [100, 'Hill Climb', '⛰️'], [200, 'Big Climb', '🧗'], [300, 'Mountain Goat', '🐐'],
+        [500, 'Summit', '🏔️']].map(([m, name, icon]) => ({ id: String(m), name, icon, hint: `Climb ${m} m in one go`,
+        test: (t, s) => ((t.metrics && t.metrics.climb) >= m ? `${Math.round(t.metrics.climb)} m up · ${s.detail(t)}` : null) })) },
   ];
+
+  // The flag of a two-letter country code: its regional indicator letters.
+  const flag = cc => (/^[a-z]{2}$/.test(cc) ? String.fromCodePoint(...[...cc.toUpperCase()].map(c => 0x1f1a5 + c.charCodeAt(0))) : '🏳️');
 
   // Sets from quests: art only, nothing to run but the quests themselves.
   const QUEST = [
@@ -151,12 +181,28 @@ const Cards = (() => {
   const fmtDate = d => d.toLocaleDateString(undefined, { dateStyle: 'medium' });
   const dayKey = d => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 
-  // What a run's tests look at: the runs before it, and its own date and name.
-  function runStats(before) {
-    const date = t => new Date(t.time);
+  // A run's first point, [lat, lon], or null.
+  const startOf = t => { const seg = (t.segments || []).find(g => g.length); return seg ? seg[0] : null; };
+  const metres = ([a, b], [c, d]) => {
+    const r = Math.PI / 180, x = Math.sin((c - a) * r / 2) ** 2 + Math.cos(a * r) * Math.cos(c * r) * Math.sin((d - b) * r / 2) ** 2;
+    return 2 * 6371000 * Math.asin(Math.sqrt(x));
+  };
+
+  // What a run's tests look at: the runs before it, and its own date, name,
+  // start and distance from home. home: [lat, lon], or null. Dates are
+  // shifted an hour for every 15° of longitude away from home, so a run on
+  // a trip has (near enough) its own local time, not the browser's.
+  function runStats(before, home) {
+    const date = t => {
+      const at = startOf(t);
+      const hours = home && at ? Math.round((at[1] - home[1]) / 15) : 0;
+      return new Date(Date.parse(t.time) + hours * 3600000);
+    };
     const detail = t => `${t.name}, ${fmtDate(date(t))}`;
     return {
       before, date, detail,
+      start: startOf,
+      fromHome: t => (home && startOf(t) ? metres(home, startOf(t)) : 0),
       // Its second (or later) run of a day.
       double: t => {
         const other = before.find(o => dayKey(date(o)) === dayKey(date(t)));
@@ -184,13 +230,14 @@ const Cards = (() => {
   // where it covered something and the runs so far have HOOD_PCT, gold where
   // the runs so far have done every street. cover: per area id, the points
   // the runs before have visited; this run's are added to it.
-  function runStreets(t, areas, cover) {
+  function runStreets(t, areas, cover, year) {
     const named = [];
     const hoods = new Map();  // set id (h + OSM id) -> [{ code, detail }]
     for (const area of areas) {
       const prep = Coverage.prepared(area);
-      if (!cover.has(area.id)) cover.set(area.id, new Uint8Array(prep.n));
-      const visited = cover.get(area.id);
+      const key = `${year}:${area.id}`;  // each year's coverage starts again
+      if (!cover.has(key)) cover.set(key, new Uint8Array(prep.n));
+      const visited = cover.get(key);
       const own = Coverage.compute(prep, [t.segments]);
       if (!own.visited.some(Boolean)) continue;  // not here
       const mine = Coverage.summarize(prep, own);
@@ -209,10 +256,10 @@ const Cards = (() => {
         if (!combine(mine.byHood[i]).covered) return;
         const all = combine(sofar.byHood[i]);
         if (!all.len || all.covered / all.len * 100 < HOOD_PCT) return;
-        const code = `h:${area.osmId}:${hood.name}`;
+        const code = `h:${area.osmId}:${hood.name}@${year}`;
         const list = hoods.get(`h${area.osmId}`) || [];
-        list.push({ code, detail: `${Math.round(all.covered / all.len * 100)}% of its streets` });
-        if (all.streets > 0 && all.done === all.streets) list.push({ code: `${code}:gold`, detail: 'Every street done' });
+        list.push({ code, detail: `${Math.round(all.covered / all.len * 100)}% of its streets in ${year}` });
+        if (all.streets > 0 && all.done === all.streets) list.push({ code: `${code}:gold`, detail: `Every street done in ${year}` });
         hoods.set(`h${area.osmId}`, list);
       });
     }
@@ -223,7 +270,9 @@ const Cards = (() => {
   // activities that count (see app.js). They're gone through oldest first,
   // each finding at most one card per set, picked by hashing the run's id
   // with the set's, so it's the same pick every time and on every device.
-  function evaluate(tracks, areas) {
+  // home: [lat, lon] for Globetrotter and local times; places: Map(track id ->
+  // { cc, country, town } from OSM.place) for Passport and Places.
+  function evaluate(tracks, areas, { home = null, places = new Map() } = {}) {
     const runs = tracks.filter(t => t.time && !Number.isNaN(Date.parse(t.time)))
       .sort((a, b) => Date.parse(a.time) - Date.parse(b.time) || String(a.id).localeCompare(String(b.id)));
     const found = new Set();
@@ -237,19 +286,25 @@ const Cards = (() => {
       out.push(card);
     };
     runs.forEach((t, i) => {
-      const s = runStats(runs.slice(0, i));
-      const { named, hoods } = runStreets(t, areas, cover);
+      const s = runStats(runs.slice(0, i), home);
+      const year = s.date(t).getFullYear();
+      const { named, hoods } = runStreets(t, areas, cover, year);
       for (const set of FOUND) {
         const options = [];
         for (const card of set.cards) {
           const detail = card.words ? named.find(n => card.words.test(n)) : card.test(t, s);
-          if (detail) options.push({ code: `f:${set.id}:${card.id}`, detail });
+          if (detail) options.push({ code: `f:${set.id}:${card.id}@${year}`, detail });
         }
         pick(t, set.id, options);
       }
       // A neighbourhood's gold only once it has its card.
       for (const [setId, options] of hoods) {
         pick(t, setId, options.filter(o => !o.code.endsWith(':gold') || found.has(o.code.slice(0, -5))));
+      }
+      const where = places.get(t.id);
+      if (where) {
+        pick(t, 'passport', [{ code: `p:${where.cc}`, detail: `${where.country} · ${s.detail(t)}` }]);
+        if (where.town) pick(t, 'places', [{ code: `t:${where.cc}:${where.town.toLowerCase()}`, detail: `${where.town}, ${where.country} · ${s.detail(t)}` }]);
       }
     });
     return out;
@@ -275,40 +330,70 @@ const Cards = (() => {
     return { code: `q:${set.id}:${card.id}`, detail: `For "${title}"` };
   }
 
-  // Every set as it stands, to show: [{ id, name, icon, color, kind, cards:
-  // [{ code, name, icon, hint, owned, gold, detail }] }]. kind: quest, found or
-  // hood. Neighbourhood sets come from areas.
-  function sets(owned, areas) {
+  // Every set as it stands, to show: [{ id, name, icon, color, kind, yearly,
+  // cards: [{ code, name, icon, hint, owned, gold, detail, years }] }]. kind:
+  // quest, found, hood or open. For a yearly set, owned and gold are this
+  // year's and code is this year's; years lists every year it was found.
+  // owned: Map(code -> { detail, earnedAt }). Neighbourhood sets come from areas.
+  function sets(owned, areas, year = new Date().getFullYear()) {
     const has = code => owned.get(code);
-    const card = (set, prefix, c) => ({ code: `${prefix}:${set.id}:${c.id}`, name: c.name, icon: c.icon, hint: c.hint,
-      owned: Boolean(has(`${prefix}:${set.id}:${c.id}`)), detail: (has(`${prefix}:${set.id}:${c.id}`) || {}).detail || '' });
+    // Every year a yearly card was found: base code (no @year) -> [years].
+    const editions = new Map();
+    for (const code of owned.keys()) {
+      const m = /^(.*)@(\d{4})$/.exec(code);
+      if (!m) continue;
+      if (!editions.has(m[1])) editions.set(m[1], []);
+      editions.get(m[1]).push(Number(m[2]));
+    }
+    const lifetime = (set, c) => {
+      const code = `q:${set.id}:${c.id}`;
+      return { code, name: c.name, icon: c.icon, hint: c.hint, owned: Boolean(has(code)), detail: (has(code) || {}).detail || '' };
+    };
+    const yearly = (base, c, extra = {}) => {
+      const years = (editions.get(base) || []).sort();
+      const now = has(`${base}@${year}`);
+      const latest = now || has(`${base}@${years[years.length - 1]}`);
+      return { code: `${base}@${year}`, name: c.name, icon: c.icon, hint: c.hint, owned: Boolean(now), years,
+        detail: (latest || {}).detail || '', ...extra };
+    };
     const out = [
       ...[...QUEST, LEGEND_SET].map(set => ({ id: set.id, name: set.name, icon: set.icon, color: set.color, kind: 'quest',
-        month: set.month, boss: Boolean(set.boss), cards: set.cards.map(c => card(set, 'q', c)) })),
-      ...FOUND.map(set => ({ id: set.id, name: set.name, icon: set.icon, color: set.color, kind: 'found',
-        cards: set.cards.map(c => card(set, 'f', c)) })),
+        month: set.month, boss: Boolean(set.boss), cards: set.cards.map(c => lifetime(set, c)) })),
+      ...FOUND.map(set => ({ id: set.id, name: set.name, icon: set.icon, color: set.color, kind: 'found', yearly: true,
+        cards: set.cards.map(c => yearly(`f:${set.id}:${c.id}`, c)) })),
     ];
+    // The open-ended ones: what's been found, oldest first, and one face down for the next.
+    const opened = (prefix, icon) => [...owned.entries()].filter(([code]) => code.startsWith(prefix))
+      .sort(([, a], [, b]) => String(a.earnedAt || '').localeCompare(String(b.earnedAt || '')))
+      .map(([code, c]) => ({ code, name: (c.detail || '').split(' · ')[0], icon: icon(code), hint: '', owned: true, detail: c.detail || '' }));
+    out.push({ id: 'passport', name: 'Passport', icon: '🛂', color: '#00695c', kind: 'open',
+      cards: [...opened('p:', code => flag(code.slice(2))), { code: '', name: '', icon: '?', hint: 'Get out in a new country', owned: false }] });
+    out.push({ id: 'places', name: 'Places', icon: '📍', color: '#ad1457', kind: 'open',
+      cards: [...opened('t:', () => '📍'), { code: '', name: '', icon: '?', hint: 'Get out in a new town or city', owned: false }] });
     const seen = new Set();
     for (const area of areas) {
       if (area.data.hoods.length < 2 || seen.has(area.osmId)) continue;
       seen.add(area.osmId);
-      out.push({ id: `h${area.osmId}`, name: area.name, icon: '🏘️', color: '#455a64', kind: 'hood',
+      out.push({ id: `h${area.osmId}`, name: area.name, icon: '🏘️', color: '#455a64', kind: 'hood', yearly: true,
         cards: area.data.hoods.map(hood => {
-          const code = `h:${area.osmId}:${hood.name}`;
-          return { code, name: hood.name, icon: '🏘️', hint: `Cover ${HOOD_PCT}% of its streets; every street turns it gold`,
-            owned: Boolean(has(code)), gold: Boolean(has(`${code}:gold`)), detail: (has(`${code}:gold`) || has(code) || {}).detail || '' };
+          const base = `h:${area.osmId}:${hood.name}`;
+          return yearly(base, { name: hood.name, icon: '🏘️', hint: `Cover ${HOOD_PCT}% of its streets this year; every street turns it gold` },
+            { gold: Boolean(has(`${base}@${year}:gold`)) });
         }) });
     }
     return out;
   }
 
-  // Trophies for sets just completed: [{ code, title, detail }]. A
-  // neighbourhood set is complete once every card is gold.
-  function setTrophies(list) {
-    return list.filter(set => set.cards.length && set.cards.every(c => (set.kind === 'hood' ? c.gold : c.owned)))
-      .map(set => ({ code: `cards:${set.id}`, title: `${set.icon} ${set.name} set`,
-        detail: set.kind === 'hood' ? `Every neighbourhood card turned gold` : `All ${set.cards.length} cards collected` }));
+  // Trophies for sets just completed: [{ code, title, detail }], a yearly
+  // set's for this year. A neighbourhood set is complete once every card is
+  // gold; the open-ended ones never are.
+  function setTrophies(list, year = new Date().getFullYear()) {
+    return list.filter(set => set.kind !== 'open' && set.cards.length && set.cards.every(c => (set.kind === 'hood' ? c.gold : c.owned)))
+      .map(set => ({ code: set.yearly ? `cards:${set.id}@${year}` : `cards:${set.id}`,
+        title: `${set.icon} ${set.name} ${set.yearly ? year : 'set'}`,
+        detail: set.kind === 'hood' ? `Every neighbourhood card turned gold in ${year}`
+          : set.yearly ? `All ${set.cards.length} cards found in ${year}` : `All ${set.cards.length} cards collected` }));
   }
 
-  return { evaluate, pack, questSet, sets, setTrophies, legend, legendCard, STREET_RUN, HOOD_PCT };
+  return { evaluate, pack, questSet, sets, setTrophies, legend, legendCard, flag, STREET_RUN, HOOD_PCT };
 })();

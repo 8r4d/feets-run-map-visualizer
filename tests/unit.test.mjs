@@ -117,31 +117,72 @@ test('cards: found by running, at most one per set per run, the same picks every
   assert.equal(JSON.stringify(Cards.evaluate(tracks, [area])), JSON.stringify(list), 'the same picks every time');
   // The long run: one card in each set it could find any in, not all four distances.
   assert.equal(codes.filter(c => c.startsWith('f:distance:')).length, 1, 'one distance card, though it was long enough for four');
-  for (const c of ['f:month:1', 'f:clock:early', 'f:trees:oak', 'h:77:North']) assert.ok(found.has(c), c);
-  assert.equal(found.get('f:trees:oak'), 'Oak Street');
+  for (const c of ['f:month:1@2026', 'f:clock:early@2026', 'f:trees:oak@2026', 'h:77:North@2026']) assert.ok(found.has(c), c);
+  assert.equal(found.get('f:trees:oak@2026'), 'Oak Street');
   // The night jog: Night Owl or Double Day, not both; and Elm Close for two sets.
-  assert.equal(codes.filter(c => c === 'f:clock:night' || c === 'f:clock:double').length, 1);
-  for (const c of ['f:trees:elm', 'f:types:close', 'h:77:South']) assert.ok(found.has(c), c);
-  assert.ok(!found.has('f:month:1') || codes.filter(c => c.startsWith('f:month:')).length === 1, 'January once');
+  assert.equal(codes.filter(c => c === 'f:clock:night@2026' || c === 'f:clock:double@2026').length, 1);
+  for (const c of ['f:trees:elm@2026', 'f:types:close@2026', 'h:77:South@2026']) assert.ok(found.has(c), c);
+  assert.ok(!found.has('f:month:1@2026') || codes.filter(c => c.startsWith('f:month:')).length === 1, 'January once');
   // The lunchtime runs: Lunch Break, then Seven Straight on the seventh day.
-  assert.ok(found.has('f:clock:lunch'));
-  assert.match(found.get('f:clock:week'), / to /);
+  assert.ok(found.has('f:clock:lunch@2026'));
+  assert.match(found.get('f:clock:week@2026'), / to /);
   assert.ok(!codes.some(c => c.startsWith('f:numbers:')), 'not 5th Avenue: only 150 m of it, under STREET_RUN');
-  assert.ok(!found.has('h:77:North:gold'), 'gold only from a run after the card, covering it again');
+  assert.ok(!found.has('h:77:North@2026:gold'), 'gold only from a run after the card, covering it again');
   // One more run of Oak Street turns North gold (and the other distance cards wait for their own runs).
   const again = Cards.evaluate([...tracks, run('Oak again', local(12, 7), 2, [line(-50, 350, 0, 5)])], [area]).map(c => c.code);
-  assert.ok(again.includes('h:77:North:gold'));
+  assert.ok(again.includes('h:77:North@2026:gold'));
   assert.equal(again.filter(c => c.startsWith('f:distance:')).length, 1, 'a 2 km run finds no distance card');
-  found.set('h:77:North:gold', 'Every street done');
+  found.set('h:77:North@2026:gold', 'Every street done');
 
   // Shown by set; the neighbourhood set needs every card gold to be complete.
   const owned = new Map([...found].map(([code, detail]) => [code, { code, detail }]));
-  const sets = Cards.sets(owned, [area]);
+  const sets = Cards.sets(owned, [area], 2026);
   const hoods = sets.find(s => s.kind === 'hood');
   assert.equal(JSON.stringify(hoods.cards.map(c => [c.name, c.owned, c.gold])), '[["North",true,true],["South",true,false]]');
-  assert.equal(Cards.setTrophies(sets).length, 0);
-  owned.set('h:77:South:gold', { detail: 'Every street done' });
-  assert.equal(Cards.setTrophies(Cards.sets(owned, [area])).map(a => a.code).join(), 'cards:h77');
+  assert.equal(Cards.setTrophies(sets, 2026).length, 0);
+  owned.set('h:77:South@2026:gold', { detail: 'Every street done' });
+  assert.equal(Cards.setTrophies(Cards.sets(owned, [area], 2026), 2026).map(a => a.code).join(), 'cards:h77@2026');
+});
+
+test('cards: a new edition every year, Passport and Places, Globetrotter, climbs, and local time on a trip', () => {
+  const { Cards } = loadScripts(['coverage.js', 'cards.js']);
+  const edmonton = [53.5, -113.5], paris = [48.86, 2.35], lima = [-12.05, -77.04];
+  // A run from a place: a 1 km line north from it.
+  const run = (id, at, when, { km = 5, climb = 0 } = {}) => ({ id, name: id, time: when.toISOString(), distance: km * 1000,
+    metrics: { climb }, segments: [[at, [at[0] + 0.009, at[1]]]] });
+  const day = (y, m, d, h = 12) => new Date(y, m - 1, d, h);
+  const home = { home: edmonton };
+  const y1 = Cards.evaluate([run('a', edmonton, day(2026, 11, 2), { climb: 120 })], [], home).map(c => c.code);
+  assert.ok(y1.includes('f:month:11@2026') && y1.includes('f:distance:5000@2026'), y1.join());
+  assert.ok(y1.some(c => /^f:climb:(50|100)@2026$/.test(c)), 'one climb card: 50 m or 100 m');
+  const both = Cards.evaluate([run('a', edmonton, day(2026, 11, 2)), run('b', edmonton, day(2027, 11, 3))], [], home).map(c => c.code);
+  assert.ok(both.includes('f:month:11@2026') && both.includes('f:month:11@2027'), 'November again, the next year');
+
+  // Shown: this year's, with the years it's been found in; last year's faded until found again.
+  const owned = new Map([['f:month:11@2026', { detail: 'a' }], ['f:month:11@2027', { detail: 'b' }], ['f:month:3@2026', { detail: 'c' }]]);
+  const months = Cards.sets(owned, [], 2027).find(s => s.id === 'month');
+  const nov = months.cards[10], mar = months.cards[2];
+  assert.equal(JSON.stringify([nov.owned, nov.years, nov.code]), '[true,[2026,2027],"f:month:11@2027"]');
+  assert.equal(JSON.stringify([mar.owned, mar.years]), '[false,[2026]]');
+
+  // A trip: Passport and Places once each, a Globetrotter card a run, and its own local time.
+  const places = new Map([['p1', { cc: 'fr', country: 'France', town: 'Paris' }], ['p2', { cc: 'fr', country: 'France', town: 'Paris' }],
+    ['p3', { cc: 'pe', country: 'Peru', town: 'Lima' }]]);
+  // 10 pm by the browser's clock is about 6 am in Paris: 8 hours on, for 116° of longitude.
+  const trip = [run('p1', paris, day(2026, 12, 1, 22)), run('p2', paris, day(2026, 12, 2, 22)), run('p3', lima, day(2026, 12, 10))];
+  const found = Cards.evaluate(trip, [], { home: edmonton, places });
+  const codes = found.map(c => c.code);
+  assert.equal(codes.filter(c => /^[pt]:/.test(c)).sort().join(), 'p:fr,p:pe,t:fr:paris,t:pe:lima');
+  assert.match(found.find(c => c.code === 'p:fr').detail, /^France · p1, /);
+  assert.ok(!codes.includes('f:clock:night@2026'), 'not a night run: it was morning in Paris');
+  assert.equal(codes.filter(c => c.startsWith('f:globe:')).length, 3, 'one Globetrotter card a run');
+  const globe = Cards.evaluate([run('x', lima, day(2026, 12, 10))], [], home).find(c => c.code.startsWith('f:globe:'));
+  assert.match(globe.code, /^f:globe:(25km|100km|500km|2000km|5000km|north|south|west|tropics)@2026$/);
+  const travels = Cards.sets(new Map(found.map(c => [c.code, { detail: c.detail, earnedAt: '2026-12-01' }])), [], 2026);
+  const passport = travels.find(s => s.id === 'passport');
+  assert.equal(passport.cards.map(c => c.name).join('|'), 'France|Peru|', 'and one face down for the next country');
+  assert.equal(passport.cards[0].icon, '🇫🇷');
+  assert.equal(Cards.setTrophies(travels, 2026).filter(t => /passport|places/.test(t.code)).length, 0, 'never complete');
 });
 
 test('cards: quests turn over a card not yet had, seasonal sets only in their month', () => {

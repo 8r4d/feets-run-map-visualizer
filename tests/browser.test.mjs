@@ -30,6 +30,8 @@ test('log in', { skip }, async () => {
   await page.goto(URL_BASE);
   // Headless Chrome says it's US English, which would mean miles; start in km.
   await page.eval(`localStorage.setItem('feets-units', 'km')`);
+  // Where the generated test runs start (49.28, -123.12), so the cards' place lookup never goes to OpenStreetMap.
+  await page.eval(`localStorage.setItem('feets-places', JSON.stringify({ '986,-2462': { cc: 'ca', country: 'Canada', town: 'Vancouver' } }))`);
   await page.reload();
   await page.waitFor(`!document.getElementById('auth').hidden && document.getElementById('auth-username').offsetParent`, { what: 'the login form' });
   await snap('login');
@@ -167,19 +169,22 @@ test('cards: only from runs recorded from here on, shown by set in Questing', { 
   await new Promise(r => setTimeout(r, 2500));  // cards are checked with the trophies, after a pause
   // The 6 km trail run was recorded before cards started: no 5K card from it. (The XP test's
   // run, recorded since, may have found a card or two: cards stay once found.)
-  assert.ok(!(await page.eval(`cards.map(c => c.code)`)).includes('f:distance:5000'), 'old files find no cards');
+  assert.ok(!(await page.eval(`cards.map(c => c.code)`)).some(c => c.startsWith('f:distance:5000@')), 'old files find no cards');
   // A 5.1 km run recorded just after cards started.
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'feets-cards-')), 'Card run.gpx');
   fs.writeFileSync(file, gpxText({ name: 'Card run', n: 341, step: 15, seconds: 5, at: (await page.eval(`cardsSince`)) + 1000 }));
   await page.setFiles('#file-input', [file]);
-  await page.waitFor(`cards.some(c => c.code === 'f:distance:5000')`, { what: 'a 5K card', timeout: 15000 });
+  const year = new Date().getFullYear();
+  await page.waitFor(`cards.some(c => c.code === 'f:distance:5000@${year}')`, { what: "this year's 5K card", timeout: 15000 });
   const codes = await page.eval(`cards.map(c => c.code)`);
-  assert.ok(codes.some(c => c.startsWith('f:month:')), JSON.stringify(codes));
-  assert.match(await page.eval(`document.getElementById('cards-count').textContent`), /^\d+\/\d+$/);
+  assert.ok(codes.some(c => c.startsWith('f:month:') && c.endsWith(`@${year}`)), JSON.stringify(codes));
+  assert.ok(codes.includes('p:ca') || (await page.eval(`(cards.some(c => c.code === 'p:ca'))`)), 'a passport stamp for Canada');
+  assert.match(await page.eval(`document.getElementById('cards-count').textContent`), /^\d+ found$/);
   await page.eval(`document.getElementById('cards-box').open = true;
-    document.querySelectorAll('.card-set').forEach(d => { if (/Long Way Round|Halloween/.test(d.textContent)) d.open = true; })`);
+    document.querySelectorAll('.card-set').forEach(d => { if (/Long Way Round|Halloween|Passport/.test(d.textContent)) d.open = true; })`);
   const faces = await page.eval(`[...document.querySelectorAll('.card-set[open] .card')].map(c => c.className + ':' + c.querySelector('strong').textContent)`);
   assert.ok(faces.includes('card:5K'), JSON.stringify(faces));
+  assert.ok(faces.includes('card:Canada'), 'Passport shows the country');
   assert.ok(faces.includes('card missing:'), 'cards not found yet are face down');
   assert.match(await page.eval(`document.getElementById('cards-note').textContent`), /Each quest you finish turns over a.*legend/);
   // This month's boss, above the quests.

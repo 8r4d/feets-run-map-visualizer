@@ -281,5 +281,20 @@ const OSM = (() => {
     return { name: found.name || `OSM area ${osmId}`, data: { boundary, hoods, streets } };
   }
 
-  return { candidates, containing, inArea, inHood, buildArea };
+  // The country and town a point is in, from Nominatim's reverse lookup:
+  // { cc (two letters, lower case), country, town } (town '' when there's
+  // none), or null where it can't say (out at sea, say). For cards.js's
+  // Passport and Places; app.js keeps each run's answer, so a run is only
+  // looked up once.
+  async function place(lat, lon) {
+    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=10&addressdetails=1`
+      + `&lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}&accept-language=en`);
+    if (!res.ok) throw new Error(`OpenStreetMap's place lookup answered ${res.status}`);
+    const a = (await res.json()).address;
+    if (!a || !a.country_code) return null;
+    return { cc: a.country_code.toLowerCase(), country: a.country || a.country_code.toUpperCase(),
+      town: a.city || a.town || a.village || a.municipality || a.hamlet || a.county || '' };
+  }
+
+  return { candidates, containing, inArea, inHood, buildArea, place };
 })();
