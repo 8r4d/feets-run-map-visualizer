@@ -193,7 +193,14 @@ test('cards: only from runs recorded from here on, shown by set in Questing', { 
   assert.match(await page.eval(`document.getElementById('boss').textContent.replace(/\\s+/g, ' ')`), new RegExp(`${legend} ?Plan it .* days? left`));
   await snap('cards');
   await page.eval(`document.getElementById('cards-box').open = false; document.getElementById('quests-box').open = true`);
+  // An expedition under the boss; giving it up brings the next a day later.
+  await page.waitFor(`!document.getElementById('expedition').hidden && questState.expedition`, { what: 'an expedition' });
+  assert.match(await page.eval(`document.getElementById('expedition').textContent.replace(/\\s+/g, ' ')`), /expedition ?Give up .* no deadline/);
   await snap('boss');
+  page.answers.push(true);
+  await page.eval(`document.querySelector('#expedition button').click()`);
+  await page.waitFor(`/Arrives in about 24 hours/.test(document.getElementById('expedition').textContent)`, { what: 'the wait for the next' });
+  assert.ok((await page.eval(`Store.quests()`)).expeditionAt > Date.now() + 86000000, 'kept on the server');
   // Taken out again, so the tests after this see the three files they expect.
   await page.eval(`fetch('api.php').then(r => r.json()).then(ts => ts.find(t => t.name === 'Card run').id)
     .then(id => fetch('api.php?action=delete&id=' + id, { method: 'POST', body: '{}' }))`);

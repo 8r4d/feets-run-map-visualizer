@@ -5,6 +5,16 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.20.0 — 2026-10-20
+
+- Expeditions, under the month's boss: a longer quest with no deadline, in a
+  theme with its own cards. Night Sky (get out after dark, by the sun where
+  you ran), Daybreak (around sunrise), Wild Trails, Cartographer (streets
+  you've never run), Voyage (distance), Peaks (climbing) and Garden (days out).
+  Finishing one turns over a card from its theme and earns 50 XP, and the next
+  starts straight away; *Give up* brings a new one a day later. Night Sky
+  cards now come from expeditions instead of the weekly quests.
+
 ## 1.19.1 — 2026-10-20
 
 - *Look back for past travels*, once: a button under the Travels sets adds

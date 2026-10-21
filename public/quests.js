@@ -13,6 +13,12 @@
 //
 // Each calendar month also has a boss (makeBoss): one bigger quest, a long
 // run or a lot of new street, with that month's legend card for beating it.
+//
+// And there's always an expedition on the go (makeExpedition): a longer
+// quest with no deadline, in a theme with its own cards (Night Sky: get out
+// after dark a few times; Garden: get out on 8 different days…). Finishing
+// one turns over a card from its theme, and the next comes straight away;
+// giving one up brings the next a day later.
 const Quests = (() => {
   const STREAK_MIN = 100;    // metres of new street for a week to count
   const DAY = 86400000;
@@ -318,6 +324,98 @@ const Quests = (() => {
     return { have, of: boss.target, done: have >= boss.target };
   }
 
+  // --- Expeditions ---
+  // { id, theme, goal, since (Unix ms) }: the goal is in the theme's unit
+  // (EXPEDITIONS), and only activities from `since` count.
+  const EXPEDITIONS = {
+    sky: { goal: 4, task: n => `Get out after dark ${n} times` },
+    daybreak: { goal: 3, task: n => `Start ${n} runs around sunrise` },
+    wild: { goal: 3000, task: m => `Cover ${kmText(m)} of trails`, km: true },
+    mapmaker: { goal: 3000, task: m => `Cover ${kmText(m)} of streets you've never run`, km: true },
+    voyage: { goal: 40000, task: m => `Go ${kmText(m)} in all`, km: true },
+    peaks: { goal: 400, task: m => `Climb ${m.toLocaleString()} m in all` },
+    garden: { goal: 8, task: n => `Get out on ${n} different days` },
+  };
+
+  // How high the sun is, in degrees, at a time and place (a short version of
+  // the usual almanac formulas: good to a degree or so, plenty for "is it dark").
+  function sunAltitude(ms, lat, lon) {
+    const rad = Math.PI / 180;
+    const d = ms / DAY - 10957.5;  // days since noon, 1 January 2000 (UTC)
+    const g = (357.529 + 0.98560028 * d) * rad;
+    const ecliptic = (280.459 + 0.98564736 * d + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g)) * rad;
+    const tilt = (23.439 - 0.00000036 * d) * rad;
+    const ra = Math.atan2(Math.cos(tilt) * Math.sin(ecliptic), Math.cos(ecliptic));
+    const dec = Math.asin(Math.sin(tilt) * Math.sin(ecliptic));
+    const hourAngle = ((18.697374558 + 24.06570982441908 * d) * 15 + lon) * rad - ra;
+    return Math.asin(Math.sin(lat * rad) * Math.sin(dec) + Math.cos(lat * rad) * Math.cos(dec) * Math.cos(hourAngle)) / rad;
+  }
+  const DARK = -6;  // degrees: the sun this far below the horizon is the end of twilight
+
+  const startOf = t => { const seg = (t.segments || []).find(g => g.length); return seg ? seg[0] : null; };
+  // Dark at its start or its finish.
+  function afterDark(t) {
+    const at = startOf(t);
+    if (!at) return false;
+    const start = Date.parse(t.time), end = start + ((t.metrics && (t.metrics.elapsed || t.metrics.moving)) || 0) * 1000;
+    return sunAltitude(start, at[0], at[1]) < DARK || sunAltitude(end, at[0], at[1]) < DARK;
+  }
+  // Started within about 45 minutes of sunrise: the sun low and climbing.
+  function aroundSunrise(t) {
+    const at = startOf(t);
+    if (!at) return false;
+    const ms = Date.parse(t.time), now = sunAltitude(ms, at[0], at[1]);
+    return now > DARK && now < 6 && sunAltitude(ms + 900000, at[0], at[1]) > now;
+  }
+
+  // Metres of trail (dirt paths, cat 'trail') a run covered, in every area.
+  function trailMetres(t, areas) {
+    let m = 0;
+    for (const area of areas) {
+      const prep = Coverage.prepared(area);
+      const { fraction } = Coverage.compute(prep, [t.segments]);
+      area.data.streets.forEach((s, w) => { if (s.cat === 'trail' && !prep.excluded[w]) m += s.len * fraction[w]; });
+    }
+    return m;
+  }
+
+  // A new expedition: a theme with cards still to turn over, not `last`
+  // (unless it's the only one), and only Wild Trails and Cartographer when
+  // there are areas to do them in. null when every theme is complete.
+  // themes: Cards.expeditionThemes.
+  function makeExpedition(themes, areas, last = null, now = Date.now(), random = Math.random) {
+    const hasTrails = areas.some(a => a.data.streets.some(s => s.cat === 'trail'));
+    const usable = themes.filter(th => EXPEDITIONS[th.id] && (th.id !== 'wild' || hasTrails) && (th.id !== 'mapmaker' || areas.length));
+    const fresh = usable.filter(th => th.id !== last);
+    const pool = fresh.length ? fresh : usable;
+    if (!pool.length) return null;
+    const theme = pool[Math.floor(random() * pool.length)];
+    return { id: `exp:${now}`, theme: theme.id, goal: EXPEDITIONS[theme.id].goal, since: now };
+  }
+
+  const expeditionTask = exp => EXPEDITIONS[exp.theme].task(exp.goal);
+
+  // How far along an expedition is: { have, of, done }, in its unit. tracks:
+  // on-foot activities; firstsMap: as from firsts(), for Cartographer.
+  function expeditionProgress(exp, tracks, areas, firstsMap) {
+    const runs = tracks.filter(t => t.time && Date.parse(t.time) >= exp.since);
+    let have = 0;
+    switch (exp.theme) {
+      case 'sky': have = runs.filter(afterDark).length; break;
+      case 'daybreak': have = runs.filter(aroundSunrise).length; break;
+      case 'wild': for (const t of runs) have += trailMetres(t, areas); break;
+      case 'mapmaker': for (const t of runs) have += (firstsMap.get(t.id) || { metres: 0 }).metres; break;
+      case 'voyage': for (const t of runs) have += t.distance || 0; break;
+      case 'peaks': for (const t of runs) have += (t.metrics && t.metrics.climb) || 0; break;
+      case 'garden': {
+        have = new Set(runs.map(t => { const d = new Date(t.time); return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`; })).size;
+        break;
+      }
+      default: break;
+    }
+    return { have, of: exp.goal, done: have >= exp.goal, km: Boolean(EXPEDITIONS[exp.theme] && EXPEDITIONS[exp.theme].km) };
+  }
+
   // Whether a quest's street has since been marked off-limits (all of it, as
   // marking a named street does): it can't be finished, so it's swapped out.
   function offLimits(quest, areas) {
@@ -367,6 +465,6 @@ const Quests = (() => {
     return { have, of: quest.target, done: have >= quest.target };
   }
 
-  return { STREAK_MIN, SHIELD_MAX, BOSS_LONG_MAX, firsts, streak, streakTrophies, useShields, weekId, monthId, make, makeBoss, bossTitle,
+  return { sunAltitude, makeExpedition, expeditionTask, expeditionProgress, STREAK_MIN, SHIELD_MAX, BOSS_LONG_MAX, firsts, streak, streakTrophies, useShields, weekId, monthId, make, makeBoss, bossTitle,
     bossProgress, offLimits, progress, kmText, title };
 })();

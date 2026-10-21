@@ -2967,3 +2967,59 @@ body.race-page {
   margin: 2px 0 4px;
   font-size: 12px;
 }
+
+/* The expedition on the go, under the boss: in its theme's colour (--set) */
+#expedition {
+  --set: #455a64;
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border: 2px solid var(--set);
+  border-radius: 8px;
+}
+
+#expedition .exp-icon {
+  font-size: 26px;
+  line-height: 1.1;
+}
+
+#expedition .exp-body {
+  flex: 1;
+  min-width: 0;
+}
+
+#expedition .quest-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+#expedition .quest-title button {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+#expedition .exp-task {
+  font-size: 13px;
+}
+
+#expedition .bar {
+  height: 6px;
+  margin: 4px 0 2px;
+  background: var(--track);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+#expedition .bar span {
+  display: block;
+  height: 100%;
+  background: var(--set);
+}
+
+#expedition small {
+  color: var(--muted);
+}

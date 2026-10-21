@@ -23,6 +23,8 @@
 //   quest and what you have, so every device turns over the same one.
 // - Legends: one per month, only for beating that month's boss (see
 //   Quests.makeBoss). A legend missed comes round again the next year.
+// - from expeditions: themed sets (Night Sky, Daybreak, Garden…), a card for
+//   each expedition finished in that theme (see Quests.makeExpedition).
 //
 // Codes: f:SET:CARD@YEAR (found), h:OSM_ID:NEIGHBOURHOOD@YEAR and …@YEAR:gold,
 // p:COUNTRY (two-letter code), t:COUNTRY:TOWN, q:SET:CARD (quests and
@@ -106,6 +108,49 @@ const Cards = (() => {
         test: (t, s) => ((t.metrics && t.metrics.climb) >= m ? `${Math.round(t.metrics.climb)} m up · ${s.detail(t)}` : null) })) },
   ];
 
+  // Sets from expeditions (see Quests.makeExpedition): one card for each
+  // expedition finished, from its theme.
+  const EXPEDITION = [
+    { id: 'sky', name: 'Night Sky', icon: '🌌', color: '#283593',
+      cards: [['moon', 'Full Moon', '🌕'], ['crescent', 'Crescent Moon', '🌙'], ['star', 'Pole Star', '⭐'],
+        ['shooting', 'Shooting Star', '🌠'], ['comet', 'Comet', '☄️'], ['milky', 'Milky Way', '🌌'], ['planet', 'Ringed Planet', '🪐'],
+        ['eclipse', 'Eclipse', '🌑'], ['aurora', 'Aurora', '🎆'], ['dipper', 'Big Dipper', '✨']] },
+    { id: 'daybreak', name: 'Daybreak', icon: '🌅', color: '#ef6c00',
+      cards: [['sunrise', 'Sunrise', '🌅'], ['chorus', 'Dawn Chorus', '🐦'], ['mist', 'Morning Mist', '🌫️'], ['dew', 'Dew', '💧'],
+        ['rooster', 'Rooster', '🐓'], ['coffee', 'First Coffee', '☕'], ['light', 'First Light', '🌤️'], ['bread', 'Fresh Bread', '🍞']] },
+    { id: 'wild', name: 'Wild Trails', icon: '🍄', color: '#33691e',
+      cards: [['mushroom', 'Mushroom', '🍄'], ['fern', 'Fern', '🌿'], ['log', 'Fallen Log', '🪵'], ['prints', 'Paw Prints', '🐾'],
+        ['berries', 'Wild Berries', '🫐'], ['boulder', 'Boulder', '🪨'], ['web', 'Spider Web', '🕸️'], ['pine', 'Old Pine', '🌲'],
+        ['owl', 'Great Horned Owl', '🦉'], ['spring', 'Hidden Spring', '⛲']] },
+    { id: 'mapmaker', name: 'Cartographer', icon: '🧭', color: '#5d4037',
+      cards: [['compass', 'Compass', '🧭'], ['map', 'Old Map', '🗺️'], ['telescope', 'Telescope', '🔭'], ['scroll', 'Scroll', '📜'],
+        ['anchor', 'Anchor', '⚓'], ['island', 'Island', '🏝️'], ['monolith', 'Monolith', '🗿'], ['castle', 'Castle', '🏰'],
+        ['volcano', 'Volcano', '🌋'], ['lighthouse', 'Tower', '🗼']] },
+    { id: 'voyage', name: 'Voyage', icon: '⛵', color: '#01579b',
+      cards: [['sailboat', 'Sailboat', '⛵'], ['whale', 'Whale', '🐋'], ['wave', 'Big Wave', '🌊'], ['coral', 'Coral', '🪸'],
+        ['octopus', 'Octopus', '🐙'], ['parrot', 'Parrot', '🦜'], ['treasure', 'Treasure', '💰'], ['mermaid', 'Mermaid', '🧜']] },
+    { id: 'peaks', name: 'Peaks', icon: '🏔️', color: '#455a64',
+      cards: [['peak', 'Snowy Peak', '🏔️'], ['goat', 'Mountain Goat', '🐐'], ['climber', 'Climber', '🧗'], ['gondola', 'Gondola', '🚠'],
+        ['eagle', 'Golden Eagle', '🦅'], ['camp', 'Base Camp', '⛺'], ['rope', 'Rope', '🪢'], ['flag', 'Summit Flag', '🚩']] },
+    { id: 'garden', name: 'Garden', icon: '🌻', color: '#7cb342',
+      cards: [['seedling', 'Seedling', '🌱'], ['sunflower', 'Sunflower', '🌻'], ['carrot', 'Carrot', '🥕'], ['tomato', 'Tomato', '🍅'],
+        ['bee', 'Busy Bee', '🐝'], ['pot', 'Potted Plant', '🪴'], ['tulip', 'Tulip', '🌷'], ['pea', 'Peas', '🫛'],
+        ['strawberry', 'Strawberry', '🍓'], ['snail', 'Garden Snail', '🐌']] },
+  ].map(set => ({ ...set, expedition: true, cards: set.cards.map(([id, name, icon]) => ({ id, name, icon, hint: `Finish a ${set.name} expedition` })) }));
+
+  // Expedition themes with cards still to turn over.
+  const expeditionThemes = owned => EXPEDITION.filter(set => set.cards.some(c => !owned.has(`q:${set.id}:${c.id}`)))
+    .map(({ id, name, icon }) => ({ id, name, icon }));
+  const expeditionTheme = id => EXPEDITION.find(set => set.id === id);
+  // The card a finished expedition turns over: { code, detail }, or null if its theme is complete.
+  function expeditionCard(exp, owned, title) {
+    const set = expeditionTheme(exp.theme);
+    const missing = set ? set.cards.filter(c => !owned.has(`q:${set.id}:${c.id}`)) : [];
+    if (!missing.length) return null;
+    const card = missing[hash(exp.id) % missing.length];
+    return { code: `q:${set.id}:${card.id}`, detail: `For "${title}"` };
+  }
+
   // The flag of a two-letter country code: its regional indicator letters.
   const flag = cc => (/^[a-z]{2}$/.test(cc) ? String.fromCodePoint(...[...cc.toUpperCase()].map(c => 0x1f1a5 + c.charCodeAt(0))) : '🏳️');
 
@@ -115,10 +160,6 @@ const Cards = (() => {
       cards: [['fox', 'Fox', '🦊'], ['deer', 'Deer', '🦌'], ['rabbit', 'Rabbit', '🐇'], ['squirrel', 'Squirrel', '🐿️'],
         ['hedgehog', 'Hedgehog', '🦔'], ['bear', 'Bear', '🐻'], ['raccoon', 'Raccoon', '🦝'], ['beaver', 'Beaver', '🦫'],
         ['frog', 'Frog', '🐸'], ['wolf', 'Wolf', '🐺']] },
-    { id: 'sky', name: 'Night Sky', icon: '🌌', color: '#283593',
-      cards: [['moon', 'Full Moon', '🌕'], ['crescent', 'Crescent Moon', '🌙'], ['star', 'Pole Star', '⭐'],
-        ['shooting', 'Shooting Star', '🌠'], ['comet', 'Comet', '☄️'], ['milky', 'Milky Way', '🌌'], ['planet', 'Ringed Planet', '🪐'],
-        ['eclipse', 'Eclipse', '🌑'], ['aurora', 'Aurora', '🎆'], ['sunrise', 'Sunrise', '🌄']] },
     { id: 'weather', name: 'Any Weather', icon: '🌦️', color: '#00838f',
       cards: [['sun', 'Sunshine', '☀️'], ['cloud', 'Overcast', '☁️'], ['rain', 'Downpour', '🌧️'], ['storm', 'Thunderstorm', '⛈️'],
         ['wind', 'Headwind', '🌬️'], ['fog', 'Fog', '🌫️'], ['rainbow', 'Rainbow', '🌈'], ['heat', 'Heatwave', '🥵']] },
@@ -373,8 +414,8 @@ const Cards = (() => {
         detail: (latest || {}).detail || '', ...extra };
     };
     const out = [
-      ...[...QUEST, LEGEND_SET].map(set => ({ id: set.id, name: set.name, icon: set.icon, color: set.color, kind: 'quest',
-        month: set.month, boss: Boolean(set.boss), cards: set.cards.map(c => lifetime(set, c)) })),
+      ...[...QUEST, ...EXPEDITION, LEGEND_SET].map(set => ({ id: set.id, name: set.name, icon: set.icon, color: set.color, kind: 'quest',
+        month: set.month, boss: Boolean(set.boss), expedition: Boolean(set.expedition), cards: set.cards.map(c => lifetime(set, c)) })),
       ...FOUND.map(set => ({ id: set.id, name: set.name, icon: set.icon, color: set.color, kind: 'found', yearly: true,
         cards: set.cards.map(c => yearly(`f:${set.id}:${c.id}`, c)) })),
     ];
@@ -411,5 +452,5 @@ const Cards = (() => {
           : set.yearly ? `All ${set.cards.length} cards found in ${year}` : `All ${set.cards.length} cards collected` }));
   }
 
-  return { evaluate, travels, pack, questSet, sets, setTrophies, legend, legendCard, flag, STREET_RUN, HOOD_PCT };
+  return { evaluate, travels, expeditionThemes, expeditionTheme, expeditionCard, pack, questSet, sets, setTrophies, legend, legendCard, flag, STREET_RUN, HOOD_PCT };
 })();

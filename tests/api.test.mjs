@@ -212,6 +212,11 @@ test('quests keep the month\'s boss and the streak shields', async () => {
   assert.deepEqual(kept.boss, boss);
   assert.equal(kept.bossDone, true);
   assert.deepEqual(kept.shields, { held: 2, used: ['2026-10-12'], earned: ['2026-10-05'] }, 'two at most');
+  assert.equal(kept.expedition, null);
+  const expedition = { id: 'exp:1', theme: 'sky', goal: 4, since: 1 };
+  await a.client.call('quests_save', { ...kept, expedition, expeditionAt: 5, expeditionLast: 'garden', expeditions: 2 });
+  const again = (await a.client.call('quests')).body;
+  assert.deepEqual([again.expedition, again.expeditionAt, again.expeditionLast, again.expeditions], [expedition, 5, 'garden', 2]);
 });
 
 test('cards: found by running cleared once more for one a set per run, quest and boss cards kept, two weeks back', async () => {

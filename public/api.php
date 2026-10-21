@@ -94,8 +94,9 @@
 //   POST api.php?action=segment_efforts&id=ID  {efforts: {track id: [[start, seconds], ...]}}: what the
 //                                            browser found, kept so each activity is only checked once
 //   GET  api.php?action=quests               this week's quests: {week, quests, done: [ids], completed, boss, bossDone,
-//                                            shields: {held, used: [week ids], earned: [week ids]}}, see save_quests()
-//   POST api.php?action=quests_save          {week, quests, done, completed, boss, bossDone, shields}
+//                                            shields: {held, used: [week ids], earned: [week ids]}, expedition,
+//                                            expeditionAt, expeditionLast, expeditions}, see save_quests()
+//   POST api.php?action=quests_save          {week, quests, done, completed, boss, bossDone, shields, expedition…}
 //   POST api.php?action=home_save            {lat, lon, zoom}: where the map opens; {} clears it. Returns {home}
 //                                            (sent as user.home by me, login and the like; null when not set)
 //
@@ -2434,7 +2435,9 @@ function quests(int $userId): array {
     $q = json_decode((string) $stmt->fetchColumn(), true) ?: [];
     return ['week' => $q['week'] ?? null, 'quests' => $q['quests'] ?? [], 'done' => $q['done'] ?? [], 'completed' => (int) ($q['completed'] ?? 0),
             'boss' => $q['boss'] ?? null, 'bossDone' => !empty($q['bossDone']),
-            'shields' => $q['shields'] ?? ['held' => 0, 'used' => [], 'earned' => []]];
+            'shields' => $q['shields'] ?? ['held' => 0, 'used' => [], 'earned' => []],
+            'expedition' => $q['expedition'] ?? null, 'expeditionAt' => (int) ($q['expeditionAt'] ?? 0),
+            'expeditionLast' => $q['expeditionLast'] ?? null, 'expeditions' => (int) ($q['expeditions'] ?? 0)];
 }
 
 function save_quests(int $userId, array $b): array {
@@ -2448,7 +2451,11 @@ function save_quests(int $userId, array $b): array {
           'boss' => is_array($b['boss'] ?? null) ? $b['boss'] : null, 'bossDone' => !empty($b['bossDone']),
           'shields' => ['held' => max(0, min(2, (int) ($shields['held'] ?? 0))),
                         'used' => array_values(array_slice(array_map('strval', (array) ($shields['used'] ?? [])), -200)),
-                        'earned' => array_values(array_slice(array_map('strval', (array) ($shields['earned'] ?? [])), -200))]];
+                        'earned' => array_values(array_slice(array_map('strval', (array) ($shields['earned'] ?? [])), -200))],
+          'expedition' => is_array($b['expedition'] ?? null) ? $b['expedition'] : null,
+          'expeditionAt' => max(0, (int) ($b['expeditionAt'] ?? 0)),
+          'expeditionLast' => isset($b['expeditionLast']) ? mb_substr((string) $b['expeditionLast'], 0, 30) : null,
+          'expeditions' => max(0, (int) ($b['expeditions'] ?? 0))];
     $json = json_encode($q);
     if (strlen($json) > QUESTS_MAX_BYTES) {
         fail('Too many quests', 400);

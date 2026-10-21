@@ -13,7 +13,7 @@
   <meta name="apple-mobile-web-app-title" content="feets">
   <meta name="theme-color" content="#fafafa">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=97">
+  <link rel="stylesheet" href="style.css?v=98">
   <!-- Light or dark before anything draws, so a dark page doesn't flash white:
        the one picked with the toggle by the title (feets-theme), else the
        system's. The toggle itself is in app.js. The phone's bar above the
@@ -68,6 +68,15 @@
             <div class="boss-body">
               <div class="quest-title"><strong></strong><button class="link-button" type="button">Plan it</button></div>
               <div class="boss-task"></div>
+              <div class="bar"><span></span></div>
+              <small></small>
+            </div>
+          </div>
+          <div id="expedition" hidden title="A longer quest with no deadline: finish it for a card from its theme">
+            <span class="exp-icon"></span>
+            <div class="exp-body">
+              <div class="quest-title"><strong></strong><button class="link-button" type="button">Give up</button></div>
+              <div class="exp-task"></div>
               <div class="bar"><span></span></div>
               <small></small>
             </div>
@@ -388,7 +397,7 @@
     </details>
     <details id="about" class="panel">
       <!-- The version: bump it here and in CHANGELOG.md with each release. -->
-      <summary>About feets <span id="version">v1.19.1</span></summary>
+      <summary>About feets <span id="version">v1.20.0</span></summary>
       <div class="panel-body">
         <p>feets is an activity mapping and route planning app made by 8r4d.</p>
         <ul>
@@ -495,13 +504,13 @@
   <script src="coverage.js?v=22"></script>
   <script src="planner.js?v=39"></script>
   <script src="art.js?v=8"></script>
-  <script src="quests.js?v=7"></script>
+  <script src="quests.js?v=8"></script>
   <script src="segments.js?v=2"></script>
   <script src="stats.js?v=29"></script>
   <script src="elevation.js?v=4"></script>
   <script src="achievements.js?v=24"></script>
-  <script src="cards.js?v=6"></script>
-  <script src="xp.js?v=3"></script>
-  <script src="app.js?v=117"></script>
+  <script src="cards.js?v=7"></script>
+  <script src="xp.js?v=4"></script>
+  <script src="app.js?v=118"></script>
 </body>
 </html>

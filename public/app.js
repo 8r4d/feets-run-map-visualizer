@@ -2472,7 +2472,7 @@ function renderCards() {
       box.querySelector('small').textContent = set.kind === 'open' ? `${have} so far` : (complete ? '✓ ' : '') + `${have}/${set.cards.length}`
         + (earlier ? ` · ${earlier} before` : '')
         + (set.month !== undefined && set.month !== month && have < set.cards.length ? ` · ${new Date(2026, set.month, 1).toLocaleString(undefined, { month: 'short' })} only` : '')
-        + (set.boss ? ' · bosses' : '')
+        + (set.boss ? ' · bosses' : set.expedition ? ' · expeditions' : '')
         + (now && now.id === set.id ? ' · now' : '');
       box.querySelector('.bar span').style.width = set.kind === 'open' ? '100%' : `${(have / set.cards.length * 100).toFixed(1)}%`;
       box.querySelector('.card-grid').append(...set.cards.map(c => {
@@ -2485,7 +2485,7 @@ function renderCards() {
         el.querySelector('strong').textContent = c.owned || past || set.kind === 'hood' ? c.name : '';
         // A quest card face down says nothing more than the note under the sets.
         el.querySelector('small').textContent = past ? `Found ${c.years.join(', ')}. ${c.hint}.`
-          : c.owned ? c.detail : set.kind === 'quest' && !set.boss ? '' : c.hint;
+          : c.owned ? c.detail : set.kind === 'quest' && !set.boss && !set.expedition ? '' : c.hint;
         el.querySelector('.editions').textContent = c.owned && c.years && c.years.length > 1 ? `×${c.years.length}` : '';
         el.title = c.owned ? `${c.name}: ${c.detail}` + (c.years && c.years.length > 1 ? ` (found in ${c.years.join(', ')})` : '')
           : past ? `${c.name}: found in ${c.years.join(', ')}. ${c.hint} in ${year} for this year's.` : c.hint;
@@ -2509,7 +2509,7 @@ function renderCards() {
   document.getElementById('cards-note').textContent = (now
     ? `Each quest you finish turns over a ${now.icon} ${now.name} card.`
     : 'Every quest set you can collect now is complete: next month brings a new season.')
-    + " Beat the month's boss for its legend. Running sets start again every January, and last year's cards stay.";
+    + " Expeditions turn over their own themes, and beating the month's boss its legend. Running sets start again every January, and last year's cards stay.";
 }
 
 // Shows this year's trophies, then all-time ones. Earlier years' are kept on
@@ -5593,7 +5593,9 @@ async function updateQuests() {
         `No new streets the week${used.length === 1 ? '' : 's'} of ${used.join(', ')}. ${shields.held} left.`);
     }
     questState = { ...Quests.make(areas, coverageFor, firsts, near()), done: [], completed: old ? old.completed : 0,
-      boss: old ? old.boss : null, bossDone: old ? old.bossDone : false, shields };
+      boss: old ? old.boss : null, bossDone: old ? old.bossDone : false, shields,
+      expedition: old ? old.expedition || null : null, expeditionAt: old ? old.expeditionAt || 0 : 0,
+      expeditionLast: old ? old.expeditionLast || null : null, expeditions: old ? old.expeditions || 0 : 0 };
     dirty = true;
   }
   // A boss for each month.
@@ -5660,11 +5662,35 @@ async function updateQuests() {
     await saveCards([Cards.legendCard(questState.boss, title)]).catch(err => console.error('Cards:', err));
     bossXp = Xp.bossEvents(questState.boss, title);
   }
+  // The expedition: one on the go whenever there's a theme left, the next as
+  // soon as one's done (or a day after one's given up).
+  const themesLeft = () => Cards.expeditionThemes(new Set(cards.map(c => c.code)));
+  if (!questState.expedition && Date.now() >= (questState.expeditionAt || 0)) {
+    questState.expedition = Quests.makeExpedition(themesLeft(), areas, questState.expeditionLast);
+    if (questState.expedition) dirty = true;
+  }
+  let expeditionXp = [];
+  let expeditionProgress = questState.expedition && Quests.expeditionProgress(questState.expedition, tracks, areas, firsts);
+  if (expeditionProgress && expeditionProgress.done) {
+    const exp = questState.expedition;
+    const theme = Cards.expeditionTheme(exp.theme);
+    const title = `${theme.name}: ${Quests.expeditionTask(exp)}`;
+    const card = Cards.expeditionCard(exp, new Set(cards.map(c => c.code)), title);
+    toast(`${theme.icon} Expedition done: ${title}`, `A ${theme.name} card and ${Xp.POINTS.quest} XP. The next one is under the boss.`);
+    if (card) await saveCards([card]).catch(err => console.error('Cards:', err));
+    expeditionXp = Xp.expeditionEvents(exp, title);
+    questState.expeditions = (questState.expeditions || 0) + 1;
+    questState.expeditionLast = exp.theme;
+    questState.expedition = Quests.makeExpedition(themesLeft(), areas, exp.theme);
+    expeditionProgress = questState.expedition && Quests.expeditionProgress(questState.expedition, tracks, areas, firsts);
+    dirty = true;
+  }
   if (dirty) await Store.saveQuests(questState).catch(() => {});
+  renderExpedition(expeditionProgress);
   renderQuests(Quests.streak(firsts, new Date(), shields.used), progress, bossProgress);
   xpFirsts = firsts;
   await awardStreakTrophies(firsts);
-  await awardXp([...Xp.questEvents(finished, Quests.title), ...bossXp]);
+  await awardXp([...Xp.questEvents(finished, Quests.title), ...bossXp, ...expeditionXp]);
 }
 
 // Streak trophies (see Quests.streakTrophies), saved and announced like the
@@ -5805,6 +5831,49 @@ function renderQuests(streak, progress, bossProgress) {
   }));
   document.getElementById('quests-note').textContent = `New quests every Monday, and finish them all for a streak shield. ${questState.completed} done in all.`
     + (areas.length ? '' : ' Add a street area in Road Fill for more kinds of quest.');
+}
+
+// The expedition on the go, under the boss: or when the next arrives, after one was given up.
+let expeditionTimer = null;
+function renderExpedition(p) {
+  const box = document.getElementById('expedition');
+  const exp = questState.expedition;
+  const waiting = !exp && (questState.expeditionAt || 0) > Date.now();
+  box.hidden = !exp && !waiting;
+  clearTimeout(expeditionTimer);
+  if (waiting) {
+    // The next one turns up on the next check after it's due.
+    const wait = questState.expeditionAt - Date.now();
+    if (wait < 86400000 + 60000) expeditionTimer = setTimeout(scheduleQuests, wait + 1000);
+    const hours = Math.max(1, Math.round(wait / 3600000));
+    box.querySelector('.exp-icon').textContent = '🧳';
+    box.querySelector('strong').textContent = 'Next expedition';
+    box.querySelector('.exp-task').textContent = `Arrives in about ${hours} hour${hours === 1 ? '' : 's'}.`;
+    box.querySelector('.bar').hidden = true;
+    box.querySelector('small').textContent = '';
+    box.querySelector('button').hidden = true;
+    return;
+  }
+  if (box.hidden) return;
+  const theme = Cards.expeditionTheme(exp.theme);
+  const amount = n => (p.km ? Quests.kmText(n) : exp.theme === 'peaks' ? `${Math.round(n)} m` : String(Math.round(n)));
+  box.style.setProperty('--set', theme.color);
+  box.querySelector('.exp-icon').textContent = theme.icon;
+  box.querySelector('strong').textContent = `${theme.name} expedition`;
+  box.querySelector('.exp-task').textContent = Quests.expeditionTask(exp);
+  box.querySelector('.bar').hidden = false;
+  box.querySelector('.bar span').style.width = `${Math.min(100, p.have / Math.max(1, p.of) * 100).toFixed(1)}%`;
+  box.querySelector('small').textContent = `${amount(p.have)} of ${amount(p.of)} · no deadline · 🃏 a ${theme.name} card + ${Xp.POINTS.quest} XP`;
+  const giveUp = box.querySelector('button');
+  giveUp.hidden = false;
+  giveUp.onclick = async () => {
+    if (!confirm(`Give up the ${theme.name} expedition? Nothing is lost, and a new one arrives in a day.`)) return;
+    questState.expeditionLast = exp.theme;
+    questState.expedition = null;
+    questState.expeditionAt = Date.now() + 86400000;
+    await Store.saveQuests(questState).catch(err => alert(err.message));
+    renderExpedition(null);
+  };
 }
 
 // This month's boss, above the week's quests.

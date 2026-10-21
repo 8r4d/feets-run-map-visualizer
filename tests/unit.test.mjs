@@ -279,3 +279,46 @@ test('bosses: one a month, scaled to the days left, only counting from when it w
   assert.equal(nov.kind, ['long', 'any'][10 % 2], "by the month, from the kinds there's data for");
 });
 
+
+test('expeditions: a theme with cards left (not the last one), progress in its own terms, and a card for finishing', () => {
+  const { Quests, Cards } = questScripts();
+  const edmonton = [53.5, -113.5];
+  const all = Cards.expeditionThemes(new Set());
+  assert.equal(all.map(t => t.id).join(), 'sky,daybreak,wild,mapmaker,voyage,peaks,garden');
+  // No areas: no Wild Trails or Cartographer; never the theme just done.
+  const picks = new Set(Array.from({ length: 50 }, (_, i) => Quests.makeExpedition(all, [], 'sky', 1, () => i / 50).theme));
+  assert.equal([...picks].sort().join(), 'daybreak,garden,peaks,voyage');
+  assert.equal(Quests.makeExpedition([], [], null), null, 'every theme complete');
+  const only = Quests.makeExpedition(all.filter(t => t.id === 'sky'), [], 'sky', 5);
+  assert.equal(only.theme, 'sky', 'the last one again, if it is all that is left');
+  assert.equal(JSON.stringify(only), '{"id":"exp:5","theme":"sky","goal":4,"since":5}');
+
+  // A run from Edmonton at a UTC time, of km, climbing m.
+  const run = (id, utc, { km = 5, climb = 0 } = {}) => ({ id, name: id, time: new Date(utc).toISOString(), distance: km * 1000,
+    metrics: { climb, elapsed: 1800 }, segments: [[edmonton, [edmonton[0] + 0.01, edmonton[1]]]] });
+  const since = Date.UTC(2026, 11, 1);
+  const runs = [
+    run('noon', Date.UTC(2026, 11, 1, 19), { km: 10, climb: 150 }),     // noon in Edmonton in December
+    run('dusk', Date.UTC(2026, 11, 2, 0, 30), { km: 6, climb: 100 }),   // 5:30 pm: dark already
+    run('dawn', Date.UTC(2026, 11, 2, 15, 30), { km: 7 }),               // 8:30 am, sunrise near 8:45
+    run('old', Date.UTC(2026, 10, 1, 5), { km: 30 }),                    // before the expedition
+  ];
+  const progress = (theme, goal, extra = {}) => Quests.expeditionProgress({ id: 'e', theme, goal, since }, runs, extra.areas || [], extra.firsts || new Map());
+  assert.equal(progress('sky', 4).have, 1, 'only the 5:30 pm run was in the dark');
+  assert.equal(progress('daybreak', 3).have, 1);
+  assert.equal(progress('voyage', 40000).have, 23000, 'not the run before it started');
+  assert.equal(progress('peaks', 400).have, 250);
+  assert.equal(progress('garden', 8).have, 2, 'two different days');
+  assert.equal(progress('mapmaker', 3000, { firsts: new Map([['noon', { metres: 1200 }], ['old', { metres: 5000 }]]) }).have, 1200);
+  const done = progress('garden', 2);
+  assert.equal(done.done, true);
+  assert.equal(Quests.expeditionTask({ theme: 'voyage', goal: 40000 }), 'Go 40 km in all');
+
+  // The card: one not had yet from its theme; never from the weekly packs.
+  const exp = { id: 'exp:9', theme: 'garden' };
+  const card = Cards.expeditionCard(exp, new Set(), 'Garden: Get out on 8 different days');
+  assert.match(card.code, /^q:garden:/);
+  const garden = Cards.sets(new Map(), [], 2026).find(st => st.id === 'garden');
+  assert.equal(Cards.expeditionCard(exp, new Set(garden.cards.map(c => c.code)), 'x'), null, 'a complete theme turns over nothing');
+  for (let i = 0; i < 40; i++) assert.ok(!/^q:(sky|garden|daybreak):/.test(Cards.pack({ id: `w${i}` }, new Set(), 'x', new Date(2027, 2, 1)).code));
+});

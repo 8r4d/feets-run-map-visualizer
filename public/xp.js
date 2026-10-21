@@ -174,6 +174,9 @@ const Xp = (() => {
   // XP for quests just finished: Quests' quest objects.
   const questEvents = (quests, title) => quests.map(q => ({ kind: 'quest', ref: `quest:${q.id}`, points: POINTS.quest, detail: `Quest: ${title(q)}` }));
 
+  // XP for finishing an expedition (see Quests.makeExpedition): as a quest.
+  const expeditionEvents = (exp, title) => [{ kind: 'quest', ref: exp.id, points: POINTS.quest, detail: `Expedition: ${title}` }];
+
   // XP for beating a month's boss (see Quests.makeBoss).
   const bossEvents = (boss, title) => [{ kind: 'quest', ref: boss.id, points: POINTS.boss, detail: `Boss beaten: ${title}` }];
 
@@ -191,6 +194,6 @@ const Xp = (() => {
     return { level: lvl, into: left, need: toNext(lvl) };
   }
 
-  return { events, questEvents, bossEvents, trophyEvents, idleEvents, missedEvents, floor, level, counts, activityPoints,
+  return { events, questEvents, bossEvents, expeditionEvents, trophyEvents, idleEvents, missedEvents, floor, level, counts, activityPoints,
     POINTS, ADD_WINDOW, TROPHY_BATCH, IDLE_GRACE };
 })();
