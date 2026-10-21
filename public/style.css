@@ -2224,10 +2224,19 @@ body {
   font-size: 12px;
 }
 
-/* This week: streak and quests */
+/* This week: the streak and the quests, under a small heading */
+.quest-group {
+  margin: 2px 0 6px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
 #streak {
-  margin: 0;
-  font-size: 13px;
+  --accent: #f4511e;
+  margin-bottom: 10px;
 }
 
 #quest-list {
@@ -2894,7 +2903,8 @@ body.race-page {
 }
 
 .quest-card.done,
-#boss.done {
+#boss.done,
+#streak.done {
   --accent: #2e9e44;
 }
 

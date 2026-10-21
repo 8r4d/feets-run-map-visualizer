@@ -25,6 +25,7 @@ I18n.add('fr', {
   'Cancel': "Annuler",
   'Set goals': "Fixer des objectifs",
   'Counts runs, walks, hikes and tracks with no type, whatever the filters say. Weeks start on Monday.': "Compte les courses, marches, randonnées et traces sans type, quels que soient les filtres. Les semaines commencent le lundi.",
+  'Quests': "Quêtes",
   'Language': "Langue",
 
   // --- Map fade and fog ---

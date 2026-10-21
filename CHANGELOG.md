@@ -5,6 +5,17 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.20.3 — 2026-10-20
+
+- Your streak is a card too, under a small "This week" heading with the
+  week's quests: this week's new street towards keeping it going (green once
+  the week counts), your best streak and your shields.
+
+## 1.20.2 — 2026-10-20
+
+- The box with the boss, the expedition and the week's quests is now called
+  Quests (it was This week), and its count says "0 of 3 this week".
+
 ## 1.20.1 — 2026-10-20
 
 - The week's quests look like the boss and the expedition: a card each, with

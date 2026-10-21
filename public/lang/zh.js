@@ -25,6 +25,7 @@ I18n.add('zh', {
   'Cancel': '取消',
   'Set goals': '设定目标',
   'Counts runs, walks, hikes and tracks with no type, whatever the filters say. Weeks start on Monday.': '计入跑步、步行、徒步和未分类的轨迹，不受筛选条件影响。每周从周一开始。',
+  'Quests': '任务',
   'Language': '语言',
 
   // --- Map fade and fog ---

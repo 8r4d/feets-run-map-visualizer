@@ -5797,21 +5797,25 @@ function renderXp() {
 function renderQuests(streak, progress, bossProgress) {
   questsBox.hidden = false;
   renderBoss(bossProgress);
+  // The streak, as a card like the quests: this week's new street towards keeping it going.
   const s = document.getElementById('streak');
   const weeks = n => `${n} week${n === 1 ? '' : 's'}`;
   const held = questState.shields.held;
-  s.textContent = (streak.current
-    ? `🔥 New streets ${weeks(streak.current)} running (best ${weeks(streak.best)}).`
-      + (streak.counted ? '' : ` This week doesn't count yet: ${Quests.kmText(Quests.STREAK_MIN)} of new street keeps it going`
-        + (held ? ', or a shield will.' : '.'))
-    : streak.best
-      ? `No streak right now (best ${weeks(streak.best)}). ${Quests.kmText(Quests.STREAK_MIN)} of new street this week starts one.`
-      : `Cover ${Quests.kmText(Quests.STREAK_MIN)} of new street this week to start a streak.`)
-    + (held ? ` 🛡️×${held}` : '');
+  const min = Quests.STREAK_MIN;
+  s.classList.toggle('done', streak.counted);
+  s.querySelector('strong').textContent = streak.current ? `Streak: ${weeks(streak.current)}` : 'Start a streak';
+  s.querySelector('.qc-task').textContent = streak.counted
+    ? `This week counts: ${Quests.kmText(streak.thisWeek)} of new street`
+    : `Cover ${Quests.kmText(min)} of new street this week` + (streak.current ? ' to keep it going' : '');
+  s.querySelector('.bar span').style.width = `${Math.min(100, streak.thisWeek / min * 100).toFixed(1)}%`;
+  s.querySelector('small').textContent = [
+    streak.best ? `Best ${weeks(streak.best)}` : 'New streets every week makes a streak',
+    held ? `🛡️×${held} ${held === 1 ? 'shield' : 'shields'}${streak.current && !streak.counted ? ' if this week misses' : ''}` : 'Finish every quest for a 🛡️ shield',
+  ].join(' · ');
   s.title = `Streak shields: ${held} of ${Quests.SHIELD_MAX}. Finish every quest in a week to earn one; `
     + 'a week without new streets uses one up and your streak carries on.';
   const done = progress.filter(p => p.done).length;
-  document.getElementById('quests-summary').textContent = `${done} of ${progress.length} quests` + (streak.current ? ` · 🔥 ${streak.current}` : '')
+  document.getElementById('quests-summary').textContent = `${done} of ${progress.length} this week` + (streak.current ? ` · 🔥 ${streak.current}` : '')
     + (held ? ` · 🛡️${held}` : '');
   // Each a card like the boss and the expedition: what it is, how far along, and what it's worth.
   const packSet = Cards.questSet(new Set(cards.map(c => c.code)));

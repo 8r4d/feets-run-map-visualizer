@@ -25,6 +25,7 @@ I18n.add('ja', {
   'Cancel': 'キャンセル',
   'Set goals': '目標を設定',
   'Counts runs, walks, hikes and tracks with no type, whatever the filters say. Weeks start on Monday.': 'フィルターに関係なく、ラン・ウォーク・ハイキングと種類のないトラックを数えます。週は月曜日に始まります。',
+  'Quests': 'クエスト',
   'Language': '言語',
 
   // --- Map fade and fog ---
