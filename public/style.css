@@ -249,6 +249,26 @@
   box-shadow: var(--glow);
 }
 
+/* Buttons left to the browser draw in its own grey; neon outlines them in
+   cyan instead. :where() keeps this weaker than any button's own colours. */
+:where([data-palette="neon"]) button,
+:where([data-palette="neon"]) select {
+  color: var(--primary);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+}
+
+:where([data-palette="neon"]) button:hover:not(:disabled) {
+  background: var(--info-surface);
+  border-color: var(--primary);
+  box-shadow: var(--glow);
+}
+
+:where([data-palette="neon"]) button:disabled {
+  color: var(--muted);
+}
+
 /* The palette picker: a round button like the light/dark one, the select
    laid invisibly over it so its own list still opens. */
 #palette-button {

@@ -5,6 +5,12 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.22.1 — 2026-10-21
+
+- Neon: buttons with no colour of their own were left in the browser's grey,
+  which looked brown against the cyan. They're now cyan on navy, lighting up
+  when hovered.
+
 ## 1.22.0 — 2026-10-21
 
 - Colour palettes, picked beside the title: classic (as before), spring,
