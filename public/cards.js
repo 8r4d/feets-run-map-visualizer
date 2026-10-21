@@ -115,7 +115,7 @@ const Cards = (() => {
       cards: [['moon', 'Full Moon', '🌕'], ['crescent', 'Crescent Moon', '🌙'], ['star', 'Pole Star', '⭐'],
         ['shooting', 'Shooting Star', '🌠'], ['comet', 'Comet', '☄️'], ['milky', 'Milky Way', '🌌'], ['planet', 'Ringed Planet', '🪐'],
         ['eclipse', 'Eclipse', '🌑'], ['aurora', 'Aurora', '🎆'], ['dipper', 'Big Dipper', '✨']] },
-    { id: 'daybreak', name: 'Daybreak', icon: '🌅', color: '#ef6c00',
+    { id: 'daybreak', name: 'Daybreak', icon: '🌅', color: '#d81b60',
       cards: [['sunrise', 'Sunrise', '🌅'], ['chorus', 'Dawn Chorus', '🐦'], ['mist', 'Morning Mist', '🌫️'], ['dew', 'Dew', '💧'],
         ['rooster', 'Rooster', '🐓'], ['coffee', 'First Coffee', '☕'], ['light', 'First Light', '🌤️'], ['bread', 'Fresh Bread', '🍞']] },
     { id: 'wild', name: 'Wild Trails', icon: '🍄', color: '#33691e',

@@ -5813,17 +5813,22 @@ function renderQuests(streak, progress, bossProgress) {
   const done = progress.filter(p => p.done).length;
   document.getElementById('quests-summary').textContent = `${done} of ${progress.length} quests` + (streak.current ? ` · 🔥 ${streak.current}` : '')
     + (held ? ` · 🛡️${held}` : '');
+  // Each a card like the boss and the expedition: what it is, how far along, and what it's worth.
+  const packSet = Cards.questSet(new Set(cards.map(c => c.code)));
+  const reward = ` · 🃏 ${packSet ? `a ${packSet.name} card` : 'a card'} + ${Xp.POINTS.quest} XP`;
+  const QUEST_ICONS = { area: '🏘️', street: '🛣️', any: '🧭' };
   document.getElementById('quest-list').replaceChildren(...questState.quests.map((q, i) => {
     const p = progress[i];
     const li = document.createElement('li');
-    li.className = p.done ? 'done' : '';
-    li.innerHTML = '<div class="quest-title"><strong></strong><button class="link-button" type="button">Plan it</button></div>'
-      + '<div class="bar"><span></span></div><small></small>';
+    li.className = 'quest-card' + (p.done ? ' done' : '');
+    li.innerHTML = '<span class="qc-icon"></span><div class="qc-body">'
+      + '<div class="quest-title"><strong></strong><button class="link-button" type="button">Plan it</button></div>'
+      + '<div class="bar"><span></span></div><small></small></div>';
+    li.querySelector('.qc-icon').textContent = QUEST_ICONS[q.kind] || '🧭';
     li.querySelector('strong').textContent = (p.done ? '✓ ' : '') + Quests.title(q);
     li.querySelector('.bar span').style.width = `${Math.min(100, p.have / Math.max(1, p.of) * 100).toFixed(1)}%`;
-    li.querySelector('small').textContent = q.kind === 'street'
-      ? (p.done ? 'Finished' : `${Quests.kmText(p.of - p.have)} to go`)
-      : `${Quests.kmText(p.have)} of ${Quests.kmText(p.of)}`;
+    li.querySelector('small').textContent = p.done ? 'Done this week'
+      : (q.kind === 'street' ? `${Quests.kmText(p.of - p.have)} to go` : `${Quests.kmText(p.have)} of ${Quests.kmText(p.of)}`) + reward;
     const plan = li.querySelector('button');
     plan.hidden = p.done;
     plan.onclick = () => planQuest(q);
@@ -5846,9 +5851,9 @@ function renderExpedition(p) {
     const wait = questState.expeditionAt - Date.now();
     if (wait < 86400000 + 60000) expeditionTimer = setTimeout(scheduleQuests, wait + 1000);
     const hours = Math.max(1, Math.round(wait / 3600000));
-    box.querySelector('.exp-icon').textContent = '🧳';
+    box.querySelector('.qc-icon').textContent = '🧳';
     box.querySelector('strong').textContent = 'Next expedition';
-    box.querySelector('.exp-task').textContent = `Arrives in about ${hours} hour${hours === 1 ? '' : 's'}.`;
+    box.querySelector('.qc-task').textContent = `Arrives in about ${hours} hour${hours === 1 ? '' : 's'}.`;
     box.querySelector('.bar').hidden = true;
     box.querySelector('small').textContent = '';
     box.querySelector('button').hidden = true;
@@ -5857,10 +5862,10 @@ function renderExpedition(p) {
   if (box.hidden) return;
   const theme = Cards.expeditionTheme(exp.theme);
   const amount = n => (p.km ? Quests.kmText(n) : exp.theme === 'peaks' ? `${Math.round(n)} m` : String(Math.round(n)));
-  box.style.setProperty('--set', theme.color);
-  box.querySelector('.exp-icon').textContent = theme.icon;
+  box.style.setProperty('--accent', theme.color);
+  box.querySelector('.qc-icon').textContent = theme.icon;
   box.querySelector('strong').textContent = `${theme.name} expedition`;
-  box.querySelector('.exp-task').textContent = Quests.expeditionTask(exp);
+  box.querySelector('.qc-task').textContent = Quests.expeditionTask(exp);
   box.querySelector('.bar').hidden = false;
   box.querySelector('.bar span').style.width = `${Math.min(100, p.have / Math.max(1, p.of) * 100).toFixed(1)}%`;
   box.querySelector('small').textContent = `${amount(p.have)} of ${amount(p.of)} · no deadline · 🃏 a ${theme.name} card + ${Xp.POINTS.quest} XP`;
@@ -5886,9 +5891,9 @@ function renderBoss(p) {
   const [y, m] = boss.month.split('-').map(Number);
   const daysLeft = Math.max(0, Math.ceil((new Date(y, m, 1) - Date.now()) / 86400000));
   box.classList.toggle('done', questState.bossDone);
-  box.querySelector('.boss-icon').textContent = legend.icon;
+  box.querySelector('.qc-icon').textContent = legend.icon;
   box.querySelector('strong').textContent = (questState.bossDone ? '✓ ' : '') + legend.name;
-  box.querySelector('.boss-task').textContent = Quests.bossTitle(boss).replace(/^.*?: /, '');
+  box.querySelector('.qc-task').textContent = Quests.bossTitle(boss).replace(/^.*?: /, '');
   box.querySelector('.bar span').style.width = `${Math.min(100, p.have / Math.max(1, p.of) * 100).toFixed(1)}%`;
   box.querySelector('small').textContent = questState.bossDone
     ? `Beaten! Its legend card is in Cards. A new boss on the 1st.`

@@ -2239,41 +2239,6 @@ body {
   gap: 10px;
 }
 
-#quest-list .quest-title {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 13px;
-}
-
-#quest-list .quest-title button {
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-#quest-list .bar {
-  height: 6px;
-  margin: 4px 0 2px;
-  background: var(--track);
-  border-radius: 3px;
-  overflow: hidden;
-}
-
-#quest-list .bar span {
-  display: block;
-  height: 100%;
-  background: #ff6d00;
-}
-
-#quest-list .done .bar span {
-  background: #2e9e44;
-}
-
-#quest-list small {
-  color: var(--muted);
-}
-
 /* Plan mode: GPS art */
 #art-shapes {
   display: grid;
@@ -2868,69 +2833,6 @@ body.race-page {
   box-shadow: inset 0 0 0 3px rgba(201, 162, 39, 0.25);
 }
 
-/* This month's boss, above the week's quests */
-#boss {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 10px;
-  padding: 8px 10px;
-  border: 2px solid #7b1fa2;
-  border-radius: 8px;
-  background: linear-gradient(135deg, color-mix(in srgb, #7b1fa2 12%, var(--surface)), var(--surface) 70%);
-}
-
-#boss .boss-icon {
-  font-size: 30px;
-  line-height: 1.1;
-}
-
-#boss .boss-body {
-  flex: 1;
-  min-width: 0;
-}
-
-#boss .quest-title {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 8px;
-}
-
-#boss .quest-title button {
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-#boss .boss-task {
-  font-size: 13px;
-}
-
-#boss .bar {
-  height: 6px;
-  margin: 4px 0 2px;
-  background: var(--track);
-  border-radius: 3px;
-  overflow: hidden;
-}
-
-#boss .bar span {
-  display: block;
-  height: 100%;
-  background: #7b1fa2;
-}
-
-#boss small {
-  color: var(--muted);
-}
-
-#boss.done {
-  border-color: #2e9e44;
-}
-
-#boss.done .bar span {
-  background: #2e9e44;
-}
-
 #streak[title] {
   cursor: help;
 }
@@ -2968,45 +2870,63 @@ body.race-page {
   font-size: 12px;
 }
 
-/* The expedition on the go, under the boss: in its theme's colour (--set) */
-#expedition {
-  --set: #455a64;
+
+/* Quests in Questing: the month's boss, the expedition and the week's quests
+   all as one kind of card, in their own colour (--accent): purple for the
+   boss, the theme's for an expedition, orange for the week's, green once done. */
+.quest-card {
+  --accent: #ff6d00;
   display: flex;
   gap: 10px;
-  margin-bottom: 10px;
   padding: 8px 10px;
-  border: 2px solid var(--set);
+  border: 2px solid var(--accent);
   border-radius: 8px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 10%, var(--surface)), var(--surface) 70%);
 }
 
-#expedition .exp-icon {
+#boss {
+  --accent: #7b1fa2;
+}
+
+#boss,
+#expedition {
+  margin-bottom: 10px;
+}
+
+.quest-card.done,
+#boss.done {
+  --accent: #2e9e44;
+}
+
+.quest-card .qc-icon {
   font-size: 26px;
   line-height: 1.1;
 }
 
-#expedition .exp-body {
+.quest-card .qc-body {
   flex: 1;
   min-width: 0;
 }
 
-#expedition .quest-title {
+.quest-card .quest-title {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
   gap: 8px;
+  font-size: 13px;
 }
 
-#expedition .quest-title button {
+.quest-card .quest-title button {
   flex-shrink: 0;
   white-space: nowrap;
   font-size: 12px;
 }
 
-#expedition .exp-task {
+.quest-card .qc-task {
   font-size: 13px;
 }
 
-#expedition .bar {
+.quest-card .bar {
   height: 6px;
   margin: 4px 0 2px;
   background: var(--track);
@@ -3014,12 +2934,12 @@ body.race-page {
   overflow: hidden;
 }
 
-#expedition .bar span {
+.quest-card .bar span {
   display: block;
   height: 100%;
-  background: var(--set);
+  background: var(--accent);
 }
 
-#expedition small {
+.quest-card small {
   color: var(--muted);
 }

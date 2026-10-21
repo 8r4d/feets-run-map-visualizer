@@ -5,6 +5,13 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.20.1 — 2026-10-20
+
+- The week's quests look like the boss and the expedition: a card each, with
+  an icon for its kind, a progress bar and what it's worth (a card from the
+  set of the moment and 50 XP), turning green when done. Daybreak's colour
+  is now sunrise pink, so it doesn't look like a weekly quest.
+
 ## 1.20.0 — 2026-10-20
 
 - Expeditions, under the month's boss: a longer quest with no deadline, in a
