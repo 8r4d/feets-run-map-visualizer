@@ -13,7 +13,7 @@
   <meta name="apple-mobile-web-app-title" content="feets">
   <meta name="theme-color" content="#fafafa">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=104">
+  <link rel="stylesheet" href="style.css?v=105">
   <!-- Light or dark before anything draws, so a dark page doesn't flash white:
        the one picked with the toggle by the title (feets-theme), else the
        system's; neon is always dark. Then the palette picked beside it
@@ -21,7 +21,7 @@
        own palette around one (palette.js). The picker
        and toggle themselves are in app.js. The phone's bar above the page
        (theme-color) matches. -->
-  <script src="palette.js?v=1"></script>
+  <script src="palette.js?v=2"></script>
   <script>
     let feetsTheme = null, feetsPalette = null;
     try { feetsTheme = localStorage.getItem('feets-theme'); feetsPalette = localStorage.getItem('feets-palette'); } catch {}
@@ -223,111 +223,114 @@
       <div id="plan-stats"></div>
       <div id="plan-elevation"></div>
       <label id="plan-streets-toggle"><input id="plan-streets" type="checkbox" checked> Show street coverage</label>
-      <div id="plan-edit" class="filter-row">
-        <button id="plan-undo" type="button" title="Remove the last point">Undo</button>
-        <button id="plan-loop" type="button" title="Route back to the first point">Back to start</button>
-        <button id="plan-reverse" type="button" title="Go the other way round">Reverse</button>
-        <button id="plan-clear" type="button" title="Start a new route">New</button>
-      </div>
-      <form id="plan-explore" class="filter-row" title="A loop from the route's first point, or from you (⌖), or from the middle of the map">
-        <label>Loop <input id="explore-km" type="number" min="1" max="60" step="0.5" value="5" inputmode="decimal" aria-label="Loop length"> <span class="unit">km</span></label>
-        <button id="explore" type="submit">Make a loop</button>
-        <details id="explore-options">
-          <summary>Options <span id="explore-summary"></span></summary>
-          <div class="explore-options-body">
-            <label id="explore-unrun-row" title="Go for streets you haven't covered yet. Untick for a loop over any streets.">
-              <input id="explore-unrun" type="checkbox" checked> Through streets I haven't covered
+      <!-- The buttons, as one column in the bar under the map (style.css) -->
+      <div id="plan-actions">
+        <div id="plan-edit" class="filter-row">
+          <button id="plan-undo" type="button" title="Remove the last point">Undo</button>
+          <button id="plan-loop" type="button" title="Route back to the first point">Back to start</button>
+          <button id="plan-reverse" type="button" title="Go the other way round">Reverse</button>
+          <button id="plan-clear" type="button" title="Start a new route">New</button>
+        </div>
+        <form id="plan-explore" class="filter-row" title="A loop from the route's first point, or from you (⌖), or from the middle of the map">
+          <label>Loop <input id="explore-km" type="number" min="1" max="60" step="0.5" value="5" inputmode="decimal" aria-label="Loop length"> <span class="unit">km</span></label>
+          <button id="explore" type="submit">Make a loop</button>
+          <details id="explore-options">
+            <summary>Options <span id="explore-summary"></span></summary>
+            <div class="explore-options-body">
+              <label id="explore-unrun-row" title="Go for streets you haven't covered yet. Untick for a loop over any streets.">
+                <input id="explore-unrun" type="checkbox" checked> Through streets I haven't covered
+              </label>
+              <label id="explore-finish-row" title="Favour streets you've partly covered, so more of them get finished">
+                <input id="explore-finish" type="checkbox"> Finish streets I've started
+              </label>
+              <label id="explore-group-row" title="No dead ends, and no going back along streets already on the route where there's another way: easier to lead a group round">
+                <input id="explore-group" type="checkbox"> No dead ends or doubling back (for groups)
+              </label>
+              <label id="explore-level-row" title="Simple: a plain loop through a few long stretches. Thorough: as many different streets as fit, however it winds.">
+                Simple <input id="explore-level" type="range" min="1" max="5" step="1" value="3" aria-label="Complexity"> Thorough
+              </label>
+              <label id="explore-heading-row" class="explore-select-row" title="Favour new streets that lie this way from the start">
+                Heading <select id="explore-heading">
+                  <option value="">any way</option>
+                  <option value="0">north</option>
+                  <option value="45">northeast</option>
+                  <option value="90">east</option>
+                  <option value="135">southeast</option>
+                  <option value="180">south</option>
+                  <option value="225">southwest</option>
+                  <option value="270">west</option>
+                  <option value="315">northwest</option>
+                </select>
+              </label>
+              <label class="explore-select-row" title="What kind of streets to favour">
+                Streets <select id="explore-streets">
+                  <option value="any">any kind</option>
+                  <option value="paths">prefer paths and trails</option>
+                  <option value="roads">roads only</option>
+                </select>
+              </label>
+              <label class="explore-select-row" title="Flatter keeps off steep streets; hillier goes looking for them">
+                Hills <select id="explore-hills">
+                  <option value="any">don't mind</option>
+                  <option value="flat">flatter</option>
+                  <option value="hilly">hillier</option>
+                </select>
+              </label>
+              <label class="explore-select-row" title="Finish at the last point you put on the map: click a start, then a finish, then Make a loop">
+                Finish <select id="explore-end">
+                  <option value="start">back at the start</option>
+                  <option value="last">at my last point</option>
+                </select>
+              </label>
+              <label class="explore-select-row" title="Keep the whole loop inside one or more of your areas or neighbourhoods">
+                Stay in <select id="explore-within"><option value="">anywhere</option></select>
+              </label>
+              <details id="explore-within-ticks" class="tick-box" hidden>
+                <summary></summary>
+                <div class="tick-list"></div>
+              </details>
+            </div>
+          </details>
+        </form>
+        <div id="plan-files" class="filter-row">
+          <button id="plan-save" type="button">Save</button>
+          <button id="plan-gpx" type="button" title="For a watch, or to import into Strava">Download GPX</button>
+        </div>
+        <details id="art" class="panel">
+          <summary>GPS art</summary>
+          <div class="panel-body">
+            <label class="art-row">Shapes <select id="art-theme" aria-label="Theme">
+              <option value="everyday">everyday</option>
+              <option value="halloween">Halloween</option>
+              <option value="christmas">Christmas</option>
+              <option value="letters">letters and numbers</option>
+              <option value="mine">my shapes</option>
+            </select></label>
+            <div id="art-shapes" role="group" aria-label="Shape"></div>
+            <div id="art-mine" hidden>
+              <small class="hint" id="art-mine-hint">Upload an SVG drawing: its outline becomes a shape, simplified so it can be run in one go.</small>
+              <div class="filter-row">
+                <button id="art-upload" class="link-button" type="button">Upload an SVG…</button>
+                <button id="art-delete" class="link-button" type="button" hidden>Delete this shape</button>
+                <input id="art-file" type="file" accept=".svg,image/svg+xml" hidden>
+              </div>
+            </div>
+            <label class="art-row">In <select id="art-area" aria-label="Area for the art"></select></label>
+            <label class="art-row">About <input id="art-km" type="number" min="1" max="80" step="0.5" value="8" inputmode="decimal" aria-label="Length"> <span class="unit">km</span></label>
+            <label class="art-row" title="Loose: the shape smoothed a little, and drawn on easier streets near it. Strict: every corner, keeping as close to the shape as the streets allow, zig-zags and all.">
+              Loose <input id="art-rigor" type="range" min="1" max="5" step="1" value="3" aria-label="How strictly to follow the shape"> Strict
             </label>
-            <label id="explore-finish-row" title="Favour streets you've partly covered, so more of them get finished">
-              <input id="explore-finish" type="checkbox"> Finish streets I've started
-            </label>
-            <label id="explore-group-row" title="No dead ends, and no going back along streets already on the route where there's another way: easier to lead a group round">
-              <input id="explore-group" type="checkbox"> No dead ends or doubling back (for groups)
-            </label>
-            <label id="explore-level-row" title="Simple: a plain loop through a few long stretches. Thorough: as many different streets as fit, however it winds.">
-              Simple <input id="explore-level" type="range" min="1" max="5" step="1" value="3" aria-label="Complexity"> Thorough
-            </label>
-            <label id="explore-heading-row" class="explore-select-row" title="Favour new streets that lie this way from the start">
-              Heading <select id="explore-heading">
-                <option value="">any way</option>
-                <option value="0">north</option>
-                <option value="45">northeast</option>
-                <option value="90">east</option>
-                <option value="135">southeast</option>
-                <option value="180">south</option>
-                <option value="225">southwest</option>
-                <option value="270">west</option>
-                <option value="315">northwest</option>
-              </select>
-            </label>
-            <label class="explore-select-row" title="What kind of streets to favour">
-              Streets <select id="explore-streets">
-                <option value="any">any kind</option>
-                <option value="paths">prefer paths and trails</option>
-                <option value="roads">roads only</option>
-              </select>
-            </label>
-            <label class="explore-select-row" title="Flatter keeps off steep streets; hillier goes looking for them">
-              Hills <select id="explore-hills">
-                <option value="any">don't mind</option>
-                <option value="flat">flatter</option>
-                <option value="hilly">hillier</option>
-              </select>
-            </label>
-            <label class="explore-select-row" title="Finish at the last point you put on the map: click a start, then a finish, then Make a loop">
-              Finish <select id="explore-end">
-                <option value="start">back at the start</option>
-                <option value="last">at my last point</option>
-              </select>
-            </label>
-            <label class="explore-select-row" title="Keep the whole loop inside one or more of your areas or neighbourhoods">
-              Stay in <select id="explore-within"><option value="">anywhere</option></select>
-            </label>
-            <details id="explore-within-ticks" class="tick-box" hidden>
-              <summary></summary>
-              <div class="tick-list"></div>
-            </details>
-          </div>
-        </details>
-      </form>
-      <div id="plan-files" class="filter-row">
-        <button id="plan-save" type="button">Save</button>
-        <button id="plan-gpx" type="button" title="For a watch, or to import into Strava">Download GPX</button>
-      </div>
-      <details id="art" class="panel">
-        <summary>GPS art</summary>
-        <div class="panel-body">
-          <label class="art-row">Shapes <select id="art-theme" aria-label="Theme">
-            <option value="everyday">everyday</option>
-            <option value="halloween">Halloween</option>
-            <option value="christmas">Christmas</option>
-            <option value="letters">letters and numbers</option>
-            <option value="mine">my shapes</option>
-          </select></label>
-          <div id="art-shapes" role="group" aria-label="Shape"></div>
-          <div id="art-mine" hidden>
-            <small class="hint" id="art-mine-hint">Upload an SVG drawing: its outline becomes a shape, simplified so it can be run in one go.</small>
+            <label class="art-row" title="Try the shape at any angle, not just within 30° of upright"><input id="art-free" type="checkbox"> Rotate freely</label>
             <div class="filter-row">
-              <button id="art-upload" class="link-button" type="button">Upload an SVG…</button>
-              <button id="art-delete" class="link-button" type="button" hidden>Delete this shape</button>
-              <input id="art-file" type="file" accept=".svg,image/svg+xml" hidden>
+              <button id="art-fit" type="button" title="Try the shape all over the area and route the best fits">Find best fit</button>
+              <button id="art-place" type="button" title="Put the shape in the middle of the map, to move it about yourself">Place on map</button>
+            </div>
+            <div class="filter-row">
+              <button id="art-next" type="button" hidden>Next fit</button>
             </div>
           </div>
-          <label class="art-row">In <select id="art-area" aria-label="Area for the art"></select></label>
-          <label class="art-row">About <input id="art-km" type="number" min="1" max="80" step="0.5" value="8" inputmode="decimal" aria-label="Length"> <span class="unit">km</span></label>
-          <label class="art-row" title="Loose: the shape smoothed a little, and drawn on easier streets near it. Strict: every corner, keeping as close to the shape as the streets allow, zig-zags and all.">
-            Loose <input id="art-rigor" type="range" min="1" max="5" step="1" value="3" aria-label="How strictly to follow the shape"> Strict
-          </label>
-          <label class="art-row" title="Try the shape at any angle, not just within 30° of upright"><input id="art-free" type="checkbox"> Rotate freely</label>
-          <div class="filter-row">
-            <button id="art-fit" type="button" title="Try the shape all over the area and route the best fits">Find best fit</button>
-            <button id="art-place" type="button" title="Put the shape in the middle of the map, to move it about yourself">Place on map</button>
-          </div>
-          <div class="filter-row">
-            <button id="art-next" type="button" hidden>Next fit</button>
-          </div>
-        </div>
-      </details>
+        </details>
+      </div>
       <div id="plan-status"></div>
       <details id="routes" class="panel" open hidden>
         <summary>Saved routes <span class="count"></span></summary>
@@ -421,7 +424,7 @@
     </details>
     <details id="about" class="panel">
       <!-- The version: bump it here and in CHANGELOG.md with each release. -->
-      <summary>About feets <span id="version">v1.24.0</span></summary>
+      <summary>About feets <span id="version">v1.24.1</span></summary>
       <div class="panel-body">
         <p>feets is an activity mapping and route planning app made by 8r4d.</p>
         <ul>

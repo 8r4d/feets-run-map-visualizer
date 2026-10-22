@@ -676,7 +676,7 @@ body {
 }
 
 /* Desktop, Streets and Plan modes: that mode's panel as a bar under the map,
-   in four columns. Plan: the route, its elevation, the buttons, and saved
+   in columns. Plan: the route and its elevation, the buttons, and saved
    routes. Streets: the area, its coverage, neighbourhoods, and what's left. */
 #mode-bar {
   flex-shrink: 0;
@@ -687,23 +687,33 @@ body {
   background: var(--bg);
 }
 
+/* In the sidebar the buttons sit in the panel like the rest. */
+#plan-actions {
+  display: contents;
+}
+
 #mode-bar #plan-panel {
   display: grid;
-  grid-template-columns: minmax(170px, 1fr) auto 340px minmax(170px, 1fr);  /* fits a 1300px window */
-  gap: 6px 18px;
+  grid-template-columns: minmax(240px, 1fr) 340px minmax(240px, 1fr);  /* fits a 1300px window */
+  /* The last row soaks up the tall columns' height, so the first column's
+     rows stay tight under the title. */
+  grid-template-rows: auto auto auto auto auto 1fr;
+  gap: 6px 24px;
   align-items: start;
 }
 
 #mode-bar #plan-title { grid-area: 1 / 1; }
 #mode-bar #plan-stats { grid-area: 2 / 1; }
-#mode-bar #plan-streets-toggle { grid-area: 3 / 1; }
-#mode-bar #plan-status { grid-area: 4 / 1; }
-#mode-bar #art { grid-area: 4 / 3; }
-#mode-bar #plan-elevation { grid-area: 1 / 2 / span 4; width: 220px; }
-#mode-bar #plan-edit { grid-area: 1 / 3; }
-#mode-bar #plan-explore { grid-area: 2 / 3; }
-#mode-bar #plan-files { grid-area: 3 / 3; }
-#mode-bar #routes { grid-area: 1 / 4 / span 4; }
+#mode-bar #plan-elevation { grid-area: 3 / 1; max-width: 360px; }
+#mode-bar #plan-streets-toggle { grid-area: 4 / 1; }
+#mode-bar #plan-status { grid-area: 5 / 1; }
+#mode-bar #plan-actions {
+  grid-area: 1 / 2 / span 6;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+#mode-bar #routes { grid-area: 1 / 3 / span 6; }
 
 #mode-bar #plan-panel button {
   white-space: nowrap;
@@ -721,7 +731,7 @@ body {
 
 /* Just the list scrolls, so the sort menu stays in view. */
 #mode-bar #route-list {
-  max-height: 90px;
+  max-height: 130px;
   overflow-y: auto;
 }
 

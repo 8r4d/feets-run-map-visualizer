@@ -5,6 +5,14 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.24.1 — 2026-10-21
+
+- The planning bar under the map is tidier: three columns instead of four.
+  The route's name, distance, elevation chart (now wider) and the street
+  coverage tick sit together on the left, with no gaps between them; all
+  the buttons are in the middle; saved routes on the right show more before
+  scrolling.
+
 ## 1.24.0 — 2026-10-21
 
 - Secret holiday palettes. With "seasonal" picked, the colours change for a
