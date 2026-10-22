@@ -9,7 +9,7 @@
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <meta name="theme-color" content="#fafafa">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=105">
+  <link rel="stylesheet" href="style.css?v=106">
   <!-- Light or dark, and the palette, as the main page has them (see index.html). -->
   <script src="palette.js?v=2"></script>
   <script>
@@ -42,6 +42,44 @@
         <button id="race-submit" type="submit">Get my time</button>
       </form>
       <div id="race-result" aria-live="polite"></div>
+      <!-- Where to get the file from the usual watches and apps. Any of
+           GPX, FIT or TCX does (see convert.js), but not a .zip. -->
+      <details id="race-help">
+        <summary>Where do I find my run's file?</summary>
+        <div class="race-help-body">
+          <p>Export the <b>activity</b> you ran, not a route or course: a route has no times in it, so it can't be timed.
+            Most apps only export from their website, not the phone app; the website works in a phone's browser too.</p>
+          <dl>
+            <dt>Garmin</dt>
+            <dd>On <a href="https://connect.garmin.com/modern/activities" target="_blank" rel="noopener">connect.garmin.com</a>,
+              open the activity, click the gear icon at the top right and choose <b>Export to GPX</b>.
+              (<b>Export Original</b> gives a .zip: unzip it and upload the .fit inside.)</dd>
+            <dt>Strava</dt>
+            <dd>On <a href="https://www.strava.com/athlete/training" target="_blank" rel="noopener">strava.com</a>,
+              open the activity, click the <b>⋯</b> button on the left and choose <b>Export GPX</b>.
+              It has to be your own activity. On a phone, open strava.com in the browser and ask for the desktop site.</dd>
+            <dt>COROS</dt>
+            <dd>In the COROS app, open the activity, tap the share or <b>⋯</b> button and choose <b>Export data</b>, then GPX or FIT.</dd>
+            <dt>Polar</dt>
+            <dd>On <a href="https://flow.polar.com" target="_blank" rel="noopener">flow.polar.com</a>,
+              open the training session and choose <b>Export session</b>, then GPX.</dd>
+            <dt>Suunto</dt>
+            <dd>In the Suunto app, open the workout, tap <b>⋯</b> and choose to export it as GPX.</dd>
+            <dt>Apple Watch</dt>
+            <dd>Apple Health can't export one run on its own. Let it sync to Strava and export from there,
+              or use an app such as HealthFit or RunGap to export it.</dd>
+            <dt>Anything else</dt>
+            <dd>Look for <b>Export</b>, <b>Download</b> or <b>Share</b> on the activity. If your app syncs to Strava or Garmin, export from there.</dd>
+          </dl>
+          <p><b>Uploading it:</b> the file usually lands in your Downloads. Tap <b>Choose file</b> above;
+            on an iPhone pick <b>Choose File → Browse</b> (the Files app) and look in Downloads,
+            on Android pick Files or Downloads. Then press <b>Get my time</b>.</p>
+          <p><b>If it doesn't work:</b> a .zip needs unzipping first (a .gz is fine as it is).
+            If it says the run has no times, you exported a route; export the activity instead.
+            If it says you didn't reach the start or finish, check the map: your run has to pass the green dot
+            and follow the red line to the finish.</p>
+        </div>
+      </details>
     </section>
 
     <section class="race-box" id="race-results" hidden>
@@ -61,6 +99,6 @@
   <script src="i18n.js?v=3"></script>
   <script src="units.js?v=1"></script>
   <script src="convert.js?v=1"></script>
-  <script src="race.js?v=1"></script>
+  <script src="race.js?v=2"></script>
 </body>
 </html>

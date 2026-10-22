@@ -5,6 +5,14 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.25.0 — 2026-10-21
+
+- The race page has a "Where do I find my run's file?" box under the entry
+  form. It opens to say how to export a run from Garmin, Strava, COROS,
+  Polar, Suunto and Apple Watch, how to pick the file on a phone, and what
+  to do when it doesn't count (a .zip, a route with no times, missing the
+  start or finish). It opens by itself when a run doesn't count.
+
 ## 1.24.1 — 2026-10-21
 
 - The planning bar under the map is tidier: three columns instead of four.

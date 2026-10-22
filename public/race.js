@@ -159,6 +159,7 @@
       if (!answer.counted) {
         result.className = 'race-problem';
         result.textContent = typeof WHY[answer.why] === 'function' ? WHY[answer.why]() : WHY[answer.why] || "That run didn't count.";
+        $('race-help').open = true;  // its tips say what to try next
         return;
       }
       const place = race.entries.findIndex(e => e.yours) + 1;
@@ -172,6 +173,7 @@
     } catch (err) {
       result.className = 'race-problem';
       result.textContent = err.message;
+      $('race-help').open = true;
     } finally {
       $('race-submit').disabled = false;
     }

@@ -3164,6 +3164,63 @@ body.race-page {
   background: var(--danger-surface);
 }
 
+/* Under the form: where to find the file, closed until asked for */
+#race-help {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+#race-help summary {
+  cursor: pointer;
+  list-style: none;
+  font-weight: 600;
+  color: var(--link);
+}
+
+#race-help summary::-webkit-details-marker {
+  display: none;
+}
+
+#race-help summary::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: 6px;
+  color: var(--muted);
+  transition: transform 0.15s;
+}
+
+#race-help[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.race-help-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+#race-help dl {
+  margin: 0;
+}
+
+#race-help dt {
+  margin-top: 6px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+#race-help dd {
+  margin: 2px 0 0;
+}
+
+#race-help a {
+  color: var(--link);
+}
+
 #race-board {
   width: 100%;
   border-collapse: collapse;
