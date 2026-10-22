@@ -5,6 +5,12 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.23.0 — 2026-10-21
+
+- Planned routes show distance markers: a small numbered badge at each km
+  (or mile), every 2, 5, 10... when zoomed out so they don't crowd. They show
+  in shared (public) routes too. None at the finish.
+
 ## 1.22.1 — 2026-10-21
 
 - Neon: buttons with no colour of their own were left in the browser's grey,

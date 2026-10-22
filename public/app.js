@@ -2966,8 +2966,11 @@ function drawPlan() {
 
 // Arrows along the route showing which way it goes: every ARROW_EVERY metres,
 // or further apart when zoomed out so they stay ARROW_GAP pixels apart.
+// Distance markers too, at each km (or mile), or every 2, 5, 10... when
+// zoomed out so they stay MARK_GAP pixels apart; none at the finish itself.
 // Redrawn on zoom; they ignore clicks, which go to the line or the map.
-const ARROW_EVERY = 200, ARROW_GAP = 60;
+const ARROW_EVERY = 200, ARROW_GAP = 60, MARK_GAP = 45;
+const MARK_STEPS = [1, 2, 5, 10, 20, 50, 100];
 let arrowLayer = null;
 
 function drawArrows() {
@@ -2978,23 +2981,37 @@ function drawArrows() {
   const lat = map.getCenter().lat;
   const metresPerPixel = 40075016 * Math.cos(lat * Math.PI / 180) / 2 ** (map.getZoom() + 8);
   const every = Math.max(ARROW_EVERY, ARROW_GAP * metresPerPixel);
+  const step = MARK_STEPS.find(n => n * Units.perUnit >= MARK_GAP * metresPerPixel) || MARK_STEPS[MARK_STEPS.length - 1];
+  let total = 0;
+  for (let i = 1; i < points.length; i++) total += Planner.distance(...points[i - 1], ...points[i]);
   arrowLayer = L.layerGroup();
   let next = every / 2;  // the first one a little way from the start marker
+  let mark = step;       // in km or miles
   let along = 0;
+  const at = (a, b, d, m) => [a[0] + (b[0] - a[0]) * (m - along) / d, a[1] + (b[1] - a[1]) * (m - along) / d];
   for (let i = 1; i < points.length; i++) {
     const [a, b] = [points[i - 1], points[i]];
     const d = Planner.distance(...a, ...b);
     // Web Mercator keeps angles, so the compass bearing is the angle on screen.
     const bearing = Math.atan2((b[1] - a[1]) * Math.cos(a[0] * Math.PI / 180), b[0] - a[0]) * 180 / Math.PI;
     while (d > 0 && next <= along + d) {
-      const f = (next - along) / d;
-      L.marker([a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f], {
+      L.marker(at(a, b, d, next), {
         interactive: false,
         keyboard: false,
         zIndexOffset: -1000,  // under the route's points
         icon: L.divIcon({ className: 'plan-arrow', iconSize: [14, 14], html: `<span style="transform: rotate(${bearing.toFixed(0)}deg)"></span>` }),
       }).addTo(arrowLayer);
       next += every;
+    }
+    // Skip one that would sit on, or just short of, the finish marker.
+    while (d > 0 && Units.fromUnit(mark) <= along + d && Units.fromUnit(mark) < total - MARK_GAP * metresPerPixel / 2) {
+      L.marker(at(a, b, d, Units.fromUnit(mark)), {
+        interactive: false,
+        keyboard: false,
+        zIndexOffset: -500,  // over the arrows, under the route's points
+        icon: L.divIcon({ className: 'plan-mark', iconSize: [22, 22], html: `<span>${mark}</span>` }),
+      }).addTo(arrowLayer);
+      mark += step;
     }
     along += d;
   }
