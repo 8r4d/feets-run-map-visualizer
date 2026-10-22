@@ -9,12 +9,13 @@
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <meta name="theme-color" content="#fafafa">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=103">
+  <link rel="stylesheet" href="style.css?v=104">
   <!-- Light or dark, and the palette, as the main page has them (see index.html). -->
+  <script src="palette.js?v=1"></script>
   <script>
     let feetsTheme = null, feetsPalette = null;
     try { feetsTheme = localStorage.getItem('feets-theme'); feetsPalette = localStorage.getItem('feets-palette'); } catch {}
-    if (feetsPalette === 'seasonal') feetsPalette = ['winter', 'spring', 'summer', 'autumn'][Math.floor((new Date().getMonth() + 1) % 12 / 3)];
+    feetsPalette = Palette.resolve(feetsPalette || '');
     if (feetsPalette) document.documentElement.dataset.palette = feetsPalette;
     document.documentElement.dataset.theme = feetsPalette === 'neon' ? 'dark' : feetsTheme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
     document.querySelector('meta[name=theme-color]').content = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();

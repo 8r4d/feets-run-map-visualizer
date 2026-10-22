@@ -13,17 +13,19 @@
   <meta name="apple-mobile-web-app-title" content="feets">
   <meta name="theme-color" content="#fafafa">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=103">
+  <link rel="stylesheet" href="style.css?v=104">
   <!-- Light or dark before anything draws, so a dark page doesn't flash white:
        the one picked with the toggle by the title (feets-theme), else the
        system's; neon is always dark. Then the palette picked beside it
-       (feets-palette), "seasonal" being whichever season it is. The picker
+       (feets-palette), "seasonal" being whichever season it is, or a holiday's
+       own palette around one (palette.js). The picker
        and toggle themselves are in app.js. The phone's bar above the page
        (theme-color) matches. -->
+  <script src="palette.js?v=1"></script>
   <script>
     let feetsTheme = null, feetsPalette = null;
     try { feetsTheme = localStorage.getItem('feets-theme'); feetsPalette = localStorage.getItem('feets-palette'); } catch {}
-    if (feetsPalette === 'seasonal') feetsPalette = ['winter', 'spring', 'summer', 'autumn'][Math.floor((new Date().getMonth() + 1) % 12 / 3)];
+    feetsPalette = Palette.resolve(feetsPalette || '');
     if (feetsPalette) document.documentElement.dataset.palette = feetsPalette;
     document.documentElement.dataset.theme = feetsPalette === 'neon' ? 'dark' : feetsTheme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
     document.querySelector('meta[name=theme-color]').content = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
@@ -419,7 +421,7 @@
     </details>
     <details id="about" class="panel">
       <!-- The version: bump it here and in CHANGELOG.md with each release. -->
-      <summary>About feets <span id="version">v1.23.0</span></summary>
+      <summary>About feets <span id="version">v1.24.0</span></summary>
       <div class="panel-body">
         <p>feets is an activity mapping and route planning app made by 8r4d.</p>
         <ul>
@@ -534,6 +536,6 @@
   <script src="achievements.js?v=25"></script>
   <script src="cards.js?v=9"></script>
   <script src="xp.js?v=5"></script>
-  <script src="app.js?v=124"></script>
+  <script src="app.js?v=125"></script>
 </body>
 </html>

@@ -5,6 +5,15 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.24.0 — 2026-10-21
+
+- Secret holiday palettes. With "seasonal" picked, the colours change for a
+  few days around New Year (30 Dec–2 Jan), Valentine's Day (12–14 Feb),
+  St Patrick's Day (15–17 Mar), Easter (Good Friday–Easter Monday),
+  Canada Day (29 Jun–2 Jul), Halloween (27–31 Oct) and Christmas
+  (20–26 Dec), with a small mark after the title. They aren't in the
+  picker. The season's palette comes back after.
+
 ## 1.23.0 — 2026-10-21
 
 - Planned routes show distance markers: a small numbered badge at each km

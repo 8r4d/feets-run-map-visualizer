@@ -87,12 +87,12 @@ systemDark.addEventListener('change', () => {
 
 // --- Palettes ---
 // Recolour light and dark alike (style.css): classic, a season, "seasonal"
-// for whichever season it is (northern, by month), or neon, which is dark
-// only, so the toggle hides with it. Remembered as feets-palette.
+// for whichever season it is (northern, by month) or a holiday's own palette
+// around one (palette.js), or neon, which is dark only, so the toggle hides
+// with it. Remembered as feets-palette.
 const palettePicker = document.getElementById('palette');
-const seasonNow = (date = new Date()) => ['winter', 'spring', 'summer', 'autumn'][Math.floor((date.getMonth() + 1) % 12 / 3)];
 function setPalette(choice) {
-  const palette = choice === 'seasonal' ? seasonNow() : choice;
+  const palette = Palette.resolve(choice);
   if (palette) document.documentElement.dataset.palette = palette;
   else delete document.documentElement.dataset.palette;
   palettePicker.value = choice;

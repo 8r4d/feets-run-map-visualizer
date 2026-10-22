@@ -197,6 +197,248 @@
   --cal-4: #dcecfa;
 }
 
+/* Holiday palettes: not in the picker, but "seasonal" shows one for a few
+   days around its holiday (palette.js), light and dark like the seasons,
+   with a small mark after the title. */
+:root[data-palette="newyear"] {
+  --bg: #f8f7fb;
+  --surface: #fff;
+  --surface-2: #efedf6;
+  --border: #dedaea;
+  --border-strong: #c2bcd6;
+  --track: #e7e4f0;
+  --link: #4b3f99;
+  --primary: #b8860b;
+  --info-surface: #f6f0dc;
+  --cal-1: #f3dc8a;
+  --cal-2: #d9aa2c;
+  --cal-3: #6a5bb8;
+  --cal-4: #2b2266;
+}
+
+:root[data-palette="newyear"][data-theme="dark"] {
+  --bg: #0f0e1a;
+  --surface: #181628;
+  --surface-2: #221f36;
+  --border: #302c4a;
+  --border-strong: #463f69;
+  --track: #26223b;
+  --link: #ffd54f;
+  --primary: #ffca28;
+  --on-primary: #1a1400;
+  --info-surface: #2a2434;
+  --cal-1: #2b2266;
+  --cal-2: #6a5bb8;
+  --cal-3: #d9aa2c;
+  --cal-4: #fff0b3;
+}
+
+:root[data-palette="valentine"] {
+  --bg: #fff7f9;
+  --surface: #fff;
+  --surface-2: #fdebef;
+  --border: #f5d4dc;
+  --border-strong: #e8adbb;
+  --track: #fae0e6;
+  --link: #c2185b;
+  --primary: #d81b60;
+  --info-surface: #fde7ee;
+  --cal-1: #f8bbd0;
+  --cal-2: #f06292;
+  --cal-3: #d81b60;
+  --cal-4: #880e4f;
+}
+
+:root[data-palette="valentine"][data-theme="dark"] {
+  --bg: #1c1216;
+  --surface: #26181e;
+  --surface-2: #322028;
+  --border: #452b36;
+  --border-strong: #5e3a4a;
+  --track: #361f29;
+  --link: #ff8fb5;
+  --primary: #ff5c93;
+  --on-primary: #2a0612;
+  --info-surface: #3a1f2b;
+  --cal-1: #880e4f;
+  --cal-2: #d81b60;
+  --cal-3: #f06292;
+  --cal-4: #fcd3e1;
+}
+
+:root[data-palette="stpatrick"] {
+  --bg: #f4faf5;
+  --surface: #fff;
+  --surface-2: #e6f4e8;
+  --border: #cfe6d3;
+  --border-strong: #a5cfad;
+  --track: #dcefdf;
+  --link: #1b7a3a;
+  --primary: #138a3e;
+  --info-surface: #fbf3d9;
+  --cal-1: #b9e4c2;
+  --cal-2: #5fbf74;
+  --cal-3: #1f8a3b;
+  --cal-4: #0b4d20;
+}
+
+:root[data-palette="stpatrick"][data-theme="dark"] {
+  --bg: #0f1a12;
+  --surface: #16241a;
+  --surface-2: #1e3023;
+  --border: #29412f;
+  --border-strong: #3a5a42;
+  --track: #213527;
+  --link: #6fdc8c;
+  --primary: #3ccf6a;
+  --on-primary: #04170a;
+  --info-surface: #2c2a17;
+  --cal-1: #0b4d20;
+  --cal-2: #1f8a3b;
+  --cal-3: #5fbf74;
+  --cal-4: #ffd966;
+}
+
+:root[data-palette="easter"] {
+  --bg: #fbf9fd;
+  --surface: #fff;
+  --surface-2: #f3eefa;
+  --border: #e6ddf2;
+  --border-strong: #cdbfe3;
+  --track: #ece5f6;
+  --link: #7b52b9;
+  --primary: #8e63ce;
+  --info-surface: #eef9f1;
+  --cal-1: #fff1a8;
+  --cal-2: #b8e6c4;
+  --cal-3: #a98ad9;
+  --cal-4: #5e3a96;
+}
+
+:root[data-palette="easter"][data-theme="dark"] {
+  --bg: #17141c;
+  --surface: #201b28;
+  --surface-2: #2a2434;
+  --border: #3a3248;
+  --border-strong: #514564;
+  --track: #2e2739;
+  --link: #c9b0f2;
+  --primary: #b392ec;
+  --on-primary: #1a0f2b;
+  --info-surface: #1e2c24;
+  --cal-1: #5e3a96;
+  --cal-2: #a98ad9;
+  --cal-3: #b8e6c4;
+  --cal-4: #fff1a8;
+}
+
+:root[data-palette="canada"] {
+  --bg: #fdf8f8;
+  --surface: #fff;
+  --surface-2: #f8ecec;
+  --border: #eed6d6;
+  --border-strong: #ddb0b0;
+  --track: #f4e2e2;
+  --link: #b71c1c;
+  --primary: #d52b1e;
+  --info-surface: #fdeceb;
+  --cal-1: #f5c2c0;
+  --cal-2: #e8716a;
+  --cal-3: #d52b1e;
+  --cal-4: #7f1010;
+}
+
+:root[data-palette="canada"][data-theme="dark"] {
+  --bg: #1a1212;
+  --surface: #241919;
+  --surface-2: #302121;
+  --border: #452d2d;
+  --border-strong: #5e3d3d;
+  --track: #352424;
+  --link: #ff8a80;
+  --primary: #ff5247;
+  --on-primary: #2a0503;
+  --info-surface: #3a2020;
+  --cal-1: #7f1010;
+  --cal-2: #d52b1e;
+  --cal-3: #e8716a;
+  --cal-4: #ffe5e3;
+}
+
+:root[data-palette="halloween"] {
+  --bg: #fcf8f3;
+  --surface: #fff;
+  --surface-2: #f6ece0;
+  --border: #eadac6;
+  --border-strong: #d2b797;
+  --track: #f0e2d1;
+  --link: #6a1b9a;
+  --primary: #e65100;
+  --info-surface: #f3e9f8;
+  --cal-1: #ffcc80;
+  --cal-2: #ff8f00;
+  --cal-3: #8e24aa;
+  --cal-4: #3a0f4a;
+}
+
+:root[data-palette="halloween"][data-theme="dark"] {
+  --bg: #120d14;
+  --surface: #1c141e;
+  --surface-2: #271b2a;
+  --border: #39273c;
+  --border-strong: #523856;
+  --track: #2b1e2e;
+  --link: #ffa040;
+  --primary: #ff7a00;
+  --on-primary: #1a0a00;
+  --info-surface: #2d1a33;
+  --cal-1: #4a1460;
+  --cal-2: #8e24aa;
+  --cal-3: #ff8f00;
+  --cal-4: #ffd180;
+}
+
+:root[data-palette="christmas"] {
+  --bg: #fbf8f6;
+  --surface: #fff;
+  --surface-2: #f3ece8;
+  --border: #e6d8d2;
+  --border-strong: #cdb2a8;
+  --track: #eee3de;
+  --link: #1b6b3a;
+  --primary: #c62828;
+  --info-surface: #eaf5ee;
+  --cal-1: #a5d6b0;
+  --cal-2: #2e8b4a;
+  --cal-3: #c62828;
+  --cal-4: #7a1010;
+}
+
+:root[data-palette="christmas"][data-theme="dark"] {
+  --bg: #101614;
+  --surface: #17201c;
+  --surface-2: #1f2b26;
+  --border: #2b3c35;
+  --border-strong: #3d544a;
+  --track: #22302a;
+  --link: #7fd19a;
+  --primary: #ef5350;
+  --on-primary: #2a0505;
+  --info-surface: #1d2f25;
+  --cal-1: #1b5e33;
+  --cal-2: #2e8b4a;
+  --cal-3: #ef5350;
+  --cal-4: #ffd6d6;
+}
+
+[data-palette="newyear"] #sidebar h1::after { content: " 🎆"; }
+[data-palette="valentine"] #sidebar h1::after { content: " 💘"; }
+[data-palette="stpatrick"] #sidebar h1::after { content: " 🍀"; }
+[data-palette="easter"] #sidebar h1::after { content: " 🐣"; }
+[data-palette="canada"] #sidebar h1::after { content: " 🍁"; }
+[data-palette="halloween"] #sidebar h1::after { content: " 🎃"; }
+[data-palette="christmas"] #sidebar h1::after { content: " 🎄"; }
+
 /* Neon: near-black with cyan light lines, a glow on the edges */
 :root[data-palette="neon"] {
   color-scheme: dark;
