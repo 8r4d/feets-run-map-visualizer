@@ -171,7 +171,7 @@ const SCHEMA = [
       data_owner    INT          NULL,                    -- whose data a view-only account sees
       goals         TEXT         NULL,                    -- JSON: { week, month } in km, see save_goals()
       home          TEXT         NULL,                    -- JSON: { lat, lon, zoom }, where the map opens
-      area_scan     TEXT         NULL,                    -- JSON: { off, last, skip }, see area_scan_claim()
+      area_scan     TEXT         NULL,                    -- JSON: { off, last, skipped, result }, see area_scan_claim()
       quests        TEXT         NULL,                    -- JSON: this week's quests, see save_quests()
       xp_since      TIMESTAMP    NULL,                    -- when experience points started counting, see xp()
       cards_since   TIMESTAMP    NULL,                    -- when activities started finding cards, see list_cards()
@@ -2504,12 +2504,23 @@ function save_home(int $userId, array $b): array {
 // A new account (AREA_SCAN_NEW_HOURS old or less) with fewer than
 // AREA_SCAN_NEW_AREAS areas gets one every AREA_SCAN_NEW_MINUTES instead,
 // so its first maps arrive while its activities are still coming in.
+// Places a turn found nothing for are skipped for AREA_SCAN_SKIP_DAYS, then
+// tried again: OpenStreetMap gets new boundaries, and a busy server can
+// answer oddly.
 
-const AREA_SCAN_HOURS = 12;
+const AREA_SCAN_HOURS = 6;
 const AREA_SCAN_NEW_HOURS = 2;
 const AREA_SCAN_NEW_AREAS = 5;
 const AREA_SCAN_NEW_MINUTES = 10;
 const AREA_SCAN_SKIPS = 500;  // places kept on the don't-try-again list
+const AREA_SCAN_SKIP_DAYS = 30;
+
+// The skipped places as {cell key: Unix time skipped}, dropping old ones.
+// The list used to be plain keys (state.skip); those count from now.
+function area_scan_skipped(array $state): array {
+    $skipped = $state['skipped'] ?? array_fill_keys($state['skip'] ?? [], time());
+    return array_filter($skipped, fn($at) => $at > time() - AREA_SCAN_SKIP_DAYS * 86400);
+}
 
 function area_scan_state(int $userId): array {
     $stmt = db()->prepare('SELECT area_scan FROM users WHERE id = ?');
@@ -2534,12 +2545,14 @@ function area_scan_claim(int $userId): array {
     $go = empty($state['off']) && time() - (int) ($state['last'] ?? 0) >= $gap;
     if ($go) {
         $state['last'] = time();
+        $state['skipped'] = area_scan_skipped($state);
+        unset($state['skip']);
         db()->prepare('UPDATE users SET area_scan = ? WHERE id = ?')->execute([json_encode($state), $userId]);
     }
     db()->commit();
     return [
         'go' => $go,
-        'skip' => $go ? ($state['skip'] ?? []) : [],
+        'skip' => $go ? array_map('strval', array_keys($state['skipped'])) : [],
         'again' => $eager ? max(60, (int) ($state['last'] ?? 0) + $gap - time()) : null,
     ];
 }
@@ -2561,7 +2574,10 @@ function area_scan_save(int $userId, array $b): array {
         $state['last'] = time() - AREA_SCAN_HOURS * 3600 + AREA_SCAN_RETRY_MINUTES * 60;
     }
     $skip = array_filter(array_map('strval', $b['skip'] ?? []), fn($k) => preg_match('/^-?\d+,-?\d+$/', $k));
-    $state['skip'] = array_slice(array_values(array_unique(array_merge($state['skip'] ?? [], $skip))), -AREA_SCAN_SKIPS);
+    $skipped = area_scan_skipped($state) + array_fill_keys($skip, time());
+    asort($skipped);
+    $state['skipped'] = array_slice($skipped, -AREA_SCAN_SKIPS, null, true);
+    unset($state['skip']);
     db()->prepare('UPDATE users SET area_scan = ? WHERE id = ?')->execute([json_encode($state), $userId]);
     return ['on' => empty($state['off'])];
 }

@@ -5,6 +5,19 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.26.0 — 2026-10-22
+
+- Adding street maps where you've been finds more neighbourhoods. It looks
+  every 6 hours instead of every 12, tries up to 8 places each time instead
+  of 5, and when OpenStreetMap is busy for one place it carries on with the
+  next instead of giving up. A place it found nothing for is tried again
+  after a month, instead of never.
+- OpenStreetMap's backup Overpass server (overpass.kumi.systems) had stopped
+  answering, so retries mostly timed out. feets now falls back to the
+  mail.ru mirror, and waits a little longer between retries.
+- Add area no longer lists areas you already have. If you have all of them
+  there, it says so.
+
 ## 1.25.1 — 2026-10-22
 
 - The ▶ button for tracing a route goes away when you leave Plan a Route

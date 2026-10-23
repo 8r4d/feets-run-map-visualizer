@@ -261,19 +261,37 @@ test('cards: the look back for past travels is once only', async () => {
   assert.equal((await viewer.call('cards_looked_back', {})).status, 403);
 });
 
-test('finding areas: a turn twice a day, given back when OpenStreetMap was busy, and how it went kept', async () => {
+test('finding areas: a turn every 6 hours, given back when OpenStreetMap was busy, and how it went kept', async () => {
   const a = await member();
-  // Not a new account any more, so turns are 12 hours apart.
+  // Not a new account any more, so turns are 6 hours apart.
   execSync(`${process.env.FEETS_DB} -e "UPDATE users SET created_at = NOW() - INTERVAL 1 DAY WHERE username = '${a.username}'"`);
   assert.equal((await a.client.call('area_scan_claim', {})).body.go, true);
   assert.equal((await a.client.call('area_scan_claim', {})).body.go, false, 'one turn');
   await a.client.call('area_scan_save', { result: 'OpenStreetMap was busy, so it will try again in an hour.', retry: true });
   const last = () => JSON.parse(execSync(`${process.env.FEETS_DB} -N -e "SELECT area_scan FROM users WHERE username = '${a.username}'"`)).last;
-  assert.ok(Math.abs(last() - (Date.now() / 1000 - 11 * 3600)) < 60, 'the next turn in an hour, not 12');
+  assert.ok(Math.abs(last() - (Date.now() / 1000 - 5 * 3600)) < 60, 'the next turn in an hour, not 6');
   assert.equal((await a.client.call('area_scan_claim', {})).body.go, false, 'not straight away');
   const me = (await a.client.call('me')).body.user;
   assert.equal(me.autoAreasLast.text, 'OpenStreetMap was busy, so it will try again in an hour.');
   assert.ok(Math.abs(me.autoAreasLast.at - Date.now()) < 60000);
+});
+
+test('finding areas: places found nothing for are skipped for a month', async () => {
+  const a = await member();
+  execSync(`${process.env.FEETS_DB} -e "UPDATE users SET created_at = NOW() - INTERVAL 1 DAY WHERE username = '${a.username}'"`);
+  const old = Math.floor(Date.now() / 1000) - 31 * 86400;
+  // The old list of plain keys is kept, counting from now; an expired place is tried again.
+  const setScan = state => execSync(`${process.env.FEETS_DB} -e "UPDATE users SET area_scan = '${JSON.stringify(state).replace(/"/g, '\\"')}' WHERE username = '${a.username}'"`);
+  setScan({ skip: ['5354,-11339'] });
+  await a.client.call('area_scan_save', { skip: ['5355,-11340'] });
+  const scan = () => JSON.parse(execSync(`${process.env.FEETS_DB} -N -e "SELECT area_scan FROM users WHERE username = '${a.username}'"`));
+  const s = scan();
+  s.skipped['5300,-11300'] = old;
+  setScan(s);
+  const claim = (await a.client.call('area_scan_claim', {})).body;
+  assert.equal(claim.go, true);
+  assert.deepEqual(claim.skip.sort(), ['5354,-11339', '5355,-11340']);
+  assert.equal(scan().skip, undefined, 'the old list is gone');
 });
 
 // --- Virtual races ---

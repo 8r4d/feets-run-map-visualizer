@@ -11,7 +11,9 @@
 // metres, and runs are the parts of the OSM way inside the boundary, with a
 // point at least every SPACING metres.
 const OSM = (() => {
-  const SERVERS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
+  // The main Overpass server and a mirror (overpass.kumi.systems stopped answering in October 2026).
+  const SERVERS = ['https://overpass-api.de/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter'];
+  const RETRY_WAITS = [0, 5, 15, 30];  // seconds before each attempt
   const SPACING = 20;
   const ROAD_TYPES = ['residential', 'living_street', 'unclassified', 'tertiary', 'secondary', 'primary'];
   const PATH_TYPES = ['footway', 'cycleway', 'path', 'pedestrian', 'track', 'bridleway'];
@@ -19,12 +21,12 @@ const OSM = (() => {
   const LEVELS = '["boundary"="administrative"]["admin_level"~"^(7|8|9|10|11)$"]';
 
   // Runs a query, alternating between the main Overpass server and the
-  // mirror, and waiting a little longer after each failure: when Overpass is
-  // busy (HTTP 429 or 504) a retry a few seconds later often works.
+  // mirror, and waiting longer after each failure: when Overpass is busy
+  // (HTTP 429 or 504) a retry a little later often works.
   async function overpass(query, timeoutSeconds) {
     let problem = '';
-    for (let attempt = 0; attempt < 4; attempt++) {
-      if (attempt) await new Promise(resolve => setTimeout(resolve, attempt * 4000));
+    for (let attempt = 0; attempt < RETRY_WAITS.length; attempt++) {
+      if (attempt) await new Promise(resolve => setTimeout(resolve, RETRY_WAITS[attempt] * 1000));
       const abort = new AbortController();
       const timer = setTimeout(() => abort.abort(), timeoutSeconds * 1000);
       try {

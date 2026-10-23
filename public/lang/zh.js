@@ -261,7 +261,7 @@ I18n.add('zh', {
   'Set home to this view': '把当前视图设为主页',
   'Open the map zoomed out to every track again': '打开时重新缩小显示全部轨迹',
   'Clear home': '清除主页',
-  "Twice a day at most, while feets is open, it adds the street map for one place you've been that has none yet": 'feets 打开时，每天最多两次，为你去过但还没有街道地图的一个地方添加地图',
+  "Every 6 hours at most, while feets is open, it adds the street map for one place you've been that has none yet": 'feets 打开时，最多每 6 小时一次，为你去过但还没有街道地图的一个地方添加地图',
   "Add street maps where I've been": '为我去过的地方添加街道地图',
   'Invite someone to use feets with their own tracks': '邀请别人用自己的轨迹使用 feets',
   'Invite member': '邀请成员',

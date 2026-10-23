@@ -261,7 +261,7 @@ I18n.add('fr', {
   'Set home to this view': "Définir cette vue comme accueil",
   'Open the map zoomed out to every track again': "Ouvrir à nouveau la carte sur l'ensemble des traces",
   'Clear home': "Effacer l'accueil",
-  "Twice a day at most, while feets is open, it adds the street map for one place you've been that has none yet": "Deux fois par jour au plus, pendant que feets est ouvert, ajoute le plan des rues d'un lieu où vous êtes allé qui n'en a pas encore",
+  "Every 6 hours at most, while feets is open, it adds the street map for one place you've been that has none yet": "Toutes les 6 heures au plus, pendant que feets est ouvert, ajoute le plan des rues d'un lieu où vous êtes allé qui n'en a pas encore",
   "Add street maps where I've been": "Ajouter les plans des rues là où je suis allé",
   'Invite someone to use feets with their own tracks': "Inviter quelqu'un à utiliser feets avec ses propres traces",
   'Invite member': "Inviter un membre",

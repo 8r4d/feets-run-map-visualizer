@@ -2189,9 +2189,12 @@ document.getElementById('area-add').onclick = async () => {
   const b = map.getBounds();
   areaStatus.textContent = 'Looking up areas here…';
   try {
-    const found = await OSM.candidates(b.getSouth(), b.getWest(), b.getNorth(), b.getEast());
+    const all = await OSM.candidates(b.getSouth(), b.getWest(), b.getNorth(), b.getEast());
+    // Ones you already have aren't offered: "Refresh from OpenStreetMap" fetches those again.
+    const found = all.filter(c => !areas.some(a => a.osmId === c.osmId));
     if (!found.length) {
-      areaStatus.textContent = 'OpenStreetMap has no neighbourhood boundaries here.';
+      areaStatus.textContent = all.length ? 'You already have every area OpenStreetMap has here. Move the map to find more.'
+        : 'OpenStreetMap has no neighbourhood boundaries here.';
       return;
     }
     // Grouped by kind, nearest first: the bigger kinds come first because
@@ -4622,8 +4625,9 @@ helpDialog.addEventListener('click', e => { if (e.target === helpDialog) helpDia
 // Now and then, while feets is open, it looks for a place you've run on foot
 // a few times that none of your areas covers, and adds the neighbourhood
 // there, so it's ready for Streets and Plan. Gently: the server hands out a
-// turn at most twice a day per account (see area_scan_claim in api.php), and
-// a turn adds one area. Places with no usable boundary aren't tried again.
+// turn at most every 6 hours per account (see area_scan_claim in api.php),
+// and a turn adds one area. Places with no usable boundary aren't tried
+// again for a month.
 // A new account with only a few areas gets turns every few minutes for its
 // first hours: the server says when, and the next look is then.
 const SCAN_CELL = 0.01;     // degrees: places are ~1 km grid squares
@@ -4633,7 +4637,7 @@ const SCAN_EVERY = 3600000; // ms between asking for a turn
 // Which boundary to add, by OSM admin level: neighbourhood-sized first.
 const SCAN_LEVELS = [10, 9, 11, 8, 7];
 const SCAN_MAX_KM2 = 50;    // bigger boundaries (a whole city) are left for you to add by hand
-const SCAN_TRIES = 5;       // places looked up in a turn, until one gets an area
+const SCAN_TRIES = 8;       // places looked up in a turn, until one gets an area
 const SCAN_SAMPLE = 30;     // points of a run tried in each place for one outside every area
 let scanTimer = null;
 const autoAreas = document.getElementById('auto-areas');
@@ -4698,33 +4702,47 @@ async function noteScan(text, retry = false) {
 
 // One turn: the busiest places first, until one gets an area or SCAN_TRIES
 // have been looked up. A place whose only boundary is too big, or already one
-// of your areas (its edge just missing the spot), is skipped from now on.
-// Resolves to the seconds until the next turn, while the account is new.
-// Each turn's outcome is noted (showScanResult). One that OpenStreetMap was
-// too busy for is given back, so the next try is in an hour, not 12.
+// of your areas (its edge just missing the spot), is skipped for a month.
+// One OpenStreetMap was too busy for is left for next time, and the turn
+// carries on with the next place. Resolves to the seconds until the next
+// turn, while the account is new. Each turn's outcome is noted
+// (showScanResult). One that got nothing because OpenStreetMap was busy is
+// given back, so the next try is in an hour, not 6.
 async function findAreas() {
   if (!currentUser || readOnly() || !autoAreas.checked) return null;
   const { go, skip, again } = await Store.claimAreaScan();
   if (!go) return again;
   const tooBig = new Set();  // osm ids found too big this turn: no need to fetch them twice
   const skipped = [];
+  let busy = null;
   const places = unmappedPlaces(new Set(skip));
   try {
     for (const place of places.slice(0, SCAN_TRIES)) {
-      const pick = await areaFor(place, tooBig);
+      let pick;
+      try {
+        pick = await areaFor(place, tooBig);
+      } catch (err) {
+        busy = err;
+        continue;
+      }
       if (pick) {
-        await addFoundArea(place, pick);
+        await addFoundArea(place, pick).catch(async err => {
+          await noteScan(`couldn't save ${pick.built.name} (${err.message}).`, true);
+          throw err;
+        });
         await noteScan(`added ${pick.built.name}.`);
         return again;
       }
       skipped.push(place.key);
     }
+    if (busy && !skipped.length) {
+      await noteScan('OpenStreetMap was busy, so it will try again in an hour.', true);
+      throw busy;
+    }
     await noteScan(!places.length ? "every place you've been a few times has a street map."
       : `none of ${skipped.length === 1 ? 'the 1 place' : `the ${skipped.length} places`} tried has a neighbourhood-sized boundary.`
-        + (places.length > skipped.length ? ' More next time.' : ''));
-  } catch (err) {
-    await noteScan('OpenStreetMap was busy, so it will try again in an hour.', true);
-    throw err;
+        + (busy ? ' OpenStreetMap was busy for some, so it will try again in an hour.'
+          : places.length > skipped.length ? ' More next time.' : ''), Boolean(busy));
   } finally {
     if (skipped.length) await Store.saveAreaScan({ skip: skipped }).catch(() => {});
   }

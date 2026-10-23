@@ -261,7 +261,7 @@ I18n.add('ja', {
   'Set home to this view': 'この表示をホームにする',
   'Open the map zoomed out to every track again': 'また、すべてのトラックを表示して地図を開く',
   'Clear home': 'ホームを解除',
-  "Twice a day at most, while feets is open, it adds the street map for one place you've been that has none yet": 'feets を開いている間、1日に最大2回、行ったことがあってまだ道の地図がない場所の地図を1つ追加します',
+  "Every 6 hours at most, while feets is open, it adds the street map for one place you've been that has none yet": 'feets を開いている間、最大6時間に1回、行ったことがあってまだ道の地図がない場所の地図を1つ追加します',
   "Add street maps where I've been": '行った場所の道の地図を追加',
   'Invite someone to use feets with their own tracks': '自分のトラックで feets を使う人を招待',
   'Invite member': 'メンバーを招待',
