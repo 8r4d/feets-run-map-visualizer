@@ -19,6 +19,16 @@ return [
     // counts different activities from then on.
     'sport' => 'run',
 
+    // OpenStreetMap's Overpass servers, which street maps are fetched from
+    // (optional). The browser asks the first, and on a failure alternates
+    // through the rest. Each must accept requests from browsers on other
+    // sites (CORS). Leave it out for the usual pair: overpass-api.de, then the
+    // maps.mail.ru mirror. Others: https://wiki.openstreetmap.org/wiki/Overpass_API
+    // 'overpass' => [
+    //     'https://overpass-api.de/api/interpreter',
+    //     'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+    // ],
+
     // Setup password: creates the first (admin) account on the very first visit,
     // and later unlocks "Forgot password?" on the login screen, which can reset
     // any account. Make it long and random, and don't reuse it anywhere.

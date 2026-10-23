@@ -32,7 +32,7 @@ test('login: right and wrong passwords', async () => {
 
 test("me: the site's name and primary sport, from feets-config.php, even before logging in", async () => {
   const { body } = await new Client().call('me');
-  assert.deepEqual(body.site, { name: 'feets dashboard', sport: 'run' }, 'the defaults when the config leaves them out');
+  assert.deepEqual(body.site, { name: 'feets dashboard', sport: 'run', overpass: [] }, 'the defaults when the config leaves them out: the browser keeps its own Overpass servers');
 });
 
 test('password guessing: 5 tries per username, then even the right password waits', async () => {

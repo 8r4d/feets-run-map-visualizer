@@ -456,6 +456,10 @@ $config['name'] = trim((string) ($config['name'] ?? '')) ?: 'feets dashboard';
 if (!in_array($config['sport'], SPORTS, true)) {
     fail("feets-config.php: 'sport' must be one of " . implode(', ', SPORTS), 500);
 }
+// The Overpass servers street maps come from (see osm.js): https addresses
+// only, or none to leave the browser's own list.
+$config['overpass'] = array_values(array_filter((array) ($config['overpass'] ?? []),
+    fn($url) => is_string($url) && preg_match('#^https://[^\s"\'<>]+$#', $url)));
 
 function db(): PDO {
     global $config;
@@ -746,7 +750,7 @@ function me(): array {
     $user = current_user();
     return ['user' => $user ? user_json($user) : null, 'needsSetup' => !$user && needs_setup(),
             'viewLinkOff' => !$user && isset($_GET['view']),
-            'site' => ['name' => $config['name'], 'sport' => $config['sport']]];
+            'site' => ['name' => $config['name'], 'sport' => $config['sport'], 'overpass' => $config['overpass']]];
 }
 
 // Creates the first (admin) account. Guarded by app_password from feets-config.php,

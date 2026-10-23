@@ -9,9 +9,14 @@ const Store = (() => {
 
   async function send(method, query, body) {
     if (viewCode) query += (query ? '&' : '?') + 'view=' + encodeURIComponent(viewCode);
+    // JSON sent as text/plain: since October 2026 IONOS's firewall turns away
+    // a JSON body with 1,000 or more values (any area, a long route) with an
+    // HTML 400 before PHP sees it, but lets text through. api.php reads the
+    // body as JSON either way. The session cookie is SameSite=Strict, so this
+    // doesn't open the API to posts from other sites.
     const res = await fetch('api.php' + query, {
       method,
-      headers: body ? { 'Content-Type': 'application/json' } : {},
+      headers: body ? { 'Content-Type': 'text/plain;charset=UTF-8' } : {},
       body: body ? JSON.stringify(body) : undefined,
     });
     if (res.status === 401) onLoggedOut();

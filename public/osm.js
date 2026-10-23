@@ -11,8 +11,10 @@
 // metres, and runs are the parts of the OSM way inside the boundary, with a
 // point at least every SPACING metres.
 const OSM = (() => {
-  // The main Overpass server and a mirror (overpass.kumi.systems stopped answering in October 2026).
-  const SERVERS = ['https://overpass-api.de/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter'];
+  // The main Overpass server and a mirror (overpass.kumi.systems stopped
+  // answering in October 2026), unless feets-config.php lists others (useServers).
+  let servers = ['https://overpass-api.de/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter'];
+  const useServers = list => { if (Array.isArray(list) && list.length) servers = list; };
   const RETRY_WAITS = [0, 5, 15, 30];  // seconds before each attempt
   const SPACING = 20;
   const ROAD_TYPES = ['residential', 'living_street', 'unclassified', 'tertiary', 'secondary', 'primary'];
@@ -30,7 +32,7 @@ const OSM = (() => {
       const abort = new AbortController();
       const timer = setTimeout(() => abort.abort(), timeoutSeconds * 1000);
       try {
-        const res = await fetch(SERVERS[attempt % SERVERS.length], {
+        const res = await fetch(servers[attempt % servers.length], {
           method: 'POST', body: new URLSearchParams({ data: query }), signal: abort.signal,
         });
         const data = res.ok ? await res.json() : null;
@@ -298,5 +300,5 @@ const OSM = (() => {
       town: a.city || a.town || a.village || a.municipality || a.hamlet || a.county || '' };
   }
 
-  return { candidates, containing, inArea, inHood, buildArea, place };
+  return { candidates, containing, inArea, inHood, buildArea, place, useServers };
 })();

@@ -6015,12 +6015,14 @@ function planQuest(q) {
 }
 
 // --- Startup ---
-// The site's name and primary sport, from feets-config.php (see sport.js).
+// The site's name, primary sport (see sport.js) and Overpass servers (see
+// osm.js), from feets-config.php.
 // The name only replaces the page title when it isn't the usual one, so a
 // site that hasn't set one looks as it always did.
 function useSite(site) {
   if (!site) return;
   Sport.use(site.sport);
+  OSM.useServers(site.overpass);
   document.getElementById('site-name').textContent = t(site.name);
   if (site.name !== 'feets dashboard') document.title = site.name;
 }

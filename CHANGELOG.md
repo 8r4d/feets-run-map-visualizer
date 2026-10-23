@@ -5,6 +5,20 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.27.1 — 2026-10-22
+
+- Saving a street area (or a long route) failed with "Request failed (400)"
+  since the host's PHP upgrade: its firewall now turns away JSON with 1,000
+  or more values before it reaches feets. The app now sends its requests as
+  plain text, which gets through; the server reads them the same way.
+
+## 1.27.0 — 2026-10-22
+
+- The Overpass servers that street maps come from can be set in
+  feets-config.php (`overpass`, a list of addresses tried in turn), so
+  swapping a dead mirror is a config change, not a code change. Leave it out
+  for the usual pair (overpass-api.de, then the maps.mail.ru mirror).
+
 ## 1.26.0 — 2026-10-22
 
 - Adding street maps where you've been finds more neighbourhoods. It looks
