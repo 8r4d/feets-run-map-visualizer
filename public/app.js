@@ -2898,16 +2898,20 @@ function resetPlan(route = null) {
 
 // Starts a new route that retraces a run along the streets of your areas (see
 // Planner.trace), ready to change and save like one you drew.
+// Without streets to follow it says so and stays where it was.
 function routeFromTrack(track) {
+  if (!areas.length) {
+    alert(t('To plan a route from a track, add an area in Road Fill first: routes follow its streets.'));
+    return;
+  }
+  const waypoints = Planner.trace(planGraph(), track.segments.flat());
+  if (waypoints.length < 2) {
+    alert(t('"{name}" isn\'t on the streets of your areas. Add an area in Road Fill that covers it, then try again.', { name: track.name }));
+    return;
+  }
   if (!mayDiscard()) return;
   setMode('plan');
   resetPlan();
-  if (!areas.length) return;  // renderPlan says to add an area first
-  const waypoints = Planner.trace(planGraph(), track.segments.flat());
-  if (waypoints.length < 2) {
-    planStatus.textContent = `"${track.name}" isn't on the streets of your areas.`;
-    return;
-  }
   for (let i = 1; i < waypoints.length; i++) {
     const leg = legBetween(waypoints[i - 1], waypoints[i], false);
     plan.legs.push(leg.points);
@@ -2927,6 +2931,7 @@ const mayDiscard = () => !plan.dirty || plan.waypoints.length < 2 || confirm('Di
 // finish, small white ones in between.
 function drawPlan() {
   stopTrace();
+  traceControl.show(false);  // shown again below if there's a route to trace
   if (planLayer) planLayer.remove();
   planLayer = null;
   if (arrowLayer) arrowLayer.remove();

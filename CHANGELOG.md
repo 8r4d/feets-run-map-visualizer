@@ -5,6 +5,14 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.25.1 — 2026-10-22
+
+- The ▶ button for tracing a route goes away when you leave Plan a Route
+  for another map mode, instead of staying on the map.
+- "Plan a route from this track" says why when it can't: there are no
+  street areas yet, or none of them covers the track. It no longer switches
+  to an empty planner in that case.
+
 ## 1.25.0 — 2026-10-21
 
 - The race page has a "Where do I find my run's file?" box under the entry
