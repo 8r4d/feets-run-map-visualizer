@@ -1012,6 +1012,15 @@ body {
   flex: 1;
 }
 
+#filter-dates label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 /* The mode switcher, over the top left of the map beside the zoom buttons,
    looking like Leaflet's own controls. */
 #mode {

@@ -253,16 +253,40 @@ const trackRenderer = L.canvas({ padding: 0.5, tolerance: 4 });
 // --- Filters ---
 // Narrow the list and the map (both modes) to tracks matching a search, year
 // and activity type. Saved per browser; the checkboxes are saved on the server.
+// The year can instead be 'custom': from and to dates (YYYY-MM-DD, local
+// time, both days included), either of them blank for no limit.
 const NO_SPORT = '_none';
-const filters = { text: '', year: '', sport: '' };
+const filters = { text: '', year: '', sport: '', from: '', to: '' };
 try { Object.assign(filters, JSON.parse(localStorage.getItem('feets-filters')) || {}); } catch {}
 
 const yearOf = track => (track.time ? String(new Date(track.time).getFullYear()) : '');
+const dayOf = track => {
+  if (!track.time) return '';
+  const d = new Date(track.time);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+const customDates = () => filters.year === 'custom';
+// The one year the filters are on, if they are, for the stats and calendar.
+const oneYear = () => (customDates() ? '' : filters.year);
+const inDates = track => {
+  if (!filters.from && !filters.to) return true;
+  const day = dayOf(track);
+  return Boolean(day) && (!filters.from || day >= filters.from) && (!filters.to || day <= filters.to);
+};
+// "3 Jan 2025 – 4 Mar 2026", "From 3 Jan 2025", or "All time".
+function periodText() {
+  if (!customDates()) return filters.year || 'All time';
+  const date = s => new Date(`${s}T00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  if (filters.from && filters.to) return `${date(filters.from)} – ${date(filters.to)}`;
+  if (filters.from) return `${t('From')} ${date(filters.from)}`;
+  if (filters.to) return `${t('To')} ${date(filters.to)}`;
+  return 'All time';
+}
 const sportLabel = sport => t(sport === NO_SPORT ? 'Other' : sport.replace(/([a-z])([A-Z])/g, '$1 $2'));
 
 function matches(track) {
   return (!filters.text || track.name.toLowerCase().includes(filters.text.toLowerCase()))
-    && (!filters.year || yearOf(track) === filters.year)
+    && (customDates() ? inDates(track) : !filters.year || yearOf(track) === filters.year)
     && (!filters.sport || (track.sport || NO_SPORT) === filters.sport);
 }
 
@@ -891,12 +915,17 @@ function renderCalendar(tracks) {
     byDay.set(key, day);
   }
   const now = new Date();
-  const first = filters.year ? new Date(Number(filters.year), 0, 1) : new Date(now.getFullYear(), now.getMonth() - 11, 1);
+  // A year, or custom dates' first 12 months (or last 12, with just an end), or else the last 12 months.
+  const day = s => new Date(`${s}T00:00`);
+  const first = oneYear() ? new Date(Number(oneYear()), 0, 1)
+    : customDates() && filters.from ? new Date(day(filters.from).getFullYear(), day(filters.from).getMonth(), 1)
+      : customDates() && filters.to ? new Date(day(filters.to).getFullYear(), day(filters.to).getMonth() - 11, 1)
+        : new Date(now.getFullYear(), now.getMonth() - 11, 1);
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
   const readout = document.createElement('small');
   readout.className = 'calendar-readout';
-  const idle = filters.year ? `${filters.year}` : 'Last 12 months';
+  const idle = oneYear() || (customDates() && (filters.from || filters.to) ? periodText() : 'Last 12 months');
   readout.textContent = idle;
   const describe = (date, day) => date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
     + (!day ? ': nothing' : ` · ${statKm(day.metres)} · ${day.tracks.length === 1 ? day.tracks[0].name : `${day.tracks.length} activities`}`);
@@ -908,7 +937,7 @@ function renderCalendar(tracks) {
     const block = document.createElement('div');
     block.className = 'calendar-month';
     const name = document.createElement('span');
-    name.textContent = start.toLocaleDateString(undefined, { month: 'short' }) + (start.getMonth() === 0 && !filters.year ? ` ${start.getFullYear()}` : '');
+    name.textContent = start.toLocaleDateString(undefined, { month: 'short' }) + (start.getMonth() === 0 && !oneYear() ? ` ${start.getFullYear()}` : '');
     const grid = document.createElement('div');
     grid.className = 'calendar-grid';
     // Weeks start on Monday: blank cells before the 1st.
@@ -956,11 +985,11 @@ function renderCalendar(tracks) {
 function renderStats(tracks) {
   renderCalendar(tracks);
   const s = Stats.summarize(tracks);
-  const period = [filters.year || 'All time', filters.sport && sportLabel(filters.sport), filters.text && `"${filters.text}"`]
+  const period = [periodText(), filters.sport && sportLabel(filters.sport), filters.text && `"${filters.text}"`]
     .filter(Boolean).join(' · ');
   document.getElementById('stats-summary').textContent = `${period} · ${statKm(s.metres)}`;
   // Dates from stats.js are midnight UTC; show the year only when it isn't the filter's.
-  const date = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: filters.year ? undefined : 'numeric', timeZone: 'UTC' });
+  const date = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: oneYear() ? undefined : 'numeric', timeZone: 'UTC' });
   const plural = (n, one, many = one + 's') => `${n.toLocaleString()} ${n === 1 ? one : many}`;
   // Each row: a label, a main value, and smaller detail lines under it.
   const rows = [];
@@ -980,18 +1009,18 @@ function renderStats(tracks) {
     }
     if (s.fastest.length) {
       const [first, ...others] = s.fastest.map(f => `${effortLabel(f.metres)} ${clock(f.seconds)}`
-        + (f.track.time ? ` · ${new Date(f.track.time).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: filters.year ? undefined : 'numeric' })}` : ''));
+        + (f.track.time ? ` · ${new Date(f.track.time).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: oneYear() ? undefined : 'numeric' })}` : ''));
       row('Fastest', first, ...others);
     }
     const t = s.longestTrack;
-    row('Longest', statKm(t.distance), [t.name, t.time && new Date(t.time).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: filters.year ? undefined : 'numeric' })].filter(Boolean).join(' · '));
+    row('Longest', statKm(t.distance), [t.name, t.time && new Date(t.time).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: oneYear() ? undefined : 'numeric' })].filter(Boolean).join(' · '));
     const { longest, current } = s.streaks;
     if (longest.days) row('Longest streak', plural(longest.days, 'day'), longest.days > 1 ? `${date(longest.start)} – ${date(longest.end)}` : date(longest.start));
     if (current) row('Current streak', plural(current, 'day'), 'through today or yesterday');
     if (s.bestWeek) row('Best week', statKm(s.bestWeek.metres), `week of ${date(s.bestWeek.start)}`);
     if (s.bestMonth) {
       const [y, m] = s.bestMonth.month.split('-').map(Number);
-      row('Best month', statKm(s.bestMonth.metres), new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString(undefined, { month: 'long', year: filters.year ? undefined : 'numeric', timeZone: 'UTC' }));
+      row('Best month', statKm(s.bestMonth.metres), new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString(undefined, { month: 'long', year: oneYear() ? undefined : 'numeric', timeZone: 'UTC' }));
     }
     if (s.byType.length > 1) {
       const [first, ...others] = s.byType.map(x => `${x.sport ? sportLabel(x.sport) : 'Other'} ${statKm(x.metres)} (${x.count})`);
@@ -1017,7 +1046,8 @@ function renderList() {
   const years = [...new Set(all.map(e => yearOf(e.track)).filter(Boolean))].sort().reverse();
   const sports = [...new Set(all.map(e => e.track.sport || NO_SPORT))]
     .sort((a, b) => (a === NO_SPORT) - (b === NO_SPORT) || a.localeCompare(b));
-  fillSelect(yearSelect, years, t('All years'), y => y, 'year');
+  fillSelect(yearSelect, [...years, 'custom'], t('All years'), y => (y === 'custom' ? t('Custom dates') : y), 'year');
+  document.getElementById('filter-dates').hidden = !customDates();
   fillSelect(sportSelect, sports, t('All types'), sportLabel, 'sport');
 
   const matching = all
@@ -1030,7 +1060,7 @@ function renderList() {
   moreButton.hidden = matching.length <= listLimit;
   moreButton.textContent = t('Show more ({n} more)', { n: matching.length - listLimit });
 
-  const filtered = filters.text || filters.year || filters.sport;
+  const filtered = filters.text || (customDates() ? filters.from || filters.to : filters.year) || filters.sport;
   renderStats(matching.map(e => e.track));
 
   document.getElementById('summary').textContent = !all.length
@@ -1473,6 +1503,18 @@ filterText.oninput = () => {
   filterTimer = setTimeout(() => setFilter('text', filterText.value.trim()), 250);
 };
 yearSelect.onchange = () => setFilter('year', yearSelect.value);
+// Custom dates: each end limits the other's picker, so the range can't run backwards.
+const filterFrom = document.getElementById('filter-from');
+const filterTo = document.getElementById('filter-to');
+const syncDates = () => {
+  filterFrom.value = filters.from;
+  filterTo.value = filters.to;
+  filterFrom.max = filters.to;
+  filterTo.min = filters.from;
+};
+syncDates();
+filterFrom.onchange = () => { setFilter('from', filterFrom.value); syncDates(); };
+filterTo.onchange = () => { setFilter('to', filterTo.value); syncDates(); };
 sportSelect.onchange = () => setFilter('sport', sportSelect.value);
 
 // --- Streets mode: street coverage ---

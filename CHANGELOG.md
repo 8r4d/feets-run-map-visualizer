@@ -5,6 +5,13 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.29.0 — 2026-10-24
+
+- The year menu over the activity list has Custom dates: pick it, and From
+  and To date boxes appear below it, to narrow the list, the map and the
+  stats to any stretch of days. Leave either one blank for no limit. The
+  calendar shows the 12 months from the start date.
+
 ## 1.28.1 — 2026-10-24
 
 - Private routes are listed first in Saved routes, with the shared ones

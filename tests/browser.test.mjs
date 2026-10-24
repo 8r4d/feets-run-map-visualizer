@@ -63,6 +63,31 @@ test('add GPX, FIT and TCX files', { skip }, async () => {
   assert.deepEqual(kept, ['stanley-park.gpx', 'trail-run.gpx', 'walk.gpx']);
 });
 
+test('custom dates: the year menu narrows the list to a range of days', { skip }, async () => {
+  // Each track's day, in the browser's time zone, as the filter sees it.
+  const days = await page.eval(`fetch('api.php').then(r => r.json()).then(ts => ts.filter(t => t.time).map(t => {
+    const d = new Date(t.time);
+    return [t.name, d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')];
+  }).sort((a, b) => a[1].localeCompare(b[1])))`);
+  assert.ok(days.length >= 2, JSON.stringify(days));
+  const [name, day] = days.at(-1);
+  const set = (id, value) => page.eval(`(() => { const el = document.getElementById('${id}'); el.value = '${value}';
+    el.dispatchEvent(new Event('change')); })()`);
+  const shown = async () => (await rows()).map(r => r.name);
+  assert.ok(await page.eval(`document.getElementById('filter-dates').hidden`), 'no dates until Custom is picked');
+  await set('filter-year', 'custom');
+  assert.equal(await page.eval(`document.getElementById('filter-dates').hidden`), false);
+  assert.equal((await shown()).length, 3, 'blank dates: everything');
+  await set('filter-from', day);
+  await set('filter-to', day);
+  assert.ok((await shown()).includes(name), `${name} on ${day}: ${JSON.stringify(await shown())}`);
+  assert.equal((await shown()).length, days.filter(d => d[1] === day).length, 'only that day');
+  assert.match(await page.eval(`document.getElementById('summary').textContent`), / of 3 tracks/);
+  await set('filter-year', '');
+  assert.equal((await shown()).length, 3, 'All years again');
+  assert.ok(await page.eval(`document.getElementById('filter-dates').hidden`));
+});
+
 test('Questing: the modes\' new names, and the game in a column over the map', { skip }, async () => {
   assert.deepEqual(await page.eval(`[...document.querySelectorAll('#mode button')].map(b => b.innerText)`),
     ['Tracks', 'Heatmap', 'Questing', 'Road Fill', 'Planning']);
