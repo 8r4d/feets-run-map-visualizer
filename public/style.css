@@ -1272,6 +1272,17 @@ body {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
 }
 
+#name-dialog .check {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 13px;
+}
+
+#name-dialog .check input {
+  padding: 0;
+}
+
 #name-dialog::backdrop, .form-dialog::backdrop {
   background: rgba(0, 0, 0, 0.45);
 }
@@ -1402,6 +1413,16 @@ body {
 
 #route-list .name:hover {
   text-decoration: underline;
+}
+
+/* The heading over your private routes */
+#route-list li.private-head {
+  display: block;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted);
 }
 
 #route-list li.current .name {

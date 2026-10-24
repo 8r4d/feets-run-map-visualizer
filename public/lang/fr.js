@@ -151,6 +151,8 @@ I18n.add('fr', {
   'Carry on': "Continuer",
   'Trace the route from start to finish': "Tracer l'itinéraire du départ à l'arrivée",
   'Saved routes': "Itinéraires enregistrés",
+  'Private: only you see these': "Privés : vous seul les voyez",
+  'Private: only you see it, not people you share routes with': "Privé : vous seul le voyez, pas les personnes avec qui vous partagez vos itinéraires",
   'Sort saved routes': "Trier les itinéraires enregistrés",
   'Newest first': "Plus récents d'abord",
   'By name': "Par nom",

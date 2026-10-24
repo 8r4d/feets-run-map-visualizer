@@ -100,10 +100,11 @@ const Store = (() => {
     wayNames: () => json('GET', '?action=way_names'),
     saveWayNames: (ways, name) => json('POST', '?action=way_names_save', { ways, name }),  // → wayNames()
 
-    // Planned routes: { id, name, distance, createdAt, updatedAt, data: { waypoints, legs, straight } }.
+    // Planned routes: { id, name, distance, private, createdAt, updatedAt, data: { waypoints, legs, straight } }.
     routes: () => json('GET', '?action=routes'),
     saveRoute: route => json('POST', '?action=route_save', route),  // { id?, name, distance, data } → stored route
     renameRoute: (id, name) => json('POST', `?action=route_rename&id=${id}`, { name }),  // → stored route
+    setRoutePrivate: (id, isPrivate) => json('POST', `?action=route_private&id=${id}`, { private: isPrivate }),  // → stored route
     deleteRoute: id => json('POST', `?action=route_delete&id=${id}`),
 
     // Segments (see segments.js): { id, name, distance, points, createdAt, efforts: { track id: [[start, seconds]] } }.

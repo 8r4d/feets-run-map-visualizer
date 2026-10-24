@@ -77,8 +77,11 @@
 //
 // Planned routes (drawn in the browser by planner.js)
 //   GET  api.php?action=routes               all of the user's routes, newest first
-//   POST api.php?action=route_save           {id?, name, distance, data}; with id, replaces that route. Returns it
+//   POST api.php?action=route_save           {id?, name, distance, data, private?}; with id, replaces that route
+//                                            (keeping whether it's private unless given). Returns it
 //   POST api.php?action=route_rename&id=ID   {name}, returns the route
+//   POST api.php?action=route_private&id=ID  {private}, returns the route. Private routes are only listed for
+//                                            their owner: view links and view-only accounts don't get them
 //   POST api.php?action=route_delete&id=ID
 //
 // Goals
@@ -338,6 +341,7 @@ const SCHEMA = [
       name        VARCHAR(255) NOT NULL,
       distance_m  DOUBLE       NOT NULL DEFAULT 0,
       data        LONGTEXT     NOT NULL,  -- JSON: {waypoints, legs, straight}
+      private     BOOLEAN      NOT NULL DEFAULT FALSE,  -- only listed for its owner, not view links or viewers
       created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       INDEX (user_id)
@@ -566,6 +570,10 @@ function db(): PDO {
         // ...and view links that expire.
         if (!$pdo->query("SHOW COLUMNS FROM view_links LIKE 'expires_at'")->fetch()) {
             $pdo->exec('ALTER TABLE view_links ADD COLUMN expires_at TIMESTAMP NULL AFTER created_at');
+        }
+        // ...and private routes.
+        if (!$pdo->query("SHOW COLUMNS FROM routes LIKE 'private'")->fetch()) {
+            $pdo->exec('ALTER TABLE routes ADD COLUMN private BOOLEAN NOT NULL DEFAULT FALSE AFTER data');
         }
     }
     return $pdo;
@@ -2276,13 +2284,15 @@ const ROUTE_MAX_BYTES = 2 * 1024 * 1024;
 // Like areas, rows are sent with their stored JSON spliced in.
 function route_json(array $row): string {
     $meta = json_encode(['id' => (int) $row['id'], 'name' => $row['name'], 'distance' => (float) $row['distance_m'],
-                         'createdAt' => $row['created_at'], 'updatedAt' => $row['updated_at']]);
+                         'private' => (bool) $row['private'], 'createdAt' => $row['created_at'], 'updatedAt' => $row['updated_at']]);
     return substr($meta, 0, -1) . ',"data":' . $row['data'] . '}';
 }
 
 // All of the user's routes, last changed first, or just one ($onlyId).
-function send_routes(int $userId, ?int $onlyId = null): void {
-    $stmt = db()->prepare('SELECT * FROM routes WHERE user_id = ?' . ($onlyId ? ' AND id = ?' : '') . ' ORDER BY updated_at DESC, id DESC');
+// Private ones are left out for view links and view-only accounts.
+function send_routes(int $userId, ?int $onlyId = null, bool $withPrivate = true): void {
+    $stmt = db()->prepare('SELECT * FROM routes WHERE user_id = ?' . ($onlyId ? ' AND id = ?' : '')
+                          . ($withPrivate ? '' : ' AND NOT private') . ' ORDER BY updated_at DESC, id DESC');
     $stmt->execute($onlyId ? [$userId, $onlyId] : [$userId]);
     header('Content-Type: application/json');
     header('Cache-Control: no-store');
@@ -2306,7 +2316,9 @@ function route_save(int $userId, array $b): void {
     $distance = max(0, (float) ($b['distance'] ?? 0));
     $id = (int) ($b['id'] ?? 0);
     if ($id) {
-        $stmt = db()->prepare('UPDATE routes SET name = ?, distance_m = ?, data = ? WHERE id = ? AND user_id = ?');
+        $stmt = db()->prepare('UPDATE routes SET name = ?, distance_m = ?, data = ?'
+                              . (isset($b['private']) ? ', private = ' . ($b['private'] ? 'TRUE' : 'FALSE') : '')
+                              . ' WHERE id = ? AND user_id = ?');
         $stmt->execute([$name, $distance, $json, $id, $userId]);
         $check = db()->prepare('SELECT id FROM routes WHERE id = ? AND user_id = ?');
         $check->execute([$id, $userId]);
@@ -2314,8 +2326,8 @@ function route_save(int $userId, array $b): void {
             fail('Route not found', 404);
         }
     } else {
-        db()->prepare('INSERT INTO routes (user_id, name, distance_m, data) VALUES (?, ?, ?, ?)')
-            ->execute([$userId, $name, $distance, $json]);
+        db()->prepare('INSERT INTO routes (user_id, name, distance_m, data, private) VALUES (?, ?, ?, ?, ?)')
+            ->execute([$userId, $name, $distance, $json, empty($b['private']) ? 0 : 1]);
         $id = (int) db()->lastInsertId();
     }
     send_routes($userId, $id);
@@ -2332,6 +2344,17 @@ function route_rename(int $userId, int $id, array $b): void {
         fail('Route not found', 404);
     }
     db()->prepare('UPDATE routes SET name = ? WHERE id = ?')->execute([$name, $id]);
+    send_routes($userId, $id);
+}
+
+// Moves a route between the shared list and the private one.
+function route_private(int $userId, int $id, array $b): void {
+    $stmt = db()->prepare('SELECT id FROM routes WHERE id = ? AND user_id = ?');
+    $stmt->execute([$id, $userId]);
+    if (!$stmt->fetchColumn()) {
+        fail('Route not found', 404);
+    }
+    db()->prepare('UPDATE routes SET private = ? WHERE id = ?')->execute([empty($b['private']) ? 0 : 1, $id]);
     send_routes($userId, $id);
 }
 
@@ -3231,11 +3254,13 @@ if ($method === 'POST' && $action === 'invite') {
 } elseif ($method === 'POST' && $action === 'way_names_save') {
     send_json(save_way_names($userId, read_json()));
 } elseif ($method === 'GET' && $action === 'routes') {
-    send_routes($userId);
+    send_routes($userId, null, empty($user['read_only']));
 } elseif ($method === 'POST' && $action === 'route_save') {
     route_save($userId, read_json());
 } elseif ($method === 'POST' && $action === 'route_rename' && $id) {
     route_rename($userId, $id, read_json());
+} elseif ($method === 'POST' && $action === 'route_private' && $id) {
+    route_private($userId, $id, read_json());
 } elseif ($method === 'POST' && $action === 'route_delete' && $id) {
     send_json(route_delete($userId, $id));
 } elseif ($method === 'GET' && $action === 'goals') {

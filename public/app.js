@@ -3215,43 +3215,66 @@ const ROUTE_ORDERS = {
   longest: (a, b) => b.distance - a.distance,
 };
 
+// Shared routes first, then the private ones (only ever sent to their owner)
+// under a heading of their own.
 function renderRouteList() {
   const box = document.getElementById('routes');
   box.hidden = !routes.length;
   box.querySelector('.count').textContent = `(${routes.length})`;
   routeSort.hidden = routes.length < 2;
   const sorted = [...routes].sort(ROUTE_ORDERS[routeSort.value] || ROUTE_ORDERS.newest);
-  document.getElementById('route-list').replaceChildren(...sorted.map(r => {
-    const li = document.createElement('li');
-    li.classList.toggle('current', r.id === plan.id);
-    // Name and distance, then the actions on a line of their own.
-    li.innerHTML = '<button class="link-button name" type="button" title="Open"></button><small></small>'
-      + '<span class="actions"></span>';
-    li.querySelector('.name').textContent = r.name;
-    li.querySelector('.name').onclick = () => openRoute(r);
-    // Just the distance: not every saved route has its climb stored, so that's
-    // only shown in the panel for the route that's open.
-    li.querySelector('small').textContent = km(r.distance);
-    const actions = li.querySelector('.actions');
-    const action = (label, onclick, title) => {
-      const button = document.createElement('button');
-      button.className = 'link-button';
-      button.type = 'button';
-      button.textContent = label;
-      if (title) button.title = title;
-      button.onclick = onclick;
-      actions.append(button);
-    };
-    action('GPX', () => downloadRoute(r.name, r.data));
-    if (publicView()) action('Share', () => shareRouteLink(r), 'Send someone a link to this route');
-    if (!readOnly()) {
-      action('Link', () => shareRoute(r), 'A link that opens this route, no login needed');
-      action('Race', () => raceDialog({ route: r }), 'Make a virtual race on this route: anyone with its link can upload a run and get a time');
-      action('Rename', () => renameRoute(r));
-      action('Delete', () => deleteRoute(r));
-    }
-    return li;
-  }));
+  const shared = sorted.filter(r => !r.private), mine = sorted.filter(r => r.private);
+  const head = document.createElement('li');
+  head.className = 'private-head';
+  head.textContent = t('Private: only you see these') + ` (${mine.length})`;
+  document.getElementById('route-list').replaceChildren(...shared.map(routeItem), ...(mine.length ? [head] : []),
+    ...mine.map(routeItem));
+}
+
+function routeItem(r) {
+  const li = document.createElement('li');
+  li.classList.toggle('current', r.id === plan.id);
+  // Name and distance, then the actions on a line of their own.
+  li.innerHTML = '<button class="link-button name" type="button" title="Open"></button><small></small>'
+    + '<span class="actions"></span>';
+  li.querySelector('.name').textContent = r.name;
+  li.querySelector('.name').onclick = () => openRoute(r);
+  // Just the distance: not every saved route has its climb stored, so that's
+  // only shown in the panel for the route that's open.
+  li.querySelector('small').textContent = km(r.distance);
+  const actions = li.querySelector('.actions');
+  const action = (label, onclick, title) => {
+    const button = document.createElement('button');
+    button.className = 'link-button';
+    button.type = 'button';
+    button.textContent = label;
+    if (title) button.title = title;
+    button.onclick = onclick;
+    actions.append(button);
+  };
+  action('GPX', () => downloadRoute(r.name, r.data));
+  if (publicView()) action('Share', () => shareRouteLink(r), 'Send someone a link to this route');
+  if (!readOnly()) {
+    // A view link can't see a private route, so there's no link to make.
+    if (!r.private) action('Link', () => shareRoute(r), 'A link that opens this route, no login needed');
+    action('Race', () => raceDialog({ route: r }), 'Make a virtual race on this route: anyone with its link can upload a run and get a time');
+    action('Rename', () => renameRoute(r));
+    if (r.private) action('Make shared', () => setRoutePrivate(r, false), 'Move to your shared routes, which view links and viewers can see');
+    else action('Make private', () => setRoutePrivate(r, true), 'Keep this route to yourself: view links and viewers stop seeing it');
+    action('Delete', () => deleteRoute(r));
+  }
+  return li;
+}
+
+async function setRoutePrivate(r, isPrivate) {
+  try {
+    const saved = await Store.setRoutePrivate(r.id, isPrivate);
+    routes = [saved, ...routes.filter(o => o.id !== saved.id)];
+    planStatus.textContent = isPrivate ? `"${saved.name}" is private now.` : `"${saved.name}" is shared now.`;
+    renderRouteList();
+  } catch (err) {
+    alert(err.message);
+  }
 }
 
 // Share on a view link: this view link, opening this route. Phones get the
@@ -3764,13 +3787,24 @@ document.getElementById('plan-streets').onchange = e => {
   syncLayers();
 };
 
-// A route you opened is saved over under its name; a new one asks for a name.
+// A route you opened is saved over under its name (and stays shared or
+// private); a new one asks for a name, and whether it's private. That box
+// starts as it was left last time.
+const privateBox = document.getElementById('name-dialog-private');
+try { privateBox.firstElementChild.checked = localStorage.getItem('feets-route-private') === 'yes'; } catch {}
 document.getElementById('plan-save').onclick = async () => {
-  const name = plan.id ? plan.name : await askName('Save route', plan.name || `Route ${new Date().toLocaleDateString()}`, 'Save');
+  let name = plan.name;
+  if (!plan.id) {
+    privateBox.hidden = false;
+    name = await askName('Save route', plan.name || `Route ${new Date().toLocaleDateString()}`, 'Save');
+    privateBox.hidden = true;
+  }
   if (!name) return;
+  const isPrivate = privateBox.firstElementChild.checked;
+  try { localStorage.setItem('feets-route-private', isPrivate ? 'yes' : 'no'); } catch {}
   try {
     const saved = await Store.saveRoute({
-      id: plan.id, name, distance: lineMetres(routePoints(plan)),
+      id: plan.id, name, distance: lineMetres(routePoints(plan)), ...(plan.id ? {} : { private: isPrivate }),
       data: {
         waypoints: plan.waypoints, legs: plan.legs, straight: plan.straight,
         // Kept with the route if the lookup has finished; otherwise it's looked up when opened.

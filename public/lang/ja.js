@@ -151,6 +151,8 @@ I18n.add('ja', {
   'Carry on': '続ける',
   'Trace the route from start to finish': 'スタートからゴールまでルートをなぞる',
   'Saved routes': '保存したルート',
+  'Private: only you see these': '非公開：自分だけに表示',
+  'Private: only you see it, not people you share routes with': '非公開：自分だけに表示され、ルートを共有した相手には見えません',
   'Sort saved routes': '保存したルートの並べ替え',
   'Newest first': '新しい順',
   'By name': '名前順',

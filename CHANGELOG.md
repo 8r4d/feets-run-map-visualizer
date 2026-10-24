@@ -5,6 +5,14 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.28.0 — 2026-10-24
+
+- Private routes: a route planned just for your own walk or run can be kept
+  to yourself. Tick Private when saving a new route, or choose Make private on
+  a saved one. Private routes are listed under their own heading in Saved
+  routes, and view links and view-only accounts don't see them. Make shared
+  puts one back with the others.
+
 ## 1.27.1 — 2026-10-22
 
 - Saving a street area (or a long route) failed with "Request failed (400)"

@@ -120,6 +120,26 @@ test('a view link only shows routes', async () => {
   assert.equal((await viewer.call('add', trackBody(gpxText()), `&view=${code}`)).status, 403, 'and changes nothing');
 });
 
+test('private routes: only their owner sees them, not view links or viewers', async () => {
+  const { client } = await member();
+  const data = { waypoints: [[51.5, -0.1], [51.5, -0.0986]], legs: [[[51.5, -0.1], [51.5, -0.0986]]], straight: [false] };
+  const open = (await client.call('route_save', { name: 'Club loop', distance: 100, data })).body;
+  const mine = (await client.call('route_save', { name: 'My walk', distance: 100, data, private: true })).body;
+  assert.equal(open.private, false);
+  assert.equal(mine.private, true);
+  const resaved = (await client.call('route_save', { id: mine.id, name: 'My walk', distance: 120, data })).body;
+  assert.equal(resaved.private, true, 'saving over it keeps it private');
+  assert.equal((await client.call('routes')).body.length, 2, 'the owner sees both');
+  const { body: { code } } = await client.call('view_link_create', { label: 'Friends' });
+  const viewer = new Client();
+  const names = async () => (await viewer.call('routes', undefined, `&view=${code}`)).body.map(r => r.name);
+  assert.deepEqual(await names(), ['Club loop']);
+  assert.equal((await client.call('route_private', { private: true }, `&id=${open.id}`)).body.private, true);
+  assert.equal((await client.call('route_private', { private: false }, `&id=${mine.id}`)).body.private, false);
+  assert.deepEqual(await names(), ['My walk']);
+  assert.equal((await viewer.call('route_private', { private: true }, `&view=${code}&id=${mine.id}`)).status, 403);
+});
+
 test('tracks: added with pace and climb, and only their owner sees them', async () => {
   const a = await member(), b = await member();
   const added = await a.client.call('add', trackBody(gpxText({ n: 60, step: 20, seconds: 6 })));
