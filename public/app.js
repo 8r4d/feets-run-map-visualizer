@@ -3215,8 +3215,8 @@ const ROUTE_ORDERS = {
   longest: (a, b) => b.distance - a.distance,
 };
 
-// Shared routes first, then the private ones (only ever sent to their owner)
-// under a heading of their own.
+// Private routes (only ever sent to their owner) first, for convenience, then
+// the shared ones. Each gets a heading when there are both.
 function renderRouteList() {
   const box = document.getElementById('routes');
   box.hidden = !routes.length;
@@ -3224,11 +3224,15 @@ function renderRouteList() {
   routeSort.hidden = routes.length < 2;
   const sorted = [...routes].sort(ROUTE_ORDERS[routeSort.value] || ROUTE_ORDERS.newest);
   const shared = sorted.filter(r => !r.private), mine = sorted.filter(r => r.private);
-  const head = document.createElement('li');
-  head.className = 'private-head';
-  head.textContent = t('Private: only you see these') + ` (${mine.length})`;
-  document.getElementById('route-list').replaceChildren(...shared.map(routeItem), ...(mine.length ? [head] : []),
-    ...mine.map(routeItem));
+  const head = text => {
+    const li = document.createElement('li');
+    li.className = 'route-head';
+    li.textContent = text;
+    return li;
+  };
+  document.getElementById('route-list').replaceChildren(
+    ...(mine.length ? [head(t('Private: only you see these') + ` (${mine.length})`)] : []), ...mine.map(routeItem),
+    ...(mine.length && shared.length ? [head(t('Shared') + ` (${shared.length})`)] : []), ...shared.map(routeItem));
 }
 
 function routeItem(r) {

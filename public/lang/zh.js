@@ -152,6 +152,7 @@ I18n.add('zh', {
   'Trace the route from start to finish': '从起点到终点描绘路线',
   'Saved routes': '已保存的路线',
   'Private: only you see these': '私人：只有你能看到',
+  'Shared': '共享',
   'Private: only you see it, not people you share routes with': '私人：只有你能看到，与你共享路线的人看不到',
   'Sort saved routes': '已保存路线的排序',
   'Newest first': '最新优先',

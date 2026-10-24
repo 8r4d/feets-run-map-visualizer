@@ -5,6 +5,11 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.28.1 — 2026-10-24
+
+- Private routes are listed first in Saved routes, with the shared ones
+  under a heading of their own below.
+
 ## 1.28.0 — 2026-10-24
 
 - Private routes: a route planned just for your own walk or run can be kept
