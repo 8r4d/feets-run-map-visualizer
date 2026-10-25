@@ -2793,6 +2793,44 @@ body {
   margin-bottom: 10px;
 }
 
+#yearly {
+  --accent: #00838f;
+  margin-bottom: 10px;
+}
+
+/* Where quests go: under the week's quests */
+#quest-limits {
+  margin-top: 8px;
+}
+
+#quest-limits .quest-limits-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+#quest-limits select {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 13px;
+}
+
+#quest-limits input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+
+#quest-hoods {
+  margin-top: 4px;
+}
+
+#quest-limits-note {
+  display: block;
+  margin-top: 4px;
+}
+
 #quest-list {
   list-style: none;
   margin: 0;
@@ -3515,6 +3553,7 @@ body.race-page {
 
 .quest-card.done,
 #boss.done,
+#yearly.done,
 #streak.done {
   --accent: #2e9e44;
 }

@@ -242,6 +242,17 @@ test('quests keep the month\'s boss and the streak shields', async () => {
   await a.client.call('quests_save', { ...kept, expedition, expeditionAt: 5, expeditionLast: 'garden', expeditions: 2 });
   const again = (await a.client.call('quests')).body;
   assert.deepEqual([again.expedition, again.expeditionAt, again.expeditionLast, again.expeditions], [expedition, 5, 'garden', 2]);
+  // Quest limits and the yearly quest outside them.
+  assert.equal(again.limits, null);
+  const yearly = { id: 'year:2026', year: 2026, kind: 'area', target: 2000, since: 1, areaId: 7, hood: 2, where: 'Far', place: [53.6, -113.5] };
+  await a.client.call('quests_save', { ...again, yearly, yearlyDone: true,
+    limits: { mode: 'hoods', hoods: ['7:1', '7:-1', 'nope'], range: 999999, centre: [53.512345678, -113.5], yearly: 1 } });
+  const limited = (await a.client.call('quests')).body;
+  assert.deepEqual(limited.limits, { mode: 'hoods', range: 100000, hoods: ['7:1', '7:-1'], centre: [53.51235, -113.5], yearly: true },
+    'only neighbourhood keys, 100 km at most');
+  assert.deepEqual([limited.yearly, limited.yearlyDone], [yearly, true]);
+  await a.client.call('quests_save', { ...limited, limits: { mode: 'everywhere' } });
+  assert.equal((await a.client.call('quests')).body.limits, null, 'an unknown mode is anywhere');
 });
 
 test('cards: found by running cleared once more for one a set per run, quest and boss cards kept, two weeks back', async () => {

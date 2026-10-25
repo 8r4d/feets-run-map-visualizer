@@ -13,7 +13,7 @@
   <meta name="apple-mobile-web-app-title" content="feets">
   <meta name="theme-color" content="#fafafa">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=109">
+  <link rel="stylesheet" href="style.css?v=110">
   <!-- Light or dark before anything draws, so a dark page doesn't flash white:
        the one picked with the toggle by the title (feets-theme), else the
        system's; neon is always dark. Then the palette picked beside it
@@ -96,6 +96,15 @@
               <small></small>
             </div>
           </div>
+          <div id="yearly" class="quest-card" hidden title="This year's quest further afield: somewhere outside your quest limits, any time before the year is out">
+            <span class="qc-icon">🗺️</span>
+            <div class="qc-body">
+              <div class="quest-title"><strong></strong><button class="link-button" type="button">Plan it</button></div>
+              <div class="qc-task"></div>
+              <div class="bar"><span></span></div>
+              <small></small>
+            </div>
+          </div>
           <h3 class="quest-group">This week</h3>
           <div id="streak" class="quest-card">
             <span class="qc-icon">🔥</span>
@@ -108,6 +117,20 @@
           </div>
           <ul id="quest-list"></ul>
           <small class="hint" id="quests-note"></small>
+          <details id="quest-limits" class="tick-box">
+            <summary>Where quests go: <span id="quest-limits-summary"></span></summary>
+            <label class="quest-limits-row" title="Neighbourhood and street quests, and a boss in a neighbourhood, only go here. New streets anywhere, long runs and expeditions go wherever you do">
+              Quests in <select id="quest-range"></select>
+            </label>
+            <details id="quest-hoods" class="tick-box" hidden>
+              <summary></summary>
+              <div class="tick-list"></div>
+            </details>
+            <label class="quest-limits-row" title="Once a year, one quest in the nearest neighbourhood outside your limits with streets left">
+              <input id="quest-yearly" type="checkbox"> A yearly quest further afield
+            </label>
+            <small id="quest-limits-note"></small>
+          </details>
         </div>
       </details>
       <details id="cards-box" class="panel" hidden>
@@ -430,7 +453,7 @@
     </details>
     <details id="about" class="panel">
       <!-- The version: bump it here and in CHANGELOG.md with each release. -->
-      <summary>About feets <span id="version">v1.29.0</span></summary>
+      <summary>About feets <span id="version">v1.30.0</span></summary>
       <div class="panel-body">
         <p>feets is an activity mapping and route planning app made by 8r4d.</p>
         <ul>
@@ -539,14 +562,14 @@
   <script src="coverage.js?v=22"></script>
   <script src="planner.js?v=39"></script>
   <script src="art.js?v=8"></script>
-  <script src="quests.js?v=9"></script>
+  <script src="quests.js?v=10"></script>
   <script src="segments.js?v=2"></script>
   <script src="sport.js?v=1"></script>
   <script src="stats.js?v=30"></script>
   <script src="elevation.js?v=4"></script>
   <script src="achievements.js?v=25"></script>
   <script src="cards.js?v=9"></script>
-  <script src="xp.js?v=5"></script>
-  <script src="app.js?v=130"></script>
+  <script src="xp.js?v=6"></script>
+  <script src="app.js?v=131"></script>
 </body>
 </html>

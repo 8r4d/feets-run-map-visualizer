@@ -20,6 +20,11 @@
 // after dark a few times; Garden: get out on 8 different days…). Finishing
 // one turns over a card from its theme, and the next comes straight away;
 // giving one up brings the next a day later.
+//
+// Quest limits keep the quests that send you somewhere (a neighbourhood, a
+// street, a boss in a neighbourhood) close to home: within a distance of it,
+// or in neighbourhoods you tick. The gaps outside them can get one yearly
+// quest (makeYearly), for when the streets close by are filling up.
 const Quests = (() => {
   const STREAK_MIN = 100;    // metres of new street for a week to count
   const DAY = 86400000;
@@ -199,18 +204,21 @@ const Quests = (() => {
   // The gaps quests are made from: neighbourhoods (or areas without any)
   // with new street left, and named streets mostly covered. coverageFor(area):
   // Coverage.compute's result for the area with every activity in the primary sport.
+  // all: every neighbourhood (or area without any), gaps or not, with its
+  // len and covered metres, for localShare.
   function gaps(areas, coverageFor) {
-    const units = [], streetsLeft = [];
+    const units = [], streetsLeft = [], all = [];
     for (const area of areas) {
       const prep = Coverage.prepared(area);
       const summary = Coverage.summarize(prep, coverageFor(area));
       const { streets, hoods } = area.data;
       const tally = t => Object.values(t).reduce((s, c) => ({ len: s.len + c.len, covered: s.covered + c.covered }), { len: 0, covered: 0 });
       const add = (hood, name, t) => {
-        const left = t.len - t.covered;
-        if (left < Sport.scaled(AREA_TARGET) / 2 || t.covered / Math.max(1, t.len) > 0.95) return;
         const runs = streets.filter(s => hood < 0 || s.hood === hood).flatMap(s => s.runs);
-        units.push({ areaId: area.id, hood, name, left, place: middleOf(runs) });
+        const unit = { areaId: area.id, hood, name, left: t.len - t.covered, place: middleOf(runs) };
+        all.push({ ...unit, len: t.len, covered: t.covered });
+        if (unit.left < Sport.scaled(AREA_TARGET) / 2 || t.covered / Math.max(1, t.len) > 0.95) return;
+        units.push(unit);
       };
       if (hoods.length) summary.byHood.forEach((t, h) => add(h, hoods[h].name, tally(t)));
       else add(-1, area.name, tally(summary.total));
@@ -220,10 +228,37 @@ const Quests = (() => {
         streetsLeft.push({ areaId: area.id, hood: g.hood, name: g.name, cat: g.cat, left, place: middleOf(g.ways.flatMap(w => streets[w].runs)) });
       }
     }
-    return { units, streetsLeft };
+    return { units, streetsLeft, all };
   }
 
   const nearestTo = near => list => list.filter(x => x.place).sort((a, b) => away(a.place, near) - away(b.place, near))[0];
+
+  // --- Quest limits ---
+  // { mode, range, hoods, yearly } (saved with the quests; null is anywhere):
+  //   mode 'range': only gaps whose middle is within `range` metres of home;
+  //   mode 'hoods': only gaps in the ticked neighbourhoods, hoods: ['areaId:hood'],
+  //   hood -1 for an area without any (or a street outside them);
+  //   yearly: a yearly quest in the gaps outside (see makeYearly).
+  // Anything else is anywhere. They only hold quests that send you somewhere:
+  // new street anywhere, long runs and expeditions go wherever you do.
+  const hoodKey = (areaId, hood) => `${areaId}:${hood}`;
+  const limited = limits => Boolean(limits
+    && ((limits.mode === 'range' && limits.range > 0) || (limits.mode === 'hoods' && limits.hoods && limits.hoods.length)));
+  // Whether a gap (from gaps()) is inside the limits. home: [lat, lon].
+  function inLimits(gap, limits, home) {
+    if (!limited(limits)) return true;
+    if (limits.mode === 'hoods') return limits.hoods.includes(hoodKey(gap.areaId, gap.hood));
+    return Boolean(gap.place && home) && away(gap.place, home) <= limits.range;
+  }
+
+  // How much of the streets inside the limits is covered, 0 to 1: how full
+  // close to home is getting. null with no limits, or no streets inside.
+  function localShare(areas, coverageFor, limits, home) {
+    if (!limited(limits)) return null;
+    const inside = gaps(areas, coverageFor).all.filter(u => inLimits(u, limits, home));
+    const len = inside.reduce((s, u) => s + u.len, 0);
+    return len ? inside.reduce((s, u) => s + u.covered, 0) / len : null;
+  }
 
   // New street in a usual recent week: the last 8 weeks' average, in metres.
   function usualWeek(firstsMap, now) {
@@ -234,19 +269,22 @@ const Quests = (() => {
   }
 
   // This week's quests. coverageFor(area): Coverage.compute's result for the
-  // area with every activity in the primary sport. near: where to look first ([lat, lon]).
-  function make(areas, coverageFor, firstsMap, near, now = new Date()) {
+  // area with every activity in the primary sport. near: where to look first
+  // ([lat, lon]), and home for the limits. With none left inside the limits,
+  // there's no neighbourhood or street quest that week.
+  function make(areas, coverageFor, firstsMap, near, now = new Date(), limits = null) {
     const week = weekId(now);
     const quests = [];
+    const inside = g => inLimits(g, limits, near);
     const { units, streetsLeft } = gaps(areas, coverageFor);
     const nearest = nearestTo(near);
 
-    const unit = nearest(units);
+    const unit = nearest(units.filter(inside));
     if (unit) {
       const target = Math.max(200, Math.min(Sport.scaled(AREA_TARGET), Math.round(unit.left / 2 / 100) * 100));
       quests.push({ id: `${week}:area`, kind: 'area', title: `Cover ${kmText(target)} of new streets in ${unit.name}`, where: unit.name, target, areaId: unit.areaId, hood: unit.hood, place: unit.place });
     }
-    const street = nearest(streetsLeft);
+    const street = nearest(streetsLeft.filter(inside));
     if (street) {
       quests.push({ id: `${week}:street`, kind: 'street', title: `Finish ${street.name}`, target: Math.round(street.left), areaId: street.areaId, hood: street.hood, name: street.name, cat: street.cat, place: street.place });
     }
@@ -274,11 +312,12 @@ const Quests = (() => {
   const monthEnd = d => new Date(d.getFullYear(), d.getMonth() + 1, 1);
   const round = (m, step) => Math.round(m / step) * step;
 
-  // tracks: activities in the primary sport, for the long run.
-  function makeBoss(areas, coverageFor, firstsMap, tracks, near, now = new Date()) {
+  // tracks: activities in the primary sport, for the long run. A boss in a
+  // neighbourhood keeps to the limits, as the week's quests do.
+  function makeBoss(areas, coverageFor, firstsMap, tracks, near, now = new Date(), limits = null) {
     const days = (monthEnd(now) - new Date(now.getFullYear(), now.getMonth(), 1)) / DAY;
     const share = Math.max(0.25, (monthEnd(now) - now) / DAY / days);
-    const unit = nearestTo(near)(gaps(areas, coverageFor).units);
+    const unit = nearestTo(near)(gaps(areas, coverageFor).units.filter(g => inLimits(g, limits, near)));
     // The longest of the last 90 days, a little further.
     const recent = tracks.filter(t => t.time && now - Date.parse(t.time) < 90 * DAY && Date.parse(t.time) <= now.getTime());
     const longest = Math.max(0, ...recent.map(t => t.distance));
@@ -311,21 +350,52 @@ const Quests = (() => {
     const [y, m] = boss.month.split('-').map(Number);
     const from = Math.max(boss.since, new Date(y, m - 1, 1).getTime()), to = new Date(y, m, 1).getTime();
     const within = time => { const t = Date.parse(time); return t >= from && t < to; };
-    let have = 0;
-    if (boss.kind === 'long') {
-      have = Math.max(0, ...tracks.filter(t => t.time && within(t.time)).map(t => t.distance));
-    } else {
-      let ways = null;
-      if (boss.kind === 'area') {
-        const area = areas.find(a => a.id === boss.areaId);
-        ways = new Set(area ? area.data.streets.filter(s => boss.hood < 0 || s.hood === boss.hood).map(s => s.id) : []);
-      }
-      for (const r of firstsMap.values()) {
-        if (!within(r.time)) continue;
-        for (const [id, metres] of r.ways) if (!ways || ways.has(id)) have += metres;
-      }
-    }
+    const have = boss.kind === 'long'
+      ? Math.max(0, ...tracks.filter(t => t.time && within(t.time)).map(t => t.distance))
+      : newStreet(firstsMap, from, to, boss.kind === 'area' ? hoodWays(boss, areas) : null);
     return { have, of: boss.target, done: have >= boss.target };
+  }
+
+  // The OSM way ids of a quest's neighbourhood (or whole area, hood -1): a Set.
+  function hoodWays(q, areas) {
+    const area = areas.find(a => a.id === q.areaId);
+    return new Set(area ? area.data.streets.filter(s => q.hood < 0 || s.hood === q.hood).map(s => s.id) : []);
+  }
+
+  // Metres of new street from `from` until `to` (Unix ms), in `ways` (a Set
+  // of OSM way ids), or anywhere when null.
+  function newStreet(firstsMap, from, to, ways) {
+    let have = 0;
+    for (const r of firstsMap.values()) {
+      const t = Date.parse(r.time);
+      if (t < from || t >= to) continue;
+      for (const [id, metres] of r.ways) if (!ways || ways.has(id)) have += metres;
+    }
+    return have;
+  }
+
+  // --- The yearly quest further afield ---
+  // { id: year:YYYY, year, kind: 'area', target (metres), since (Unix ms),
+  //   areaId, hood, where, place }: new street, any time that year, in the
+  // nearest neighbourhood (or area) with gaps outside the quest limits. One
+  // trip, or a few, to somewhere you wouldn't go on an average day. null
+  // without limits, or with no gaps outside them. Only from `since`, like a boss.
+  function makeYearly(areas, coverageFor, limits, near, now = new Date()) {
+    if (!limited(limits)) return null;
+    const unit = nearestTo(near)(gaps(areas, coverageFor).units.filter(g => !inLimits(g, limits, near)));
+    if (!unit) return null;
+    const target = Math.min(round(unit.left * 0.9, 100), Sport.scaled(4000), Math.max(Sport.scaled(1000), round(unit.left * 0.6, 500)));
+    return { id: `year:${now.getFullYear()}`, year: now.getFullYear(), kind: 'area', target, since: now.getTime(),
+      areaId: unit.areaId, hood: unit.hood, where: unit.name, place: unit.place };
+  }
+
+  const yearlyTitle = y => `Cover ${kmText(y.target)} of new streets in ${y.where} this year`;
+
+  // How far along the yearly quest is: { have, of, done } in metres.
+  function yearlyProgress(y, areas, firstsMap) {
+    const from = Math.max(y.since, new Date(y.year, 0, 1).getTime()), to = new Date(y.year + 1, 0, 1).getTime();
+    const have = newStreet(firstsMap, from, to, hoodWays(y, areas));
+    return { have, of: y.target, done: have >= y.target };
   }
 
   // --- Expeditions ---
@@ -451,7 +521,6 @@ const Quests = (() => {
   // street covered since the week started.
   function progress(quest, areas, coverageFor, firstsMap, now = new Date()) {
     const since = weekStart(now).getTime();
-    const thisWeek = [...firstsMap.values()].filter(r => new Date(r.time).getTime() >= since);
     if (quest.kind === 'street') {
       const area = areas.find(a => a.id === quest.areaId);
       if (!area) return { have: 0, of: quest.target, done: false };
@@ -461,16 +530,10 @@ const Quests = (() => {
       // Out of the share that counts as done, so the bar fills when it is.
       return { have: Math.min(g.covered, g.len * DONE), of: g.len * DONE, done: g.done };
     }
-    let ways = null;
-    if (quest.kind === 'area') {
-      const area = areas.find(a => a.id === quest.areaId);
-      ways = new Set(area ? area.data.streets.filter(s => quest.hood < 0 || s.hood === quest.hood).map(s => s.id) : []);
-    }
-    let have = 0;
-    for (const r of thisWeek) for (const [id, m] of r.ways) if (!ways || ways.has(id)) have += m;
+    const have = newStreet(firstsMap, since, Infinity, quest.kind === 'area' ? hoodWays(quest, areas) : null);
     return { have, of: quest.target, done: have >= quest.target };
   }
 
   return { sunAltitude, makeExpedition, expeditionTask, expeditionProgress, STREAK_MIN, SHIELD_MAX, firsts, streak, streakTrophies, useShields, weekId, monthId, make, makeBoss, bossTitle,
-    bossProgress, offLimits, progress, kmText, title };
+    bossProgress, offLimits, progress, kmText, title, limited, inLimits, hoodKey, localShare, makeYearly, yearlyTitle, yearlyProgress };
 })();

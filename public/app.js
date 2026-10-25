@@ -5703,7 +5703,9 @@ function stopSegmentPick() {
 // device shows the same ones; finishing one gets a note.
 const questsBox = document.getElementById('quests-box');
 let questTimer = null, questRun = 0;
-let questState = null;   // { week, quests, done, completed }, as saved
+let questState = null;   // { week, quests, done, completed, limits, yearly… }, as saved
+let questLimitsChanged = false;  // set by setQuestLimits: quests not done are made again
+let questLocalShare = null;      // how much inside the limits is covered (Quests.localShare)
 
 function scheduleQuests() {
   clearTimeout(questTimer);
@@ -5724,10 +5726,8 @@ async function updateQuests() {
   };
   if (!questState) questState = await Store.quests().catch(() => null);
   const week = Quests.weekId(new Date());
-  const near = () => {
-    const c = map.getCenter();
-    return home ? [home.lat, home.lon] : lastFix ? [lastFix.lat, lastFix.lng] : [c.lat, c.lng];
-  };
+  const near = questCentre;
+  const limits = () => questState.limits || null;
   let dirty = false;  // questState changed: saved once, near the end
   if (questState) questState.shields = questState.shields || { held: 0, used: [], earned: [] };
   if (!questState || questState.week !== week) {
@@ -5745,16 +5745,36 @@ async function updateQuests() {
       toast(`🛡️ ${used.length === 1 ? 'A streak shield' : `${used.length} streak shields`} kept your streak going`,
         `No new streets the week${used.length === 1 ? '' : 's'} of ${used.join(', ')}. ${shields.held} left.`);
     }
-    questState = { ...Quests.make(areas, coverageFor, firsts, near()), done: [], completed: old ? old.completed : 0,
+    const kept = old ? old.limits || null : null;
+    questState = { ...Quests.make(areas, coverageFor, firsts, near(), new Date(), kept), done: [], completed: old ? old.completed : 0,
       boss: old ? old.boss : null, bossDone: old ? old.bossDone : false, shields,
       expedition: old ? old.expedition || null : null, expeditionAt: old ? old.expeditionAt || 0 : 0,
-      expeditionLast: old ? old.expeditionLast || null : null, expeditions: old ? old.expeditions || 0 : 0 };
+      expeditionLast: old ? old.expeditionLast || null : null, expeditions: old ? old.expeditions || 0 : 0,
+      limits: kept, yearly: old ? old.yearly || null : null, yearlyDone: old ? Boolean(old.yearlyDone) : false };
     dirty = true;
   }
   // A boss for each month.
   if (!questState.boss || questState.boss.month !== Quests.monthId(new Date())) {
-    questState.boss = Quests.makeBoss(areas, coverageFor, firsts, tracks, near());
+    questState.boss = Quests.makeBoss(areas, coverageFor, firsts, tracks, near(), new Date(), limits());
     questState.bossDone = false;
+    dirty = true;
+  }
+  // The quest limits changed (see setQuestLimits): this week's neighbourhood
+  // and street quests not done yet, and a boss in a neighbourhood not beaten,
+  // are made again inside them; the yearly quest, if not done, outside them.
+  if (questLimitsChanged) {
+    questLimitsChanged = false;
+    const fresh = Quests.make(areas, coverageFor, firsts, near(), new Date(), limits()).quests;
+    const was = questState.quests;
+    questState.quests = ['area', 'street', 'any'].flatMap(kind => {
+      const q = was.find(x => x.kind === kind), made = fresh.find(x => x.kind === kind);
+      if (q && (kind === 'any' || questState.done.includes(q.id))) return [q];
+      return made ? [made] : [];
+    });
+    if (questState.boss.kind === 'area' && !questState.bossDone) {
+      questState.boss = { ...Quests.makeBoss(areas, coverageFor, firsts, tracks, near(), new Date(), limits()), since: questState.boss.since };
+    }
+    if (!questState.yearlyDone) questState.yearly = null;
     dirty = true;
   }
   // One made before long runs were capped comes down to the cap.
@@ -5765,7 +5785,7 @@ async function updateQuests() {
   // A street marked off-limits since the quests were made: swap in another
   // (make() leaves off-limits streets out), or drop it if there's none.
   if (questState.quests.some(q => !questState.done.includes(q.id) && Quests.offLimits(q, areas))) {
-    const fresh = Quests.make(areas, coverageFor, firsts, near()).quests;
+    const fresh = Quests.make(areas, coverageFor, firsts, near(), new Date(), limits()).quests;
     questState.quests = questState.quests.flatMap(q => {
       if (questState.done.includes(q.id) || !Quests.offLimits(q, areas)) return [q];
       const other = fresh.find(f => f.kind === q.kind);
@@ -5838,12 +5858,46 @@ async function updateQuests() {
     expeditionProgress = questState.expedition && Quests.expeditionProgress(questState.expedition, tracks, areas, firsts);
     dirty = true;
   }
+  // The yearly quest further afield: one a year while it's ticked and there
+  // are limits, with a card and a boss's XP.
+  const year = new Date().getFullYear();
+  if (questState.yearly && questState.yearly.year !== year) {
+    questState.yearly = null;
+    questState.yearlyDone = false;
+    dirty = true;
+  }
+  const wantYearly = Quests.limited(limits()) && limits().yearly;
+  if (wantYearly && !questState.yearly) {
+    questState.yearly = Quests.makeYearly(areas, coverageFor, limits(), near());
+    if (questState.yearly) dirty = true;
+  }
+  let yearlyXp = [];
+  const yearlyProgress = wantYearly && questState.yearly ? Quests.yearlyProgress(questState.yearly, areas, firsts) : null;
+  if (yearlyProgress && yearlyProgress.done && !questState.yearlyDone) {
+    questState.yearlyDone = true;
+    dirty = true;
+    const title = Quests.yearlyTitle(questState.yearly);
+    const card = Cards.pack(questState.yearly, new Set(cards.map(c => c.code)), title);
+    toast(`🗺️ Yearly quest done: ${title}`, `${card ? 'A card and ' : ''}${Xp.POINTS.boss} XP. The next one comes in January.`);
+    if (card) await saveCards([card]).catch(err => console.error('Cards:', err));
+    yearlyXp = Xp.yearlyEvents(questState.yearly, title);
+  }
+  questLocalShare = Quests.localShare(areas, coverageFor, limits(), near());
   if (dirty) await Store.saveQuests(questState).catch(() => {});
   renderExpedition(expeditionProgress);
+  renderYearly(yearlyProgress);
   renderQuests(Quests.streak(firsts, new Date(), shields.used), progress, bossProgress);
   xpFirsts = firsts;
   await awardStreakTrophies(firsts);
-  await awardXp([...Xp.questEvents(finished, Quests.title), ...bossXp, ...expeditionXp]);
+  await awardXp([...Xp.questEvents(finished, Quests.title), ...bossXp, ...expeditionXp, ...yearlyXp]);
+}
+
+// Where quests start looking, and the limits are measured from: home; else
+// where the map was when the limits were set; else where you are, or the map.
+function questCentre() {
+  const c = map.getCenter();
+  const fixed = questState && questState.limits && questState.limits.centre;
+  return home ? [home.lat, home.lon] : fixed || (lastFix ? [lastFix.lat, lastFix.lng] : [c.lat, c.lng]);
 }
 
 // Streak trophies (see Quests.streakTrophies), saved and announced like the
@@ -5993,6 +6047,95 @@ function renderQuests(streak, progress, bossProgress) {
   }));
   document.getElementById('quests-note').textContent = `New quests every Monday, and finish them all for a streak shield. ${questState.completed} done in all.`
     + (areas.length ? '' : ' Add a street area in Road Fill for more kinds of quest.');
+  renderQuestLimits();
+}
+
+// --- Where quests go ---
+// The quest limits (see Quests.limited), saved with the quests so every
+// device keeps to them. Changing them makes the quests not done yet again.
+const questRange = document.getElementById('quest-range');
+const questHoods = document.getElementById('quest-hoods');
+const questYearly = document.getElementById('quest-yearly');
+
+function renderQuestLimits() {
+  const l = questState.limits || { mode: 'any' };
+  const on = Quests.limited(l);
+  // Distances from home, in the chosen units, and the saved one if it's another.
+  const ranges = (Units.miles ? [0.5, 1, 2, 3, 5, 8] : [1, 2, 3, 5, 8, 12]).map(n => Math.round(Units.fromUnit(n)));
+  if (l.mode === 'range' && l.range && !ranges.includes(l.range)) ranges.push(l.range);
+  ranges.sort((a, b) => a - b);
+  questRange.replaceChildren(new Option('anywhere', 'any'),
+    ...ranges.map(m => new Option(`${Quests.kmText(m)} of home`, `range:${m}`)),
+    ...(areas.length ? [new Option('neighbourhoods I tick', 'hoods')] : []));
+  questRange.value = l.mode === 'range' ? `range:${l.range}` : l.mode === 'hoods' && areas.length ? 'hoods' : 'any';
+  // Each area's neighbourhoods, or the area itself when it has none.
+  const choices = menuAreas.flatMap(([a]) => (a.data.hoods.length
+    ? a.data.hoods.map((h, i) => [Quests.hoodKey(a.id, i), `${h.name} (${a.name})`])
+    : [[Quests.hoodKey(a.id, -1), a.name]]));
+  const ticked = l.mode === 'hoods' ? l.hoods || [] : [];
+  questHoods.hidden = l.mode !== 'hoods';
+  questHoods.querySelector('summary').textContent = ticked.length
+    ? `${ticked.length} neighbourhood${ticked.length === 1 ? '' : 's'} ticked` : 'Tick the neighbourhoods to quest in';
+  fillTicks(questHoods.querySelector('.tick-list'), choices, ticked);
+  questYearly.checked = Boolean(l.yearly);
+  questYearly.disabled = !on;
+  document.getElementById('quest-limits-summary').textContent = !on ? 'anywhere'
+    : l.mode === 'range' ? `within ${Quests.kmText(l.range)} of home`
+    : `${ticked.length} neighbourhood${ticked.length === 1 ? '' : 's'}`;
+  // How full close to home is getting, and what's left to quest in.
+  const notes = [];
+  if (!on) notes.push('Neighbourhood and street quests can be anywhere you have a street area.');
+  else {
+    if (questLocalShare !== null) notes.push(`Inside them is ${Math.round(questLocalShare * 100)}% covered.`);
+    const local = questState.quests.some(q => q.kind === 'area' || q.kind === 'street');
+    if (!local) notes.push("This week there's no neighbourhood or street left inside them to quest in: widen them, or tick the yearly quest.");
+    else if (!l.yearly && questLocalShare >= 0.75) notes.push("It's filling up: a yearly quest further afield fills in the gaps beyond.");
+    if (l.mode === 'range' && !home) notes.push('With no home set (under Account), home is where the map was when you picked this.');
+  }
+  document.getElementById('quest-limits-note').textContent = notes.join(' ');
+}
+
+// Changes the limits, makes the quests again to keep to them, and saves.
+function setQuestLimits(changes) {
+  if (!questState) return;
+  const l = { mode: 'any', range: 0, hoods: [], centre: null, yearly: false, ...questState.limits, ...changes };
+  if (changes.mode === 'range' && !home) {
+    const c = map.getCenter();
+    l.centre = [Math.round(c.lat * 1e5) / 1e5, Math.round(c.lng * 1e5) / 1e5];
+  }
+  questState.limits = l;
+  questLimitsChanged = true;
+  renderQuestLimits();
+  updateQuests().catch(err => console.error('Quests:', err));
+}
+
+questRange.onchange = () => {
+  const [mode, range] = questRange.value.split(':');
+  setQuestLimits(mode === 'range' ? { mode, range: Number(range) } : { mode });
+  if (mode === 'hoods') questHoods.open = true;
+};
+questHoods.addEventListener('change', () => {
+  setQuestLimits({ hoods: tickedIn(questHoods.querySelector('.tick-list')).split(',').filter(Boolean) });
+});
+questYearly.onchange = () => setQuestLimits({ yearly: questYearly.checked });
+
+// This year's quest further afield, above the week's: while there is one.
+function renderYearly(p) {
+  const box = document.getElementById('yearly');
+  const y = questState.yearly;
+  box.hidden = !y || !p;
+  if (box.hidden) return;
+  const done = questState.yearlyDone;
+  const daysLeft = Math.max(0, Math.ceil((new Date(y.year + 1, 0, 1) - Date.now()) / 86400000));
+  box.classList.toggle('done', done);
+  box.querySelector('strong').textContent = `${done ? '✓ ' : ''}Further afield: ${y.where}`;
+  box.querySelector('.qc-task').textContent = Quests.yearlyTitle(y);
+  box.querySelector('.bar span').style.width = `${Math.min(100, p.have / Math.max(1, p.of) * 100).toFixed(1)}%`;
+  box.querySelector('small').textContent = done ? 'Done! A new one in January.'
+    : `${Quests.kmText(p.have)} of ${Quests.kmText(p.of)} · ${daysLeft} day${daysLeft === 1 ? '' : 's'} left · 🃏 a card + ${Xp.POINTS.boss} XP`;
+  const plan = box.querySelector('button');
+  plan.hidden = done;
+  plan.onclick = () => planQuest(y);
 }
 
 // The expedition on the go, under the boss: or when the next arrives, after one was given up.

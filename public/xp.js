@@ -181,6 +181,9 @@ const Xp = (() => {
   // XP for beating a month's boss (see Quests.makeBoss).
   const bossEvents = (boss, title) => [{ kind: 'quest', ref: boss.id, points: POINTS.boss, detail: `Boss beaten: ${title}` }];
 
+  // XP for the yearly quest further afield (see Quests.makeYearly): as a boss.
+  const yearlyEvents = (yearly, title) => [{ kind: 'quest', ref: yearly.id, points: POINTS.boss, detail: `Yearly quest: ${title}` }];
+
   // XP for trophies just earned, unless there are so many it's an import.
   const trophyEvents = trophies => (trophies.length > TROPHY_BATCH ? []
     : trophies.map(a => ({ kind: 'trophy', ref: `trophy:${a.code}`, points: POINTS.trophy, detail: `Trophy: ${a.title}` })));
@@ -195,6 +198,6 @@ const Xp = (() => {
     return { level: lvl, into: left, need: toNext(lvl) };
   }
 
-  return { events, questEvents, bossEvents, expeditionEvents, trophyEvents, idleEvents, missedEvents, floor, level, counts, activityPoints,
+  return { events, questEvents, bossEvents, yearlyEvents, expeditionEvents, trophyEvents, idleEvents, missedEvents, floor, level, counts, activityPoints,
     POINTS, ADD_WINDOW, TROPHY_BATCH, IDLE_GRACE };
 })();

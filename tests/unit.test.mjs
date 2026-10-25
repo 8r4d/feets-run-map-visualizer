@@ -280,6 +280,57 @@ test('bosses: one a month, scaled to the days left, only counting from when it w
 });
 
 
+test('quest limits: neighbourhood quests and bosses keep close to home; the yearly quest goes beyond', () => {
+  const { Quests, Coverage } = questScripts();
+  const home = [53.5, -113.5];
+  // Three neighbourhoods north of home, ~0.6, ~3.3 and ~11 km away, each a 2 km street not yet run.
+  const street = (id, hood, lat) => ({ id, name: `Street ${id}`, cat: 'road', hood, len: 2000,
+    runs: [Array.from({ length: 9 }, (_, i) => [lat, home[1] + i * 0.004])] });
+  const area = { id: 7, osmId: 7, name: 'City', excluded: [], data: { boundary: [],
+    hoods: [{ name: 'Near', lines: [] }, { name: 'Middle', lines: [] }, { name: 'Far', lines: [] }],
+    streets: [street(1, 0, 53.505), street(2, 1, 53.53), street(3, 2, 53.6)] } };
+  const coverageFor = a => Coverage.compute(Coverage.prepared(a), []);
+  const oct20 = new Date(2026, 9, 20, 9);
+  const where = limits => Quests.make([area], coverageFor, new Map(), [53.54, home[1]], oct20, limits).quests.find(q => q.kind === 'area');
+
+  // Anywhere: the nearest to where it's looking, wherever that is.
+  assert.equal(where(null).where, 'Middle');
+  assert.equal(where({ mode: 'range', range: 0 }).where, 'Middle', 'no distance is anywhere');
+  // Within 2 km of home (looked for from home, as app.js does).
+  const near2 = { mode: 'range', range: 2000 };
+  assert.equal(Quests.make([area], coverageFor, new Map(), home, oct20, near2).quests.find(q => q.kind === 'area').where, 'Near');
+  assert.equal(Quests.make([area], coverageFor, new Map(), home, oct20, { mode: 'range', range: 300 }).quests.some(q => q.kind === 'area'), false,
+    'nothing inside: no neighbourhood quest that week');
+  // Ticked neighbourhoods.
+  assert.equal(where({ mode: 'hoods', hoods: ['7:2'] }).where, 'Far');
+  assert.equal(where({ mode: 'hoods', hoods: [] }).where, 'Middle', 'none ticked is anywhere');
+  assert.ok(Quests.make([area], coverageFor, new Map(), home, oct20, near2).quests.some(q => q.kind === 'any'), 'new street anywhere stays');
+
+  // A boss in a neighbourhood keeps to them too (November's is in one, from the kinds there's data for).
+  const boss = Quests.makeBoss([area], coverageFor, new Map(), [], home, new Date(2026, 10, 1, 8), { mode: 'hoods', hoods: ['7:1'] });
+  assert.equal(boss.kind, 'area');
+  assert.equal(boss.where, 'Middle');
+
+  // How full inside is getting.
+  assert.equal(Quests.localShare([area], coverageFor, near2, home), 0);
+  assert.equal(Quests.localShare([area], coverageFor, null, home), null, 'no limits, no share');
+
+  // The yearly quest: the nearest outside them, all year, from when it was made.
+  assert.equal(Quests.makeYearly([area], coverageFor, null, home, oct20), null, 'only with limits');
+  const yearly = Quests.makeYearly([area], coverageFor, near2, home, oct20);
+  assert.equal(yearly.id, 'year:2026');
+  assert.equal(yearly.where, 'Middle');
+  assert.equal(yearly.target, 1000, "60% of what's left, to the half km, at least 1 km");
+  assert.equal(Quests.yearlyTitle(yearly), 'Cover 1 km of new streets in Middle this year');
+  const firsts = new Map([
+    ['before', { time: new Date(2026, 9, 1).toISOString(), metres: 900, ways: new Map([[2, 900]]) }],
+    ['after', { time: new Date(2026, 11, 30).toISOString(), metres: 600, ways: new Map([[2, 600], [1, 400]]) }],
+    ['next year', { time: new Date(2027, 0, 2).toISOString(), metres: 900, ways: new Map([[2, 900]]) }],
+  ]);
+  assert.deepEqual({ ...Quests.yearlyProgress(yearly, [area], firsts) }, { have: 600, of: 1000, done: false },
+    'only its own neighbourhood, from when it was made until the year is out');
+});
+
 test('expeditions: a theme with cards left (not the last one), progress in its own terms, and a card for finishing', () => {
   const { Quests, Cards } = questScripts();
   const edmonton = [53.5, -113.5];

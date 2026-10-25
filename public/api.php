@@ -99,7 +99,8 @@
 //                                            browser found, kept so each activity is only checked once
 //   GET  api.php?action=quests               this week's quests: {week, quests, done: [ids], completed, boss, bossDone,
 //                                            shields: {held, used: [week ids], earned: [week ids]}, expedition,
-//                                            expeditionAt, expeditionLast, expeditions}, see save_quests()
+//                                            expeditionAt, expeditionLast, expeditions, limits: {mode, range, hoods,
+//                                            centre, yearly} or null, yearly, yearlyDone}, see save_quests()
 //   POST api.php?action=quests_save          {week, quests, done, completed, boss, bossDone, shields, expedition…}
 //   POST api.php?action=home_save            {lat, lon, zoom}: where the map opens; {} clears it. Returns {home}
 //                                            (sent as user.home by me, login and the like; null when not set)
@@ -2466,7 +2467,8 @@ function save_segment_efforts(int $userId, int $id, array $b): array {
 // Made up in the browser each week from your coverage (see quests.js); kept
 // here so every device shows the same ones. week: the Monday they start, as
 // YYYY-MM-DD; done: the ids of those finished; completed: quests finished in
-// all, ever.
+// all, ever. limits: where quests may send you (see clean_quest_limits);
+// yearly: the year's quest outside them, if there is one.
 
 const QUESTS_MAX_BYTES = 20000;
 
@@ -2478,7 +2480,24 @@ function quests(int $userId): array {
             'boss' => $q['boss'] ?? null, 'bossDone' => !empty($q['bossDone']),
             'shields' => $q['shields'] ?? ['held' => 0, 'used' => [], 'earned' => []],
             'expedition' => $q['expedition'] ?? null, 'expeditionAt' => (int) ($q['expeditionAt'] ?? 0),
-            'expeditionLast' => $q['expeditionLast'] ?? null, 'expeditions' => (int) ($q['expeditions'] ?? 0)];
+            'expeditionLast' => $q['expeditionLast'] ?? null, 'expeditions' => (int) ($q['expeditions'] ?? 0),
+            'limits' => $q['limits'] ?? null, 'yearly' => $q['yearly'] ?? null, 'yearlyDone' => !empty($q['yearlyDone'])];
+}
+
+// Quest limits: mode 'range' (range: metres from home; centre: [lat, lon] to
+// use when there's no home) or 'hoods' (hoods: ['areaId:hood', ...]), and
+// yearly (a yearly quest outside them). Anything else is anywhere: null.
+function clean_quest_limits($l): ?array {
+    if (!is_array($l) || !in_array($l['mode'] ?? '', ['any', 'range', 'hoods'], true)) {
+        return null;
+    }
+    $centre = $l['centre'] ?? null;
+    $centre = is_array($centre) && count($centre) === 2 && is_numeric($centre[0]) && is_numeric($centre[1])
+        && abs((float) $centre[0]) <= 90 && abs((float) $centre[1]) <= 180
+        ? [round((float) $centre[0], 5), round((float) $centre[1], 5)] : null;
+    $hoods = array_values(array_filter(array_map('strval', (array) ($l['hoods'] ?? [])), fn($h) => preg_match('/^\d+:-?\d+$/', $h)));
+    return ['mode' => $l['mode'], 'range' => max(0, min(100000, (int) ($l['range'] ?? 0))), 'hoods' => array_slice($hoods, 0, 500),
+            'centre' => $centre, 'yearly' => !empty($l['yearly'])];
 }
 
 function save_quests(int $userId, array $b): array {
@@ -2496,7 +2515,9 @@ function save_quests(int $userId, array $b): array {
           'expedition' => is_array($b['expedition'] ?? null) ? $b['expedition'] : null,
           'expeditionAt' => max(0, (int) ($b['expeditionAt'] ?? 0)),
           'expeditionLast' => isset($b['expeditionLast']) ? mb_substr((string) $b['expeditionLast'], 0, 30) : null,
-          'expeditions' => max(0, (int) ($b['expeditions'] ?? 0))];
+          'expeditions' => max(0, (int) ($b['expeditions'] ?? 0)),
+          'limits' => clean_quest_limits($b['limits'] ?? null),
+          'yearly' => is_array($b['yearly'] ?? null) ? $b['yearly'] : null, 'yearlyDone' => !empty($b['yearlyDone'])];
     $json = json_encode($q);
     if (strlen($json) > QUESTS_MAX_BYTES) {
         fail('Too many quests', 400);

@@ -5,6 +5,21 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.30.0 — 2026-10-25
+
+- Quests have limits, under "Where quests go" at the foot of the Quests
+  panel: keep neighbourhood and street quests (and a boss in a
+  neighbourhood) within 1 to 12 km of home (½ to 8 miles), or in
+  neighbourhoods you tick. Changing them makes the quests not done yet
+  again, inside them. New streets anywhere, long runs and expeditions go
+  wherever you do. With no home set, home is where the map was when you
+  picked a distance.
+- With limits on, the box says how much inside them is covered, so you can
+  see when close to home is filling up. Tick "A yearly quest further
+  afield" for one quest a year in the nearest neighbourhood outside them
+  with streets left: new streets there any time before the year is out,
+  for a card and a boss's XP.
+
 ## 1.29.0 — 2026-10-24
 
 - The year menu over the activity list has Custom dates: pick it, and From
