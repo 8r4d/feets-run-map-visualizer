@@ -5,6 +5,11 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.30.1 — 2026-10-26
+
+- The Questing panel over the map scrolls again on an iPad (and other
+  touch screens), when it's taller than the map.
+
 ## 1.30.0 — 2026-10-25
 
 - Quests have limits, under "Where quests go" at the foot of the Quests

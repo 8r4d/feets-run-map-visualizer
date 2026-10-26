@@ -2032,12 +2032,21 @@ body {
   bottom: calc(10px + var(--mode-bar-height, 0px));
   z-index: 900;  /* above the map, below its buttons (1000), so the layers menu opens over it */
   width: min(300px, 40%);
-  overflow-y: auto;
-  pointer-events: none;  /* the map still pans through the gaps... */
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;  /* the map still pans below the panel... */
 }
 
+/* The panel scrolls, not the column: iOS Safari won't scroll a column that
+   ignores touches, even where its boxes take them. */
 #quest-hud #questing-panel {
-  pointer-events: auto;  /* ...but not through the boxes */
+  pointer-events: auto;  /* ...but not through it */
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* Room for the boxes' shadows, which the scrolling would clip */
+  padding: 6px;
+  margin: -6px;
 }
 
 #quest-hud .panel {
