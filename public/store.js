@@ -106,6 +106,12 @@ const Store = (() => {
     renameRoute: (id, name) => json('POST', `?action=route_rename&id=${id}`, { name }),  // → stored route
     setRoutePrivate: (id, isPrivate) => json('POST', `?action=route_private&id=${id}`, { private: isPrivate }),  // → stored route
     deleteRoute: id => json('POST', `?action=route_delete&id=${id}`),
+    // Notes: { id, target, label, lat, lon, on ('YYYY-MM-DD'), text, shared }, newest first. target: track:ID,
+    // route:ID, street:<cat>|<name>, way:<OSM id>, hood:<name> or pin:<key> (a map note).
+    notes: () => json('GET', '?action=notes'),
+    saveNote: note => json('POST', '?action=note_save', note),  // { id?, target, label, lat, lon, on, text, shared } → stored note
+    relabelNotes: (target, label) => json('POST', '?action=note_label', { target, label }),
+    deleteNote: id => json('POST', `?action=note_delete&id=${id}`),
     // Places: { id, kind ('start' or 'landmark'), name, lat, lon, private, info }. A starting point's info is
     // { parking, washrooms, lighting, water, rating, notes }; a landmark's { type, rating, notes }.
     starts: () => json('GET', '?action=starts'),

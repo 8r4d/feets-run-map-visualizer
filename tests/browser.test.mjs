@@ -528,6 +528,63 @@ test('starting points: placed on the map, with a card of what is there, also on 
   await page.eval(`document.querySelector('#mode [data-mode=tracks]').click()`);
 });
 
+test('notes: dated entries on an activity and a map note, all in the Notebook', { skip }, async () => {
+  await page.eval(`document.querySelector('#mode [data-mode=tracks]').click()`);
+  const track = await page.eval(`[...loaded.values()].find(e => e.track.name === 'trail-run').track.id`);
+  // From the activity's popup.
+  await page.eval(`trackPopup(loaded.get(${track}).track, L.latLng(49.28, -123.12))`);
+  assert.equal(await page.eval(`document.querySelector('.track-popup [data-note-target]').textContent`), 'Add a note');
+  await page.eval(`document.querySelector('.track-popup [data-note-target]').click()`);
+  await page.waitFor(`document.getElementById('notes-dialog').open`, { what: 'the notes dialog' });
+  const add = (text, on, shared = false) => page.eval(`
+    document.getElementById('notes-text').value = ${JSON.stringify(text)};
+    document.getElementById('notes-on').value = ${JSON.stringify(on)};
+    document.getElementById('notes-shared').checked = ${shared};
+    document.getElementById('notes-form').requestSubmit();`);
+  await add('Muddy by the creek', '2026-04-02');
+  await page.waitFor(`notes.length === 1`, { what: 'the note saved' });
+  await add('Dry again', '2026-06-10', true);
+  await page.waitFor(`document.querySelectorAll('#notes-list li').length === 2`, { what: 'two entries' });
+  assert.deepEqual(await page.eval(`[...document.querySelectorAll('#notes-list li p')].map(p => p.textContent)`),
+    ['Dry again', 'Muddy by the creek'], 'newest first');
+  assert.deepEqual(await page.eval(`[...document.querySelectorAll('#notes-list .note-shared')].map(s => !s.hidden)`), [true, false]);
+  // Editing one.
+  await page.eval(`document.querySelector('#notes-list li:last-child .actions button').click()`);
+  assert.equal(await page.eval(`document.getElementById('notes-save').textContent`), 'Save changes');
+  await add('Muddy by the creek, ankle deep', '2026-04-02');
+  await page.waitFor(`notes.some(n => n.text === 'Muddy by the creek, ankle deep')`, { what: 'the edit saved' });
+  await snap('notes-dialog');
+  await page.eval(`document.getElementById('notes-close').click()`);
+  assert.match(await page.eval(`[...document.querySelectorAll('#track-list li')].find(li => li.textContent.includes('trail-run')).textContent`), /📝 2/);
+
+  // A map note, from the Notebook.
+  await page.eval(`document.getElementById('notebook').open = true; document.getElementById('notebook-add').click()`);
+  await page.eval(`void map.fire('click', { latlng: L.latLng(49.285, -123.125) })`);
+  await page.waitFor(`document.getElementById('notes-dialog').open && !document.getElementById('notes-name-row').hidden`, { what: 'a new map note' });
+  await page.eval(`document.getElementById('notes-name').value = 'Big puddle'`);
+  await add('Floods every spring', '2026-03-15');
+  await page.waitFor(`document.querySelectorAll('.note-pin').length === 1`, { what: "the map note's pin" });
+  assert.equal(await page.eval(`document.getElementById('notes-title').textContent`), 'Big puddle');
+  await page.eval(`document.getElementById('notes-close').click()`);
+
+  const listed = () => page.eval(`[...document.querySelectorAll('#notebook-list li .name')].map(b => b.textContent)`);
+  assert.deepEqual(await listed(), ['trail-run', 'trail-run', 'Big puddle'], 'every note, newest first');
+  await page.eval(`notebookSearch.value = 'spring'; notebookSearch.oninput()`);
+  assert.deepEqual(await listed(), ['Big puddle']);
+  await page.eval(`notebookSearch.value = ''; notebookKind.value = 'track'; notebookKind.onchange()`);
+  assert.deepEqual(await listed(), ['trail-run', 'trail-run']);
+  await page.eval(`document.querySelector('#notebook-list .name').click()`);
+  await page.waitFor(`document.getElementById('notes-dialog').open && document.getElementById('notes-title').textContent === 'trail-run'`,
+    { what: 'its notes, from the notebook' });
+  await page.eval(`document.getElementById('notes-close').click(); notebookKind.value = ''; notebookKind.onchange()`);
+  await page.eval(`notebookPins.click()`);
+  assert.equal(await page.eval(`document.querySelectorAll('.note-pin').length`), 0, 'map notes can be hidden');
+  await page.eval(`notebookPins.click()`);
+  await snap('notebook');
+  // Tidy up.
+  await page.eval(`Promise.all(notes.map(n => Store.deleteNote(n.id))).then(loadNotes)`);
+});
+
 test('no errors on the page', { skip }, async () => {
   assert.deepEqual(page.errors.map(e => e.exception?.description || e.text), []);
 });

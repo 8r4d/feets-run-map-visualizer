@@ -824,6 +824,7 @@ function trackPopup(track, latlng) {
       if (popup.isOpen()) popup.update();  // it's taller now: re-pan so it all shows
     });
   }
+  box.append(notesButton(trackNoteInfo(track)));
   const toRoute = document.createElement('button');
   toRoute.className = 'link-button';
   toRoute.type = 'button';
@@ -1148,6 +1149,7 @@ function listItem({ track, layer }) {
     formatKm(track.distance),
     speedText(track),
     track.metrics && track.metrics.climb ? climbText(track.metrics.climb) : null,
+    notesFor(`track:${track.id}`).length ? `📝 ${notesFor(`track:${track.id}`).length}` : null,
   ];
   name.innerHTML = '<strong></strong><small></small>';
   name.querySelector('strong').textContent = track.name;
@@ -1949,17 +1951,29 @@ function renderCoverage() {
 
   hoodBox.hidden = !hoods.length;
   hoodBox.querySelector('.count').textContent = picked ? t('({n} ticked)', { n: picked.size }) : '';
-  const head = '<tr><th></th>' + cats.map(c => `<th>${CAT_LABELS[c]}</th>`).join('') + '</tr>';
+  const head = '<tr><th></th>' + cats.map(c => `<th>${CAT_LABELS[c]}</th>`).join('') + '<th></th></tr>';
   const rows = hoods.map((h, i) => {
     const cells = cats.map(c => {
       const t = summary.byHood[i][c];
       return `<td>${t.len ? Math.round((t.covered / t.len) * 100) + '%' : '–'}</td>`;
     });
-    return `<tr><th><label><input type="checkbox" data-hood="${i}"${picked && picked.has(i) ? ' checked' : ''}> <span></span></label></th>${cells.join('')}</tr>`;
+    return `<tr><th><label><input type="checkbox" data-hood="${i}"${picked && picked.has(i) ? ' checked' : ''}> <span></span></label></th>${cells.join('')}<td class="hood-notes"></td></tr>`;
   });
   const table = hoodBox.querySelector('table');
   table.innerHTML = head + rows.join('');
   table.querySelectorAll('tr + tr th span').forEach((span, i) => { span.textContent = hoods[i].name; });
+  // Each neighbourhood's notes, from a small button at the end of its row.
+  table.querySelectorAll('.hood-notes').forEach((cell, i) => {
+    const button = notesButton({ target: `hood:${hoods[i].name}`, get: () => hoodNoteInfo(hoods[i]) });
+    const label = () => {
+      const n = notesFor(button.dataset.noteTarget).length;
+      button.title = button.textContent;
+      button.textContent = n ? `📝${n}` : '📝';
+    };
+    label();
+    button.addEventListener('notes-labelled', label);
+    cell.append(button);
+  });
   table.onchange = () => setPickedHoods([...table.querySelectorAll('input:checked')].map(c => Number(c.dataset.hood)));
   renderUnrunnable();
   renderTodo();
@@ -2017,6 +2031,10 @@ function streetPopup(w, latlng) {
     ? 'Marked off-limits'
     : `${CAT_NAMES[s.cat]} · ${Math.round(coverage.result.fraction[w] * 100)}% covered`;
   box.append(title, info);
+  // A named street's notes are about all of it (as off-limits is); an unnamed path's about just that piece.
+  const notesAbout = notesButton({ target: s.name ? `street:${s.cat}|${s.name}` : `way:${s.id}`,
+    label: s.name || `Unnamed ${CAT_NAMES[s.cat]}`, lat: latlng.lat, lon: latlng.lng });
+  box.append(notesAbout);
   if (!readOnly()) {
     const button = document.createElement('button');
     button.type = 'button';
@@ -3301,6 +3319,7 @@ function routeItem(r) {
     actions.append(button);
   };
   action('GPX', () => downloadRoute(r.name, r.data));
+  actions.append(notesButton({ target: `route:${r.id}`, get: () => routeNoteInfo(r) }));
   if (publicView()) action('Share', () => shareRouteLink(r), 'Send someone a link to this route');
   if (!readOnly()) {
     // A view link can't see a private route, so there's no link to make.
@@ -3740,7 +3759,321 @@ async function loadStarts() {
   renderStartList();
 }
 
+// --- Notes ---
+// Dated entries about things: activities, saved routes, streets,
+// neighbourhoods, and map notes (pins of their own, anywhere). Each thing's
+// notes open in one dialog, from its popup or list; the Notebook in the
+// sidebar lists them all, to search and go back to. Notes are private unless
+// ticked Shared: then viewers see them, and view links too on shared routes
+// and map notes (the server sends each only what they may see).
+let notes = [];  // as from Store.notes(), newest first
+let notesOn = null;   // the thing whose notes are open: { target, label, lat, lon }
+let editingNote = null;
+let placingNote = false;
+let notePinLayer = null;
+const notesDialog = document.getElementById('notes-dialog');
+const notesForm = document.getElementById('notes-form');
+const NOTE_KINDS = { track: 'Activity', route: 'Saved route', street: 'Street', way: 'Street', hood: 'Neighbourhood', pin: 'Map note' };
+const noteKind = target => target.slice(0, target.indexOf(':'));
+const notesFor = target => notes.filter(n => n.target === target);
+const byNoteDate = (a, b) => b.on.localeCompare(a.on) || b.id - a.id;
+let notePins = true;
+try { notePins = localStorage.getItem('feets-note-pins') !== 'off'; } catch {}
+
+// A button that opens a thing's notes: "Notes (2)", or "Add a note" when it
+// has none. Kept up to date by notesChanged, through data-note-target. Viewers
+// only get one when there's something to read.
+function notesButton(info, className = 'link-button') {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = className;
+  button.dataset.noteTarget = info.target;
+  button.onclick = () => {
+    map.closePopup();
+    openNotes(typeof info.get === 'function' ? info.get() : info);
+  };
+  labelNotesButton(button);
+  return button;
+}
+
+function labelNotesButton(button) {
+  const n = notesFor(button.dataset.noteTarget).length;
+  button.textContent = n ? t('Notes ({n})', { n }) : t('Add a note');
+  button.hidden = !n && readOnly();
+  button.dispatchEvent(new Event('notes-labelled'));  // for a button that shows it more briefly
+}
+
+// Where things are, to go back to them from the notebook.
+const trackNoteInfo = track => ({ target: `track:${track.id}`, label: track.name, lat: track.segments[0]?.[0]?.[0], lon: track.segments[0]?.[0]?.[1] });
+const routeNoteInfo = r => {
+  const first = routePoints(r.data)[0] || [];
+  return { target: `route:${r.id}`, label: r.name, lat: first[0], lon: first[1] };
+};
+function hoodNoteInfo(hood) {
+  const points = hood.lines.flat();
+  const lats = points.map(p => p[0]), lons = points.map(p => p[1]);
+  return { target: `hood:${hood.name}`, label: hood.name,
+    lat: (Math.min(...lats) + Math.max(...lats)) / 2, lon: (Math.min(...lons) + Math.max(...lons)) / 2 };
+}
+
+function openNotes(info) {
+  notesOn = info;
+  editingNote = null;
+  notesForm.reset();
+  renderNotes();
+  if (!notesDialog.open) notesDialog.showModal();
+}
+
+function renderNotes() {
+  const on = notesOn;
+  const mine = notesFor(on.target);
+  const pin = noteKind(on.target) === 'pin';
+  const label = mine[0] && pin ? mine[0].label : on.label;
+  document.getElementById('notes-title').textContent = label || t('A new map note');
+  document.getElementById('notes-kind').textContent = t(NOTE_KINDS[noteKind(on.target)]);
+  document.getElementById('notes-rename').hidden = !pin || !mine.length || readOnly();
+  document.getElementById('notes-none').hidden = mine.length > 0;
+  document.getElementById('notes-list').replaceChildren(...mine.map(n => {
+    const li = document.createElement('li');
+    li.classList.toggle('editing', editingNote === n);
+    li.innerHTML = '<div class="note-head"><time></time><span class="note-shared" hidden></span><span class="actions"></span></div><p></p>';
+    li.querySelector('time').textContent = dayText(dayStart(n.on));
+    li.querySelector('time').dateTime = n.on;
+    const shared = li.querySelector('.note-shared');
+    shared.hidden = !n.shared || readOnly();
+    shared.textContent = t('Shared');
+    li.querySelector('p').textContent = n.text;
+    if (!readOnly()) {
+      const actions = li.querySelector('.actions');
+      const action = (text, onclick) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'link-button';
+        button.textContent = text;
+        button.onclick = onclick;
+        actions.append(button);
+      };
+      action(t('Edit'), () => {
+        editingNote = n;
+        document.getElementById('notes-text').value = n.text;
+        document.getElementById('notes-on').value = n.on;
+        document.getElementById('notes-shared').checked = n.shared;
+        renderNotes();
+        document.getElementById('notes-text').focus();
+      });
+      action(t('Delete'), () => deleteNote(n));
+    }
+    return li;
+  }));
+  // The form: hidden for viewers; a new map note needs a name first.
+  notesForm.hidden = readOnly();
+  const naming = pin && !mine.length;
+  document.getElementById('notes-name-row').hidden = !naming;
+  document.getElementById('notes-name').required = naming;
+  const date = document.getElementById('notes-on');
+  if (!date.value) date.value = dateValue(Date.now());
+  document.getElementById('notes-save').textContent = editingNote ? t('Save changes') : t('Add note');
+  document.getElementById('notes-cancel-edit').hidden = !editingNote;
+}
+
+notesForm.onsubmit = async e => {
+  e.preventDefault();
+  const on = notesOn;
+  const fields = {
+    text: document.getElementById('notes-text').value.trim(),
+    on: document.getElementById('notes-on').value,
+    shared: document.getElementById('notes-shared').checked,
+  };
+  if (!fields.text) return;
+  const pinName = document.getElementById('notes-name').value.trim();
+  const label = noteKind(on.target) === 'pin' ? (notesFor(on.target)[0]?.label || pinName) : on.label;
+  try {
+    const saved = await Store.saveNote(editingNote ? { id: editingNote.id, ...fields }
+      : { target: on.target, label, lat: on.lat, lon: on.lon, ...fields });
+    notes = [saved, ...notes.filter(n => n.id !== saved.id)].sort(byNoteDate);
+    editingNote = null;
+    notesForm.reset();
+    renderNotes();
+    notesChanged();
+  } catch (err) {
+    alert(err.message);
+  }
+};
+
+document.getElementById('notes-cancel-edit').onclick = () => {
+  editingNote = null;
+  notesForm.reset();
+  renderNotes();
+};
+document.getElementById('notes-close').onclick = () => notesDialog.close();
+notesDialog.onclick = e => { if (e.target === notesDialog) notesDialog.close(); };
+
+document.getElementById('notes-rename').onclick = async () => {
+  const on = notesOn;
+  const name = await askName(t('Rename this map note'), notesFor(on.target)[0].label, t('Save'));
+  if (!name) return;
+  try {
+    await Store.relabelNotes(on.target, name);
+    notes = notes.map(n => (n.target === on.target ? { ...n, label: name } : n));
+    notesDialog.open || notesDialog.showModal();  // askName's dialog may have closed it
+    renderNotes();
+    notesChanged();
+  } catch (err) {
+    alert(err.message);
+  }
+};
+
+async function deleteNote(n) {
+  if (!confirm(t('Delete this note?'))) return;
+  try {
+    await Store.deleteNote(n.id);
+    notes = notes.filter(o => o.id !== n.id);
+    if (editingNote === n) editingNote = null;
+    renderNotes();
+    notesChanged();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+// After notes change: the notebook, the map notes' pins, and every notes button showing.
+function notesChanged() {
+  renderNotebook();
+  drawNotePins();
+  document.querySelectorAll('[data-note-target]').forEach(labelNotesButton);
+  renderList();
+}
+
+// Map notes: a pin for each, at the spot it was put, on every mode's map.
+function drawNotePins() {
+  if (notePinLayer) notePinLayer.remove();
+  notePinLayer = null;
+  if (!notePins) return;
+  const pins = new Map();
+  for (const n of notes) if (noteKind(n.target) === 'pin' && n.lat !== null && !pins.has(n.target)) pins.set(n.target, n);
+  if (!pins.size) return;
+  notePinLayer = L.layerGroup();
+  for (const n of pins.values()) {
+    L.marker([n.lat, n.lon], {
+      title: n.label,
+      zIndexOffset: 250,
+      icon: L.divIcon({ className: 'note-pin', iconSize: [24, 24], html: '<span>📝</span>' }),
+    }).on('click', () => openNotes({ target: n.target, label: n.label, lat: n.lat, lon: n.lon })).addTo(notePinLayer);
+  }
+  notePinLayer.addTo(map);
+}
+
+const notebookPins = document.getElementById('notebook-pins');
+notebookPins.checked = notePins;
+notebookPins.onchange = () => {
+  notePins = notebookPins.checked;
+  try { localStorage.setItem('feets-note-pins', notePins ? 'on' : 'off'); } catch {}
+  drawNotePins();
+};
+
+// The Notebook: every note, newest first, narrowed by the search and the
+// kind menu. Clicking one goes to what it's about and opens its notes.
+const NOTEBOOK_MAX = 200;
+const notebookSearch = document.getElementById('notebook-search');
+const notebookKind = document.getElementById('notebook-kind');
+notebookSearch.oninput = () => renderNotebook();
+notebookKind.onchange = () => renderNotebook();
+
+function renderNotebook() {
+  const box = document.getElementById('notebook');
+  box.hidden = !currentUser || publicView() || (readOnly() && !notes.length);
+  box.querySelector('.count').textContent = notes.length ? `(${notes.length})` : '';
+  const words = notebookSearch.value.toLowerCase().split(/\s+/).filter(Boolean);
+  const kind = notebookKind.value;
+  const found = notes.filter(n => {
+    const k = noteKind(n.target);
+    if (kind && (kind === 'street' ? k !== 'street' && k !== 'way' : k !== kind)) return false;
+    const text = `${n.label} ${n.text}`.toLowerCase();
+    return words.every(w => text.includes(w));
+  });
+  document.getElementById('notebook-list').replaceChildren(...found.slice(0, NOTEBOOK_MAX).map(n => {
+    const li = document.createElement('li');
+    li.innerHTML = '<button class="link-button name" type="button"></button><small></small><p></p>';
+    li.querySelector('.name').textContent = n.label;
+    li.querySelector('.name').title = t('Go to it and open its notes');
+    li.querySelector('.name').onclick = () => goToNotes(n);
+    li.querySelector('small').textContent = `${dayText(dayStart(n.on))} · ${t(NOTE_KINDS[noteKind(n.target)])}`;
+    li.querySelector('p').textContent = n.text.length > 160 ? n.text.slice(0, 160).trimEnd() + '…' : n.text;
+    return li;
+  }));
+  const empty = document.getElementById('notebook-empty');
+  empty.textContent = !notes.length
+    ? t('Write notes on activities, saved routes, streets and neighbourhoods from their popups, or add a map note anywhere.')
+    : found.length > NOTEBOOK_MAX ? t('The newest {n} shown: search to find older ones.', { n: NOTEBOOK_MAX })
+      : found.length ? '' : t('No notes match.');
+  empty.hidden = !empty.textContent;
+  document.getElementById('notebook-add').hidden = readOnly();
+}
+
+// Goes to what a note is about (the activity, the route, or the spot) and opens its notes.
+function goToNotes(n) {
+  const [kind, id] = [noteKind(n.target), Number(n.target.slice(n.target.indexOf(':') + 1))];
+  const entry = kind === 'track' && loaded.get(id);
+  const route = kind === 'route' && routes.find(r => r.id === id);
+  map.invalidateSize();
+  if (entry) {
+    if (mapMode !== 'tracks' && mapMode !== 'heatmap') setMode('tracks');
+    if (!entry.track.visible) setVisible(id, true);
+    map.fitBounds(entry.layer.getBounds(), { padding: [30, 30] });
+    openNotes(trackNoteInfo(entry.track));
+    return;
+  }
+  if (route) {
+    setMode('plan');
+    openRoute(route);
+    openNotes(routeNoteInfo(route));
+    return;
+  }
+  if (n.lat !== null) map.setView([n.lat, n.lon], Math.max(map.getZoom(), 16));
+  openNotes({ target: n.target, label: n.label, lat: n.lat, lon: n.lon });
+}
+
+// + Add a map note: the next click on the map puts it there. Esc, or the
+// button again, stops.
+const notebookAdd = document.getElementById('notebook-add');
+function stopPlacingNote() {
+  if (!placingNote) return;
+  placingNote = false;
+  map.getContainer().classList.remove('placing-start');
+  notebookAdd.textContent = t('+ Add a map note');
+}
+notebookAdd.onclick = () => {
+  if (placingNote) {
+    stopPlacingNote();
+    return;
+  }
+  placingNote = true;
+  map.getContainer().classList.add('placing-start');
+  notebookAdd.textContent = t('Click the map where it is (Esc to stop)');
+};
+document.addEventListener('keydown', e => { if (e.key === 'Escape') stopPlacingNote(); });
+
+function placeNote(latlng) {
+  stopPlacingNote();
+  const key = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => (b % 36).toString(36)).join('');
+  openNotes({ target: `pin:${key}`, label: '', lat: latlng.lat, lon: latlng.lng });
+  document.getElementById('notes-name').focus();
+}
+
+async function loadNotes() {
+  try {
+    notes = await Store.notes();
+  } catch {
+    notes = [];
+  }
+  notesChanged();
+}
+
 map.on('click', e => {
+  if (placingNote) {
+    placeNote(e.latlng);
+    return;
+  }
   if (placingStart) {
     placeStart(e.latlng);
     return;
@@ -4351,6 +4684,7 @@ async function showPublicView(user) {
   if (user.expiresAt) expiry.textContent = `This link expires ${whenText(user.expiresAt)}.`;
   await loadRoutes();
   await loadStarts();
+  await loadNotes();
   const route = routes.find(r => r.id === routeParam) || routes[0];
   if (route) openRoute(route);
   else renderPlan();
@@ -4399,6 +4733,7 @@ async function signedIn(user) {
   scheduleTrophies();
   await loadRoutes();
   await loadStarts();
+  await loadNotes();
   if (planMode) renderPlan();
   if (!user.readOnly) loadViewLinks();
   if (!user.readOnly) loadRaces();
@@ -4443,6 +4778,11 @@ function signedOut() {
   metricsLeft = 0;
   routes = [];
   starts = [];
+  notes = [];
+  stopPlacingNote();
+  if (notesDialog.open) notesDialog.close();
+  drawNotePins();
+  renderNotebook();
   stopPlacingStart();
   if (startDialog.open) startDialog.close();
   drawStarts();

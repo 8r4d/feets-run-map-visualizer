@@ -1644,6 +1644,190 @@ body {
   padding: 0;
 }
 
+/* Notes: the Notebook panel */
+#notebook-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+#notebook-list li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  column-gap: 8px;
+  font-size: 13px;
+}
+
+#notebook-list .name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text);
+  text-align: left;
+}
+
+#notebook-list small {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+#notebook-list p {
+  grid-column: 1 / -1;
+  margin: 2px 0 0;
+  color: var(--text-3);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+#notebook-search {
+  flex: 1;
+  min-width: 0;
+}
+
+#notebook-empty {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+}
+
+.notebook-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+/* ...a map note's pin (map colours, so not themed) */
+.note-pin span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  font-size: 14px;
+  line-height: 1;
+  background: #fff8c4;
+  border: 2px solid #c9a800;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+}
+
+/* ...a thing's notes */
+#notes-dialog {
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+
+.notes-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 14px;
+}
+
+#notes-kind {
+  color: var(--muted);
+}
+
+#notes-rename {
+  align-self: flex-start;
+  margin-top: -6px;
+  font-size: 12px;
+}
+
+#notes-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 45vh;
+  overflow-y: auto;
+}
+
+#notes-list li {
+  padding: 8px 10px;
+  background: var(--surface-2);
+  border-radius: 6px;
+}
+
+#notes-list li.editing {
+  outline: 2px solid var(--primary);
+}
+
+.note-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.note-head .actions {
+  display: flex;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.note-shared {
+  padding: 0 6px;
+  color: var(--text-3);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+}
+
+#notes-list p {
+  margin: 4px 0 0;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+#notes-dialog .hint {
+  margin: 0;
+  color: var(--muted);
+}
+
+#notes-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.notes-form-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+#notes-form label.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ...and a neighbourhood's notes, at the end of its row */
+#hood-coverage .hood-notes button {
+  padding: 0 2px;
+  font-size: 12px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
 #plan-status:empty {
   display: none;
 }

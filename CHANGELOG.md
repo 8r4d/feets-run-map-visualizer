@@ -5,6 +5,20 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.33.0 — 2026-10-31
+
+- Notes: keep a running log of dated notes on activities, saved routes,
+  streets, neighbourhoods, and map notes (a pin of their own, anywhere).
+  Open a thing's notes from its popup (an activity, a street), its actions
+  in Saved routes, or 📝 at the end of a neighbourhood's row; each note has
+  a date you can change, so you can add what you saw earlier.
+- The Notebook in the sidebar lists every note, newest first, to search or
+  narrow to one kind; click one to go to what it's about. + Add a map note
+  puts a new pin where you next click.
+- Notes are yours alone unless ticked Shared: then view-only accounts see
+  them, and view links too on shared routes and map notes. Notes go with a
+  deleted activity or route.
+
 ## 1.32.0 — 2026-10-31
 
 - Landmarks: mark bridges, lookouts, monuments, public art, waterfalls,

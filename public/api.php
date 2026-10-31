@@ -92,6 +92,16 @@
 //                                            kind: 'start' (the default) or 'landmark'. Returns it
 //   POST api.php?action=start_delete&id=ID
 //
+// Notes: dated entries about things on the map (see note_save). Each is about a target:
+// track:ID, route:ID, street:<cat>|<name> or way:<OSM way id>, hood:<name>, or pin:<key> for a map note.
+//   GET  api.php?action=notes                [{id, target, label, lat, lon, on (YYYY-MM-DD), text, shared, createdAt,
+//                                            updatedAt}], newest first. Viewers only get shared ones; view links only
+//                                            shared ones on shared routes and map notes
+//   POST api.php?action=note_save            {id?, target, label, lat?, lon?, on?, text, shared?}; with id, replaces
+//                                            that one (its target stays). Returns it
+//   POST api.php?action=note_label           {target, label}: renames a map note (every entry of it)
+//   POST api.php?action=note_delete&id=ID
+//
 // Goals
 //   GET  api.php?action=goals                {week, month} in km, null when not set
 //   POST api.php?action=goals_save           {week, month}, returns the goals
@@ -369,6 +379,22 @@ const SCHEMA = [
       created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       INDEX (user_id)
+    ) CHARACTER SET utf8mb4
+    SQL,
+    <<<SQL
+    CREATE TABLE IF NOT EXISTS notes (  -- dated notes about tracks, routes, streets, neighbourhoods and map pins
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      user_id     INT          NOT NULL,
+      target      VARCHAR(255) NOT NULL,  -- what it's about, e.g. track:12, street:road|Main Street, pin:k3x9q2
+      label       VARCHAR(255) NOT NULL,  -- that thing's name when noted, for the notebook
+      lat         DOUBLE       NULL,      -- where it is, to go back to it
+      lon         DOUBLE       NULL,
+      noted_on    DATE         NOT NULL,
+      text        TEXT         NOT NULL,
+      shared      BOOLEAN      NOT NULL DEFAULT FALSE,  -- viewers (and view links, where they see the thing) see it
+      created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX (user_id, target)
     ) CHARACTER SET utf8mb4
     SQL,
     <<<SQL
@@ -974,7 +1000,7 @@ function admin_delete_user(array $admin, array $b): array {
     foreach ([$id, ...array_map('intval', $viewers->fetchAll(PDO::FETCH_COLUMN))] as $uid) {
         $pdo->prepare('DELETE FROM segment_efforts WHERE track_id IN (SELECT id FROM tracks WHERE user_id = ?)
                        OR segment_id IN (SELECT id FROM segments WHERE user_id = ?)')->execute([$uid, $uid]);
-        foreach (['tracks', 'segments', 'routes', 'starts', 'areas', 'way_names', 'art_shapes', 'achievements', 'cards', 'xp_events', 'sessions',
+        foreach (['tracks', 'segments', 'routes', 'starts', 'notes', 'areas', 'way_names', 'art_shapes', 'achievements', 'cards', 'xp_events', 'sessions',
                   'password_resets', 'strava_accounts', 'strava_states'] as $table) {
             $pdo->prepare("DELETE FROM $table WHERE user_id = ?")->execute([$uid]);
         }
@@ -1546,6 +1572,7 @@ function delete_track(int $userId, int $id): array {
     if ($stmt->rowCount()) {
         db()->prepare('DELETE FROM segment_efforts WHERE track_id = ?')->execute([$id]);
         db()->prepare('DELETE FROM xp_events WHERE user_id = ? AND track_id = ?')->execute([$userId, $id]);
+        db()->prepare('DELETE FROM notes WHERE user_id = ? AND target = ?')->execute([$userId, "track:$id"]);
     }
     return ['ok' => true];
 }
@@ -2388,6 +2415,85 @@ function route_private(int $userId, int $id, array $b): void {
 
 function route_delete(int $userId, int $id): array {
     db()->prepare('DELETE FROM routes WHERE user_id = ? AND id = ?')->execute([$userId, $id]);
+    db()->prepare('DELETE FROM notes WHERE user_id = ? AND target = ?')->execute([$userId, "route:$id"]);
+    return ['ok' => true];
+}
+
+// --- Notes ---
+// Dated entries about a target (see the list at the top). The owner sees
+// them all; others only shared ones on things they can see themselves.
+const NOTE_MAX = 5000;
+const NOTE_TARGET = '/^(?:(?:track|route):\d+|way:\d+|(?:street|hood):.{1,240}|pin:[a-z0-9]{6,32})$/su';
+
+function note_row(array $row): array {
+    return ['id' => (int) $row['id'], 'target' => $row['target'], 'label' => $row['label'],
+            'lat' => $row['lat'] === null ? null : (float) $row['lat'], 'lon' => $row['lon'] === null ? null : (float) $row['lon'],
+            'on' => $row['noted_on'], 'text' => $row['text'], 'shared' => (bool) $row['shared'],
+            'createdAt' => $row['created_at'], 'updatedAt' => $row['updated_at']];
+}
+
+// $as: 'owner', 'viewer' (a view-only account) or 'link' (a view link).
+function notes(int $userId, string $as = 'owner', ?int $onlyId = null): array {
+    $sql = 'SELECT * FROM notes WHERE user_id = ?' . ($onlyId ? ' AND id = ?' : '');
+    if ($as !== 'owner') {
+        // Not on private routes, which only their owner sees.
+        $sql .= " AND shared AND target NOT IN (SELECT CONCAT('route:', id) FROM routes WHERE user_id = notes.user_id AND private)";
+    }
+    if ($as === 'link') {
+        $sql .= " AND (target LIKE 'route:%' OR target LIKE 'pin:%')";
+    }
+    $stmt = db()->prepare($sql . ' ORDER BY noted_on DESC, id DESC');
+    $stmt->execute($onlyId ? [$userId, $onlyId] : [$userId]);
+    return array_map('note_row', $stmt->fetchAll());
+}
+
+function note_save(int $userId, array $b): array {
+    $text = mb_substr(trim((string) ($b['text'] ?? '')), 0, NOTE_MAX);
+    if ($text === '') {
+        fail('A note needs some writing', 400);
+    }
+    $label = mb_substr(trim((string) ($b['label'] ?? '')), 0, 255);
+    $on = (string) ($b['on'] ?? '');
+    $date = DateTime::createFromFormat('!Y-m-d', $on);
+    if (!$date || $date->format('Y-m-d') !== $on) {
+        $on = date('Y-m-d');
+    }
+    $lat = is_numeric($b['lat'] ?? null) && abs((float) $b['lat']) <= 90 ? (float) $b['lat'] : null;
+    $lon = is_numeric($b['lon'] ?? null) && abs((float) $b['lon']) <= 180 ? (float) $b['lon'] : null;
+    $shared = empty($b['shared']) ? 0 : 1;
+    $id = (int) ($b['id'] ?? 0);
+    if ($id) {
+        $check = db()->prepare('SELECT id FROM notes WHERE id = ? AND user_id = ?');
+        $check->execute([$id, $userId]);
+        if (!$check->fetchColumn()) {
+            fail('Note not found', 404);
+        }
+        db()->prepare('UPDATE notes SET noted_on = ?, text = ?, shared = ? WHERE id = ?')->execute([$on, $text, $shared, $id]);
+    } else {
+        $target = (string) ($b['target'] ?? '');
+        if (!preg_match(NOTE_TARGET, $target)) {
+            fail("That isn't something a note can be about", 400);
+        }
+        db()->prepare('INSERT INTO notes (user_id, target, label, lat, lon, noted_on, text, shared) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+            ->execute([$userId, $target, $label === '' ? $target : $label, $lat, $lon, $on, $text, $shared]);
+        $id = (int) db()->lastInsertId();
+    }
+    return notes($userId, 'owner', $id)[0];
+}
+
+// Renames a map note: the label on each of its entries.
+function note_label(int $userId, array $b): array {
+    $target = (string) ($b['target'] ?? '');
+    $label = mb_substr(trim((string) ($b['label'] ?? '')), 0, 255);
+    if (!str_starts_with($target, 'pin:') || $label === '') {
+        fail('A map note needs a name', 400);
+    }
+    db()->prepare('UPDATE notes SET label = ? WHERE user_id = ? AND target = ?')->execute([$label, $userId, $target]);
+    return ['ok' => true];
+}
+
+function note_delete(int $userId, int $id): array {
+    db()->prepare('DELETE FROM notes WHERE user_id = ? AND id = ?')->execute([$userId, $id]);
     return ['ok' => true];
 }
 
@@ -3327,8 +3433,8 @@ if (!empty($user['read_only'])) {
     if ($method === 'GET' && $action === 'strava_status') {
         send_json(['configured' => false, 'connected' => false, 'athlete' => null, 'autoImport' => false]);
     }
-    $readable = !empty($user['view_link']) ? ['routes', 'starts']
-        : ['', 'areas', 'way_names', 'achievements', 'routes', 'starts', 'goals', 'track_profile', 'art_shapes'];
+    $readable = !empty($user['view_link']) ? ['routes', 'starts', 'notes']
+        : ['', 'areas', 'way_names', 'achievements', 'routes', 'starts', 'notes', 'goals', 'track_profile', 'art_shapes'];
     if ($method !== 'GET' || !in_array($action, $readable, true) || isset($_GET['gpx'])) {
         fail('This is a view-only account', 403);
     }
@@ -3404,6 +3510,14 @@ if ($method === 'POST' && $action === 'invite') {
     send_json(start_save($userId, read_json()));
 } elseif ($method === 'POST' && $action === 'start_delete' && $id) {
     send_json(start_delete($userId, $id));
+} elseif ($method === 'GET' && $action === 'notes') {
+    send_json(notes($userId, empty($user['read_only']) ? 'owner' : (empty($user['view_link']) ? 'viewer' : 'link')));
+} elseif ($method === 'POST' && $action === 'note_save') {
+    send_json(note_save($userId, read_json()));
+} elseif ($method === 'POST' && $action === 'note_label') {
+    send_json(note_label($userId, read_json()));
+} elseif ($method === 'POST' && $action === 'note_delete' && $id) {
+    send_json(note_delete($userId, $id));
 } elseif ($method === 'GET' && $action === 'goals') {
     send_json(goals($userId));
 } elseif ($method === 'POST' && $action === 'goals_save') {

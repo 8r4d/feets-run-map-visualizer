@@ -188,6 +188,43 @@ test('landmarks: kept with starting points, with what they are', async () => {
   assert.equal((await client.call('start_save', { kind: 'landmark', name: '', lat: 1, lon: 1 })).body.error, 'A landmark needs a name');
 });
 
+test('notes: dated entries on things, shared ones only where others can see the thing', async () => {
+  const { client } = await member();
+  const data = { waypoints: [[51.5, -0.1], [51.5, -0.0986]], legs: [[[51.5, -0.1], [51.5, -0.0986]]], straight: [false] };
+  const open = (await client.call('route_save', { name: 'Club loop', distance: 100, data })).body;
+  const mine = (await client.call('route_save', { name: 'My walk', distance: 100, data, private: true })).body;
+  const save = note => client.call('note_save', note).then(r => r.body);
+  const a = await save({ target: `route:${open.id}`, label: 'Club loop', on: '2026-05-02', text: ' Closed for paving ', shared: true });
+  assert.deepEqual([a.on, a.text, a.shared, a.label], ['2026-05-02', 'Closed for paving', true, 'Club loop']);
+  await save({ target: `route:${open.id}`, label: 'Club loop', on: '2026-07-01', text: 'Open again' });  // not shared
+  await save({ target: `route:${mine.id}`, label: 'My walk', text: 'Mine', shared: true });  // on a private route
+  await save({ target: 'street:road|Main Street', label: 'Main Street', lat: 51.5, lon: -0.1, text: 'No sidewalk', shared: true });
+  const pin = await save({ target: 'pin:abc123', label: 'Big puddle', lat: 51.5, lon: -0.1, on: 'nonsense', text: 'Every spring', shared: true });
+  assert.equal(pin.on, new Date().toISOString().slice(0, 10), 'a bad date is today');
+  assert.equal((await client.call('note_save', { target: 'garden:1', text: 'x' })).status, 400, 'only known kinds of target');
+  assert.equal((await client.call('note_save', { target: 'pin:abc123', text: '  ' })).status, 400, 'something written');
+  const texts = async (c, q = '') => (await c.call('notes', undefined, q)).body.map(n => n.text);
+  assert.equal((await texts(client)).length, 5, 'the owner sees them all');
+  assert.deepEqual((await texts(client)).slice(-2), ['Open again', 'Closed for paving'], 'newest first');
+
+  const { body: { code } } = await client.call('view_link_create', { label: 'Club' });
+  assert.deepEqual((await texts(new Client(), `&view=${code}`)).sort(), ['Closed for paving', 'Every spring'],
+    "a view link: shared notes on shared routes and map notes, not streets or private routes");
+  assert.equal((await new Client().call('note_save', { target: 'pin:zzz999', text: 'x' }, `&view=${code}`)).status, 403);
+
+  await client.call('note_label', { target: 'pin:abc123', label: 'Spring puddle' });
+  assert.equal((await client.call('notes')).body.find(n => n.target === 'pin:abc123').label, 'Spring puddle');
+  const edited = await save({ id: a.id, target: 'track:1', text: 'Paving done', on: '2026-05-03', shared: false });
+  assert.deepEqual([edited.target, edited.text, edited.shared], [`route:${open.id}`, 'Paving done', false], 'its target stays');
+  await client.call('route_delete', {}, `&id=${open.id}`);
+  assert.ok(!(await client.call('notes')).body.some(n => n.target === `route:${open.id}`), "a route's notes go with it");
+  const other = await member();
+  await other.client.call('note_delete', {}, `&id=${pin.id}`);
+  assert.ok((await texts(client)).includes('Every spring'), "someone else can't delete them");
+  await client.call('note_delete', {}, `&id=${pin.id}`);
+  assert.ok(!(await texts(client)).includes('Every spring'));
+});
+
 test('tracks: added with pace and climb, and only their owner sees them', async () => {
   const a = await member(), b = await member();
   const added = await a.client.call('add', trackBody(gpxText({ n: 60, step: 20, seconds: 6 })));

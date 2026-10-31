@@ -255,6 +255,16 @@ it. There's nothing to `npm install`.
   - **Show all** and **Hide all** apply to whatever currently matches.
   - The list shows the newest 100 matches. Click **Show more** for the next 100.
 
+**Notes:** dated entries on activities, saved routes, streets (a named street
+as a whole, an unnamed path by its OSM way), neighbourhoods, and map notes
+(pins of their own). Open them from the activity or street popup, a route's
+actions, or 📝 on a neighbourhood's row; the **Notebook** panel lists, searches
+and jumps to them all, and **+ Add a map note** drops a pin. Each note is
+private unless ticked **Shared**: view-only accounts then see it, and view
+links do on shared routes and map notes (the server filters, in `notes()`).
+They're kept in the `notes` table, keyed by `target` (`track:ID`, `route:ID`,
+`street:<cat>|<name>`, `way:<id>`, `hood:<name>`, `pin:<key>`).
+
 Routes are stored simplified, to about 3 metres, so that thousands of tracks
 load quickly. The original GPX is kept for the ↓ download.
 
