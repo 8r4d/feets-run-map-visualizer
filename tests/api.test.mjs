@@ -140,6 +140,39 @@ test('private routes: only their owner sees them, not view links or viewers', as
   assert.equal((await viewer.call('route_private', { private: true }, `&view=${code}&id=${mine.id}`)).status, 403);
 });
 
+test('starting points: what is there, kept tidy, and private ones only for their owner', async () => {
+  const { client } = await member();
+  const lot = (await client.call('start_save', { name: '  North lot ', lat: 53.53, lon: -113.55,
+    info: { parking: 'commercial', washrooms: 'retail', lighting: 'bogus', rating: 9, notes: ' Gate shuts at 11 ', extra: 'x' } })).body;
+  assert.equal(lot.name, 'North lot');
+  assert.equal(lot.private, false);
+  assert.deepEqual(lot.info, { parking: 'commercial', washrooms: 'retail', lighting: '', water: '', rating: 5, notes: 'Gate shuts at 11' },
+    'unknown answers dropped, the rating kept to 1-5');
+  const home = (await client.call('start_save', { name: 'Home', lat: 53.5, lon: -113.5, private: true, info: {} })).body;
+  assert.equal(home.private, true);
+  assert.equal((await client.call('start_save', { name: 'Nowhere', lat: 'x', lon: 0 })).status, 400);
+  assert.equal((await client.call('start_save', { name: ' ', lat: 1, lon: 1 })).status, 400);
+  const moved = (await client.call('start_save', { ...lot, lat: 53.54, info: { ...lot.info, water: 'yes' } })).body;
+  assert.equal(moved.id, lot.id, 'saving with an id replaces it');
+  assert.equal(moved.lat, 53.54);
+  assert.equal(moved.info.water, 'yes');
+  assert.deepEqual((await client.call('starts')).body.map(s => s.name), ['Home', 'North lot'], 'by name, private ones too');
+
+  const { body: { code } } = await client.call('view_link_create', { label: 'Club' });
+  const viewer = new Client();
+  assert.deepEqual((await viewer.call('starts', undefined, `&view=${code}`)).body.map(s => s.name), ['North lot'], 'a view link sees the shared ones');
+  assert.equal((await viewer.call('start_save', { name: 'Mine', lat: 1, lon: 1 }, `&view=${code}`)).status, 403);
+  assert.equal((await viewer.call('start_delete', {}, `&view=${code}&id=${lot.id}`)).status, 403);
+
+  const other = await member();
+  assert.equal((await other.client.call('start_save', { ...lot, name: 'Taken' })).status, 404, "not someone else's");
+  assert.deepEqual((await other.client.call('starts')).body, []);
+  await other.client.call('start_delete', {}, `&id=${lot.id}`);
+  assert.equal((await client.call('starts')).body.length, 2, "deleting someone else's does nothing");
+  await client.call('start_delete', {}, `&id=${home.id}`);
+  assert.deepEqual((await client.call('starts')).body.map(s => s.name), ['North lot']);
+});
+
 test('tracks: added with pace and climb, and only their owner sees them', async () => {
   const a = await member(), b = await member();
   const added = await a.client.call('add', trackBody(gpxText({ n: 60, step: 20, seconds: 6 })));

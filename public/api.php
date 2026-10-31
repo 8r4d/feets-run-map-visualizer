@@ -29,7 +29,7 @@
 //   POST api.php?action=admin_invite_delete   admin only: {code}, an invite not yet used
 //
 // View links: any request with ?view=CODE is answered as a view-only account
-// of the link's owner that can only list saved routes, with no login, until
+// of the link's owner that can only list saved routes and starting points, with no login, until
 // the owner turns the link off or it expires. The admin's links last as long
 // as they choose; everyone else's last VIEW_LINK_DAYS.
 //
@@ -83,6 +83,12 @@
 //   POST api.php?action=route_private&id=ID  {private}, returns the route. Private routes are only listed for
 //                                            their owner: view links and view-only accounts don't get them
 //   POST api.php?action=route_delete&id=ID
+//
+// Starting points: places you park or set off from, with what's there (see start_info)
+//   GET  api.php?action=starts               [{id, name, lat, lon, private, info, createdAt, updatedAt}], by name.
+//                                            Like routes, private ones are only listed for their owner
+//   POST api.php?action=start_save           {id?, name, lat, lon, private?, info}; with id, replaces that one. Returns it
+//   POST api.php?action=start_delete&id=ID
 //
 // Goals
 //   GET  api.php?action=goals                {week, month} in km, null when not set
@@ -343,6 +349,20 @@ const SCHEMA = [
       distance_m  DOUBLE       NOT NULL DEFAULT 0,
       data        LONGTEXT     NOT NULL,  -- JSON: {waypoints, legs, straight}
       private     BOOLEAN      NOT NULL DEFAULT FALSE,  -- only listed for its owner, not view links or viewers
+      created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX (user_id)
+    ) CHARACTER SET utf8mb4
+    SQL,
+    <<<SQL
+    CREATE TABLE IF NOT EXISTS starts (  -- starting points: where you park or set off from
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      user_id     INT          NOT NULL,
+      name        VARCHAR(255) NOT NULL,
+      lat         DOUBLE       NOT NULL,
+      lon         DOUBLE       NOT NULL,
+      info        TEXT         NOT NULL,  -- JSON: what's there, see start_info()
+      private     BOOLEAN      NOT NULL DEFAULT FALSE,  -- only listed for its owner, as with routes
       created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       INDEX (user_id)
@@ -947,7 +967,7 @@ function admin_delete_user(array $admin, array $b): array {
     foreach ([$id, ...array_map('intval', $viewers->fetchAll(PDO::FETCH_COLUMN))] as $uid) {
         $pdo->prepare('DELETE FROM segment_efforts WHERE track_id IN (SELECT id FROM tracks WHERE user_id = ?)
                        OR segment_id IN (SELECT id FROM segments WHERE user_id = ?)')->execute([$uid, $uid]);
-        foreach (['tracks', 'segments', 'routes', 'areas', 'way_names', 'art_shapes', 'achievements', 'cards', 'xp_events', 'sessions',
+        foreach (['tracks', 'segments', 'routes', 'starts', 'areas', 'way_names', 'art_shapes', 'achievements', 'cards', 'xp_events', 'sessions',
                   'password_resets', 'strava_accounts', 'strava_states'] as $table) {
             $pdo->prepare("DELETE FROM $table WHERE user_id = ?")->execute([$uid]);
         }
@@ -2364,6 +2384,81 @@ function route_delete(int $userId, int $id): array {
     return ['ok' => true];
 }
 
+// --- Starting points ---
+// What's at a starting point. Each kind has a few answers, or '' for not
+// noted; anything else sent is dropped.
+const START_CHOICES = [
+    'parking'   => ['free', 'paid', 'commercial', 'street', 'none'],
+    'washrooms' => ['yes', 'seasonal', 'retail', 'no'],
+    'lighting'  => ['lit', 'some', 'dark'],
+    'water'     => ['yes', 'seasonal', 'no'],
+];
+const START_NOTES_MAX = 2000;
+
+// {parking, washrooms, lighting, water, rating (0 for none, else 1-5), notes}.
+function start_info($info): array {
+    $info = is_array($info) ? $info : [];
+    $out = [];
+    foreach (START_CHOICES as $key => $choices) {
+        $value = (string) ($info[$key] ?? '');
+        $out[$key] = in_array($value, $choices, true) ? $value : '';
+    }
+    $out['rating'] = max(0, min(5, (int) ($info['rating'] ?? 0)));
+    $out['notes'] = mb_substr(trim((string) ($info['notes'] ?? '')), 0, START_NOTES_MAX);
+    return $out;
+}
+
+function start_row(array $row): array {
+    return ['id' => (int) $row['id'], 'name' => $row['name'], 'lat' => (float) $row['lat'], 'lon' => (float) $row['lon'],
+            'private' => (bool) $row['private'], 'info' => start_info(json_decode($row['info'], true)),
+            'createdAt' => $row['created_at'], 'updatedAt' => $row['updated_at']];
+}
+
+// All of the user's starting points by name, or just one ($onlyId). Private
+// ones are left out for view links and view-only accounts.
+function starts(int $userId, ?int $onlyId = null, bool $withPrivate = true): array {
+    $stmt = db()->prepare('SELECT * FROM starts WHERE user_id = ?' . ($onlyId ? ' AND id = ?' : '')
+                          . ($withPrivate ? '' : ' AND NOT private') . ' ORDER BY name, id');
+    $stmt->execute($onlyId ? [$userId, $onlyId] : [$userId]);
+    return array_map('start_row', $stmt->fetchAll());
+}
+
+// Stores a starting point: {id?, name, lat, lon, private?, info}. With an id
+// it replaces that one, if it's the user's own.
+function start_save(int $userId, array $b): array {
+    $name = mb_substr(trim((string) ($b['name'] ?? '')), 0, 255);
+    $lat = (float) ($b['lat'] ?? 0);
+    $lon = (float) ($b['lon'] ?? 0);
+    if ($name === '') {
+        fail('A starting point needs a name', 400);
+    }
+    if (!is_numeric($b['lat'] ?? null) || !is_numeric($b['lon'] ?? null) || abs($lat) > 90 || abs($lon) > 180) {
+        fail('A starting point needs a place on the map', 400);
+    }
+    $info = json_encode(start_info($b['info'] ?? []));
+    $private = empty($b['private']) ? 0 : 1;
+    $id = (int) ($b['id'] ?? 0);
+    if ($id) {
+        $check = db()->prepare('SELECT id FROM starts WHERE id = ? AND user_id = ?');
+        $check->execute([$id, $userId]);
+        if (!$check->fetchColumn()) {
+            fail('Starting point not found', 404);
+        }
+        db()->prepare('UPDATE starts SET name = ?, lat = ?, lon = ?, info = ?, private = ? WHERE id = ?')
+            ->execute([$name, $lat, $lon, $info, $private, $id]);
+    } else {
+        db()->prepare('INSERT INTO starts (user_id, name, lat, lon, info, private) VALUES (?, ?, ?, ?, ?, ?)')
+            ->execute([$userId, $name, $lat, $lon, $info, $private]);
+        $id = (int) db()->lastInsertId();
+    }
+    return starts($userId, $id)[0];
+}
+
+function start_delete(int $userId, int $id): array {
+    db()->prepare('DELETE FROM starts WHERE user_id = ? AND id = ?')->execute([$userId, $id]);
+    return ['ok' => true];
+}
+
 // --- Goals ---
 // Distance goals per week and per month, in km: { week, month }, null when not set.
 
@@ -3208,13 +3303,14 @@ $userId = (int) $user['id'];
 
 // View-only accounts may only read their inviter's tracks and areas.
 // Everything else - uploads, edits, deletes, downloads, Strava, settings - is refused here.
-// View links are narrower still: they show saved routes and nothing else.
+// View links are narrower still: they show saved routes and starting points, nothing else.
 if (!empty($user['read_only'])) {
     $userId = (int) $user['data_owner'];
     if ($method === 'GET' && $action === 'strava_status') {
         send_json(['configured' => false, 'connected' => false, 'athlete' => null, 'autoImport' => false]);
     }
-    $readable = !empty($user['view_link']) ? ['routes'] : ['', 'areas', 'way_names', 'achievements', 'routes', 'goals', 'track_profile', 'art_shapes'];
+    $readable = !empty($user['view_link']) ? ['routes', 'starts']
+        : ['', 'areas', 'way_names', 'achievements', 'routes', 'starts', 'goals', 'track_profile', 'art_shapes'];
     if ($method !== 'GET' || !in_array($action, $readable, true) || isset($_GET['gpx'])) {
         fail('This is a view-only account', 403);
     }
@@ -3284,6 +3380,12 @@ if ($method === 'POST' && $action === 'invite') {
     route_private($userId, $id, read_json());
 } elseif ($method === 'POST' && $action === 'route_delete' && $id) {
     send_json(route_delete($userId, $id));
+} elseif ($method === 'GET' && $action === 'starts') {
+    send_json(starts($userId, null, empty($user['read_only'])));
+} elseif ($method === 'POST' && $action === 'start_save') {
+    send_json(start_save($userId, read_json()));
+} elseif ($method === 'POST' && $action === 'start_delete' && $id) {
+    send_json(start_delete($userId, $id));
 } elseif ($method === 'GET' && $action === 'goals') {
     send_json(goals($userId));
 } elseif ($method === 'POST' && $action === 'goals_save') {

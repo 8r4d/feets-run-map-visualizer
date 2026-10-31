@@ -5,6 +5,18 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.31.0 — 2026-10-31
+
+- Starting points: mark the places you park or set off from. In Planning,
+  under Starting points, choose + Add a starting point and click the map,
+  then note what's there: parking (free, paid, a commercial lot, on the
+  street or none), washrooms (including ones in a shop or café), lighting,
+  drinking water, a star rating and notes. Each is a flag pin in Planning that opens a card
+  with those, the saved routes that start there, directions, and Start a
+  route here, which begins a new route (or a loop) from it.
+- View links and view-only accounts see them, cards and all, except any
+  ticked Private.
+
 ## 1.30.1 — 2026-10-26
 
 - The Questing panel over the map scrolls again on an iPad (and other

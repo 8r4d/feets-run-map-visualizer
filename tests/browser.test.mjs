@@ -461,6 +461,51 @@ test('finding areas: a place on the edge of an area you have still counts, from 
   await page.waitFor(`document.querySelectorAll('#track-list li').length === 3 && !areas.length`, { what: 'back to three tracks' });
 });
 
+test('starting points: placed on the map, with a card of what is there, also on a view link', { skip }, async () => {
+  await page.eval(`document.querySelector('#mode [data-mode=plan]').click()`);
+  await page.eval(`document.getElementById('start-add').click()`);
+  assert.match(await page.eval(`planStatus.textContent`), /Click the map where you park/);
+  // Where the race test's Block loop starts, so it's a route from here.
+  await page.eval(`void map.fire('click', { latlng: L.latLng(49.2801, -123.1201) })`);
+  await page.waitFor(`document.getElementById('start-edit').open`, { what: 'the form for a new starting point' });
+  await page.eval(`
+    document.getElementById('start-edit-name').value = 'Block lot';
+    document.getElementById('start-edit-parking').value = 'free';
+    document.getElementById('start-edit-lighting').value = 'dark';
+    document.getElementById('start-edit-notes').value = 'Gate shuts at 11';
+    document.querySelectorAll('#start-edit-stars button')[3].click();`);
+  await snap('start-edit');
+  await page.eval(`document.querySelector('#start-edit .dialog-ok').click()`);
+  await page.waitFor(`document.getElementById('start-dialog').open`, { what: 'its card' });
+  const card = await page.eval(`({
+    name: document.getElementById('start-dialog-name').textContent,
+    rating: document.getElementById('start-dialog-rating').textContent,
+    info: [...document.querySelectorAll('#start-dialog-info li')].map(li => li.textContent + (li.classList.contains('lacks') ? ' (lacks)' : '')),
+    notes: document.getElementById('start-dialog-notes').textContent,
+    routes: document.querySelector('#start-dialog-routes ul').textContent,
+    plan: !document.getElementById('start-dialog-plan').hidden,
+    owner: !document.getElementById('start-dialog-owner').hidden })`);
+  assert.deepEqual(card, { name: 'Block lot', rating: '★★★★☆', info: ['🅿️Free parking', '💡Not lit (lacks)'], notes: 'Gate shuts at 11',
+    routes: card.routes, plan: true, owner: true });
+  assert.match(card.routes, /Block loop/, 'the saved route that starts here');
+  assert.equal(await page.eval(`document.querySelectorAll('.start-spot').length`), 1, 'a pin on the map');
+  await snap('start-card');
+  await page.eval(`document.getElementById('start-dialog-close').click()`);
+  assert.match(await page.eval(`document.getElementById('start-list').textContent`), /Block lot.*🅿️.*★★★★☆/);
+
+  // A view link sees it, and its card, but can't start a route or change it.
+  const code = await page.eval(`Store.createViewLink('Starts').then(l => l.code)`);
+  await page.goto(`${URL_BASE}?view=${code}`);
+  await page.waitFor(`document.querySelectorAll('.start-spot').length === 1`, { what: 'the pin on the view link' });
+  await page.eval(`document.querySelector('.start-spot').dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+  await page.waitFor(`document.getElementById('start-dialog').open`, { what: 'the card on the view link' });
+  assert.deepEqual(await page.eval(`[document.getElementById('start-dialog-plan').hidden, document.getElementById('start-dialog-owner').hidden]`), [true, true]);
+  await page.goto(URL_BASE);
+  await page.waitFor(`document.getElementById('auth').hidden && currentUser && !currentUser.viewLink`, { what: 'the app again' });
+  await page.eval(`Store.starts().then(ss => Promise.all(ss.map(s => Store.deleteStart(s.id))))`);
+  await page.eval(`document.querySelector('#mode [data-mode=tracks]').click()`);
+});
+
 test('no errors on the page', { skip }, async () => {
   assert.deepEqual(page.errors.map(e => e.exception?.description || e.text), []);
 });

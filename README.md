@@ -55,8 +55,9 @@ their own empty track list.
 routes to anyone who has it, with no login: for a running club, say.
 - **What they see:** a plain map and the list of your saved routes, with the
   newest one open. They can switch between routes and download each as GPX.
+  Your shared starting points are on the map too, each with its card.
   Nothing else: no tracks, heatmap, street areas, trophies or route editing.
-  The server sends a view link nothing but the routes.
+  The server sends a view link nothing but the routes and starting points.
 - **One route:** in **Planning**, click **Link** next to a saved route to get a
   link that opens straight to that route, with a 7-day view link of its own.
   The admin can instead leave the days blank to reuse their newest view link
@@ -328,6 +329,15 @@ side. Narrower windows and phones keep them in the sidebar.
    **Download GPX** gives a file for a watch, or to import into Strava as a
    route. Saved routes can be renamed from the list, and sorted newest first,
    by name, or by distance.
+
+**Starting points** are the places you park or set off from. Under
+**Starting points** in the Plan panel, **+ Add a starting point**, then click
+the map; note its parking (including commercial lots), washrooms (including retail ones), lighting, drinking water, a 1-5 star
+rating and notes. Each shows as a flag pin in Planning that opens a card: what
+you noted, the saved routes starting within 300 m, **Directions** (Google
+Maps), and **Start a route here**, which puts a route's first point on the
+nearest street (so **Make a loop** starts there too). View links and viewers
+see them, unless ticked **Private**.
 
 **Fill with unrun streets** makes the route for you: set a length and press it
 for a loop over as many streets you haven't run as fit.

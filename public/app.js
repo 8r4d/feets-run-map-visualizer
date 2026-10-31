@@ -640,8 +640,10 @@ function setMode(mode) {
   document.getElementById('fade-control').hidden = planMode;
   fadeInput.value = planMode ? 0 : savedFade(mode);
   applyFade();
+  if (!planMode) stopPlacingStart();
   syncLayers();
   drawPlan();
+  drawStarts();
   if (planMode) renderPlan();
 }
 
@@ -3391,7 +3393,285 @@ async function loadRoutes() {
   renderRouteList();
 }
 
+// --- Starting points ---
+// The places you park or set off from, each with what's there (parking,
+// washrooms, lighting, water), a rating and notes. They're on the map in
+// Planning (and on view links), where clicking one opens its card: the
+// details, the saved routes that start there, directions, and Start a route
+// here. Private ones, like private routes, are only sent to their owner.
+let starts = [];  // as from Store.starts(), by name
+let startLayer = null;
+let placingStart = null;  // picking a place on the map: true for a new one, or the one being moved
+let shownStart = null;    // the one whose card is open
+const START_NEAR = 300;   // metres: a saved route whose first point is this close starts "here"
+const startDialog = document.getElementById('start-dialog');
+const startEdit = document.getElementById('start-edit');
+
+// What each answer is called on a card. The no/none answers are shown faded.
+const START_KINDS = {
+  parking: { icon: '🅿️', free: 'Free parking', paid: 'Paid parking', commercial: 'Commercial parking lot', street: 'Street parking', none: 'No parking' },
+  washrooms: { icon: '🚻', yes: 'Washrooms', seasonal: 'Washrooms in season', retail: 'Retail washrooms', no: 'No washrooms' },
+  lighting: { icon: '💡', lit: 'Well lit', some: 'Partly lit', dark: 'Not lit' },
+  water: { icon: '🚰', yes: 'Drinking water', seasonal: 'Water in season', no: 'No drinking water' },
+};
+const START_LACKS = ['none', 'no', 'dark'];
+const stars = n => '★'.repeat(n) + '☆'.repeat(5 - n);
+
+function drawStarts() {
+  if (startLayer) startLayer.remove();
+  startLayer = null;
+  if (!planMode || !starts.length) return;
+  startLayer = L.layerGroup();
+  for (const s of starts) {
+    L.marker([s.lat, s.lon], {
+      title: s.name,
+      zIndexOffset: 300,  // over the route's points: clicking one opens its card, not a waypoint
+      icon: L.divIcon({
+        className: 'start-spot' + (s.private ? ' private' : ''), iconSize: [26, 32], iconAnchor: [13, 31],
+        html: '<svg viewBox="0 0 26 32" aria-hidden="true"><path class="pin" d="M13 31C13 31 2 19 2 12a11 11 0 0 1 22 0c0 7-11 19-11 19z"/>'
+          + '<path class="flag" d="M9.5 18V6.5M9.5 7h8l-2 3 2 3h-8"/></svg>',
+      }),
+    }).on('click', () => openStart(s)).addTo(startLayer);
+  }
+  startLayer.addTo(map);
+}
+
+// The panel's list: each one's name, with icons for what's there and its stars.
+function renderStartList() {
+  const box = document.getElementById('starts');
+  // Viewers and view links only see the list when there's something in it.
+  box.hidden = readOnly() && !starts.length;
+  box.querySelector('.count').textContent = starts.length ? `(${starts.length})` : '';
+  document.getElementById('start-empty').hidden = starts.length > 0 || readOnly();
+  document.getElementById('start-add').hidden = readOnly();
+  document.getElementById('start-list').replaceChildren(...starts.map(s => {
+    const li = document.createElement('li');
+    li.innerHTML = '<button class="link-button name" type="button" title="Show on the map"></button><small></small>';
+    li.querySelector('.name').textContent = s.name;
+    li.querySelector('.name').onclick = () => {
+      map.invalidateSize();
+      map.setView([s.lat, s.lon], Math.max(map.getZoom(), 15));
+      openStart(s);
+    };
+    const has = Object.entries(START_KINDS).filter(([k]) => s.info[k] && !START_LACKS.includes(s.info[k])).map(([, kind]) => kind.icon);
+    li.querySelector('small').textContent = [s.private ? t('private') : '', has.join(''), s.info.rating ? stars(s.info.rating) : '']
+      .filter(Boolean).join(' · ');
+    return li;
+  }));
+}
+
+// Saved routes whose first point is near a starting point, nearest first.
+function routesFrom(s) {
+  return routes.map(r => {
+    const first = routePoints(r.data)[0];
+    return { r, d: first ? Planner.distance(s.lat, s.lon, first[0], first[1]) : Infinity };
+  }).filter(o => o.d <= START_NEAR).sort((a, b) => a.d - b.d).map(o => o.r);
+}
+
+// The card, over the map.
+function openStart(s) {
+  shownStart = s;
+  document.getElementById('start-dialog-name').textContent = s.name;
+  const rating = document.getElementById('start-dialog-rating');
+  rating.hidden = !s.info.rating;
+  rating.textContent = stars(s.info.rating);
+  rating.title = t('{n} out of 5', { n: s.info.rating });
+  document.getElementById('start-dialog-private').hidden = !s.private;
+  const info = Object.entries(START_KINDS).filter(([k]) => s.info[k]).map(([k, kind]) => {
+    const li = document.createElement('li');
+    li.classList.toggle('lacks', START_LACKS.includes(s.info[k]));
+    li.innerHTML = '<span class="icon" aria-hidden="true"></span><span></span>';
+    li.firstChild.textContent = kind.icon;
+    li.lastChild.textContent = t(kind[s.info[k]]);
+    return li;
+  });
+  const list = document.getElementById('start-dialog-info');
+  list.replaceChildren(...info);
+  list.hidden = !info.length;
+  const notes = document.getElementById('start-dialog-notes');
+  notes.textContent = s.info.notes;
+  notes.hidden = !s.info.notes;
+  document.getElementById('start-dialog-empty').hidden = Boolean(info.length || s.info.notes || s.info.rating);
+  const from = routesFrom(s);
+  const routesBox = document.getElementById('start-dialog-routes');
+  routesBox.hidden = !from.length;
+  routesBox.querySelector('ul').replaceChildren(...from.map(r => {
+    const li = document.createElement('li');
+    li.innerHTML = '<button class="link-button" type="button"></button> <small></small>';
+    li.firstChild.textContent = r.name;
+    li.firstChild.onclick = () => {
+      startDialog.close();
+      openRoute(r);
+    };
+    li.lastChild.textContent = km(r.distance);
+    return li;
+  }));
+  // Viewers can plan a route (not save it); a view link only looks.
+  document.getElementById('start-dialog-plan').hidden = publicView();
+  document.getElementById('start-dialog-directions').href = `https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lon}`;
+  document.getElementById('start-dialog-owner').hidden = readOnly();
+  if (!startDialog.open) startDialog.showModal();
+}
+
+document.getElementById('start-dialog-close').onclick = () => startDialog.close();
+// A click on the backdrop (the dialog itself, outside its card) closes it.
+startDialog.onclick = e => { if (e.target === startDialog) startDialog.close(); };
+startDialog.addEventListener('close', () => { shownStart = null; });
+
+// A new route from the street nearest the starting point: carry on clicking,
+// or Make a loop, which starts from a route's first point.
+document.getElementById('start-dialog-plan').onclick = () => {
+  const s = shownStart;
+  if (!areas.length) {
+    alert(t('Add an area in Road Fill first: routes follow its streets.'));
+    return;
+  }
+  const g = planGraph();
+  const i = Planner.snap(g, [s.lat, s.lon]);
+  if (i < 0) {
+    alert(t("There's no street of your areas within 150 m of {name}. Add an area in Road Fill that covers it.", { name: s.name }));
+    return;
+  }
+  if (!mayDiscard()) return;
+  startDialog.close();
+  resetPlan();
+  addWaypoint([g.lat[i], g.lon[i]]);
+  planStatus.textContent = t('Starting at {name}. Click where to go next, or Make a loop from here.', { name: s.name });
+  map.setView([s.lat, s.lon], Math.max(map.getZoom(), 15));
+};
+
+document.getElementById('start-dialog-edit').onclick = () => {
+  const s = shownStart;
+  startDialog.close();
+  editStart(s);
+};
+document.getElementById('start-dialog-move').onclick = () => {
+  const s = shownStart;
+  startDialog.close();
+  pickStartPlace(s);
+};
+document.getElementById('start-dialog-delete').onclick = async () => {
+  const s = shownStart;
+  if (!confirm(t('Delete the starting point "{name}"?', { name: s.name }))) return;
+  try {
+    await Store.deleteStart(s.id);
+    startDialog.close();
+    starts = starts.filter(o => o.id !== s.id);
+    drawStarts();
+    renderStartList();
+  } catch (err) {
+    alert(err.message);
+  }
+};
+
+// The next click on the map places a new starting point, or moves one. Esc,
+// or the add button again, stops.
+function pickStartPlace(what) {
+  placingStart = what;
+  map.getContainer().classList.add('placing-start');
+  planStatus.textContent = what === true ? t('Click the map where you park or set off from. Esc to stop.')
+    : t('Click the map where {name} should be. Esc to stop.', { name: what.name });
+}
+
+function stopPlacingStart() {
+  if (!placingStart) return;
+  placingStart = null;
+  map.getContainer().classList.remove('placing-start');
+  planStatus.textContent = '';
+}
+
+document.getElementById('start-add').onclick = () => {
+  if (placingStart) stopPlacingStart();
+  else pickStartPlace(true);
+};
+document.addEventListener('keydown', e => { if (e.key === 'Escape') stopPlacingStart(); });
+
+async function placeStart(latlng) {
+  const what = placingStart;
+  stopPlacingStart();
+  const at = { lat: latlng.lat, lon: latlng.lng };
+  if (what === true) editStart(at);
+  else await saveStart({ ...what, ...at });
+}
+
+// Stores a starting point and puts it in the list, in name order. Returns it, or null.
+async function saveStart(s) {
+  try {
+    const saved = await Store.saveStart({ id: s.id, name: s.name, lat: s.lat, lon: s.lon, private: s.private, info: s.info });
+    starts = [...starts.filter(o => o.id !== saved.id), saved]
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+    drawStarts();
+    renderStartList();
+    return saved;
+  } catch (err) {
+    alert(err.message);
+    return null;
+  }
+}
+
+// The form for a new starting point (just {lat, lon}) or a saved one. Saving
+// opens its card.
+const startStars = document.getElementById('start-edit-stars');
+let startRating = 0;
+function showStarPicker() {
+  startStars.replaceChildren(...[1, 2, 3, 4, 5].map(n => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = n <= startRating ? '★' : '☆';
+    button.setAttribute('aria-label', t('{n} out of 5', { n }));
+    button.setAttribute('aria-pressed', String(n === startRating));
+    button.onclick = () => {
+      startRating = n === startRating ? 0 : n;
+      showStarPicker();
+    };
+    return button;
+  }));
+}
+
+function editStart(s) {
+  const info = s.info || {};
+  document.getElementById('start-edit-title').textContent = s.id ? t('Edit the starting point') : t('A new starting point');
+  document.getElementById('start-edit-name').value = s.name || '';
+  for (const k of Object.keys(START_KINDS)) document.getElementById(`start-edit-${k}`).value = info[k] || '';
+  document.getElementById('start-edit-notes').value = info.notes || '';
+  document.getElementById('start-edit-private').checked = Boolean(s.private);
+  startRating = info.rating || 0;
+  showStarPicker();
+  startEdit.returnValue = '';
+  startEdit.showModal();
+  document.getElementById('start-edit-name').focus();
+  startEdit.addEventListener('close', async () => {
+    if (startEdit.returnValue !== 'ok') return;
+    const changed = {
+      ...s,
+      name: document.getElementById('start-edit-name').value.trim(),
+      private: document.getElementById('start-edit-private').checked,
+      info: {
+        ...Object.fromEntries(Object.keys(START_KINDS).map(k => [k, document.getElementById(`start-edit-${k}`).value])),
+        rating: startRating,
+        notes: document.getElementById('start-edit-notes').value.trim(),
+      },
+    };
+    const saved = await saveStart(changed);
+    if (saved) openStart(saved);
+  }, { once: true });
+}
+
+async function loadStarts() {
+  try {
+    starts = await Store.starts();
+  } catch {
+    starts = [];
+  }
+  drawStarts();
+  renderStartList();
+}
+
 map.on('click', e => {
+  if (placingStart) {
+    placeStart(e.latlng);
+    return;
+  }
   if (!planMode || publicView()) return;
   const p = snapClick(e.latlng);
   if (p) addWaypoint(p);
@@ -3997,6 +4277,7 @@ async function showPublicView(user) {
   expiry.hidden = !user.expiresAt;
   if (user.expiresAt) expiry.textContent = `This link expires ${whenText(user.expiresAt)}.`;
   await loadRoutes();
+  await loadStarts();
   const route = routes.find(r => r.id === routeParam) || routes[0];
   if (route) openRoute(route);
   else renderPlan();
@@ -4044,6 +4325,7 @@ async function signedIn(user) {
   await loadArtShapes();
   scheduleTrophies();
   await loadRoutes();
+  await loadStarts();
   if (planMode) renderPlan();
   if (!user.readOnly) loadViewLinks();
   if (!user.readOnly) loadRaces();
@@ -4087,6 +4369,11 @@ function signedOut() {
   goals = { week: null, month: null };
   metricsLeft = 0;
   routes = [];
+  starts = [];
+  stopPlacingStart();
+  if (startDialog.open) startDialog.close();
+  drawStarts();
+  renderStartList();
   resetPlan();
   stravaBox.hidden = true;
   showAuth('login');
