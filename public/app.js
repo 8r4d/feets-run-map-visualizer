@@ -3393,17 +3393,20 @@ async function loadRoutes() {
   renderRouteList();
 }
 
-// --- Starting points ---
-// The places you park or set off from, each with what's there (parking,
-// washrooms, lighting, water), a rating and notes. They're on the map in
-// Planning (and on view links), where clicking one opens its card: the
-// details, the saved routes that start there, directions, and Start a route
-// here. Private ones, like private routes, are only sent to their owner.
-let starts = [];  // as from Store.starts(), by name
+// --- Places: starting points and landmarks ---
+// Starting points are the places you park or set off from, each with what's
+// there (parking, washrooms, lighting, water); landmarks are things worth
+// passing (bridges, lookouts...). Each has a rating and notes. They're on the
+// map in Planning (and on view links), where clicking one opens its card: the
+// details, the saved routes that start there (or pass by), directions, and
+// Start a route here (or Add to route). Private ones, like private routes,
+// are only sent to their owner. Both come from Store.starts(), told apart by kind.
+let starts = [];  // starting points and landmarks, as from Store.starts(), by name
 let startLayer = null;
-let placingStart = null;  // picking a place on the map: true for a new one, or the one being moved
+let placingStart = null;  // picking a place on the map: { kind } for a new one, or the one being moved
 let shownStart = null;    // the one whose card is open
 const START_NEAR = 300;   // metres: a saved route whose first point is this close starts "here"
+const LANDMARK_NEAR = 50; // metres: a saved route this close to a landmark passes it
 const startDialog = document.getElementById('start-dialog');
 const startEdit = document.getElementById('start-edit');
 
@@ -3415,6 +3418,19 @@ const START_KINDS = {
   water: { icon: '🚰', yes: 'Drinking water', seasonal: 'Water in season', no: 'No drinking water' },
 };
 const START_LACKS = ['none', 'no', 'dark'];
+// What a landmark is: its pin's icon and name. '' (not given) is shown as other.
+const LANDMARK_TYPES = {
+  bridge: { icon: '🌉', name: 'Bridge' },
+  lookout: { icon: '🔭', name: 'Lookout' },
+  monument: { icon: '🏛️', name: 'Monument' },
+  art: { icon: '🎨', name: 'Public art' },
+  waterfall: { icon: '💧', name: 'Waterfall' },
+  tree: { icon: '🌳', name: 'Notable tree' },
+  beach: { icon: '🏖️', name: 'Beach' },
+  other: { icon: '📍', name: 'Landmark' },
+};
+const landmarkType = s => LANDMARK_TYPES[s.info.type] || LANDMARK_TYPES.other;
+const isLandmark = s => s.kind === 'landmark';
 const stars = n => '★'.repeat(n) + '☆'.repeat(5 - n);
 
 function drawStarts() {
@@ -3423,41 +3439,51 @@ function drawStarts() {
   if (!planMode || !starts.length) return;
   startLayer = L.layerGroup();
   for (const s of starts) {
-    L.marker([s.lat, s.lon], {
-      title: s.name,
-      zIndexOffset: 300,  // over the route's points: clicking one opens its card, not a waypoint
-      icon: L.divIcon({
+    // Starting points: a teal pin with a flag. Landmarks: a round badge with their icon.
+    const icon = isLandmark(s)
+      ? L.divIcon({ className: 'landmark-spot' + (s.private ? ' private' : ''), iconSize: [28, 28], html: `<span>${landmarkType(s).icon}</span>` })
+      : L.divIcon({
         className: 'start-spot' + (s.private ? ' private' : ''), iconSize: [26, 32], iconAnchor: [13, 31],
         html: '<svg viewBox="0 0 26 32" aria-hidden="true"><path class="pin" d="M13 31C13 31 2 19 2 12a11 11 0 0 1 22 0c0 7-11 19-11 19z"/>'
           + '<path class="flag" d="M9.5 18V6.5M9.5 7h8l-2 3 2 3h-8"/></svg>',
-      }),
+      });
+    L.marker([s.lat, s.lon], {
+      title: s.name,
+      zIndexOffset: 300,  // over the route's points: clicking one opens its card, not a waypoint
+      icon,
     }).on('click', () => openStart(s)).addTo(startLayer);
   }
   startLayer.addTo(map);
 }
 
-// The panel's list: each one's name, with icons for what's there and its stars.
+// The panel's lists: each one's name, with icons for what's there (or what
+// it is) and its stars.
 function renderStartList() {
-  const box = document.getElementById('starts');
-  // Viewers and view links only see the list when there's something in it.
-  box.hidden = readOnly() && !starts.length;
-  box.querySelector('.count').textContent = starts.length ? `(${starts.length})` : '';
-  document.getElementById('start-empty').hidden = starts.length > 0 || readOnly();
-  document.getElementById('start-add').hidden = readOnly();
-  document.getElementById('start-list').replaceChildren(...starts.map(s => {
-    const li = document.createElement('li');
-    li.innerHTML = '<button class="link-button name" type="button" title="Show on the map"></button><small></small>';
-    li.querySelector('.name').textContent = s.name;
-    li.querySelector('.name').onclick = () => {
-      map.invalidateSize();
-      map.setView([s.lat, s.lon], Math.max(map.getZoom(), 15));
-      openStart(s);
-    };
-    const has = Object.entries(START_KINDS).filter(([k]) => s.info[k] && !START_LACKS.includes(s.info[k])).map(([, kind]) => kind.icon);
-    li.querySelector('small').textContent = [s.private ? t('private') : '', has.join(''), s.info.rating ? stars(s.info.rating) : '']
-      .filter(Boolean).join(' · ');
-    return li;
-  }));
+  for (const kind of ['start', 'landmark']) {
+    const mine = starts.filter(s => (s.kind || 'start') === kind);
+    const prefix = kind === 'start' ? 'start' : 'landmark';
+    const box = document.getElementById(kind === 'start' ? 'starts' : 'landmarks');
+    // Viewers and view links only see a list when there's something in it.
+    box.hidden = readOnly() && !mine.length;
+    box.querySelector('.count').textContent = mine.length ? `(${mine.length})` : '';
+    document.getElementById(`${prefix}-empty`).hidden = mine.length > 0 || readOnly();
+    document.getElementById(`${prefix}-add`).hidden = readOnly();
+    document.getElementById(`${prefix}-list`).replaceChildren(...mine.map(s => {
+      const li = document.createElement('li');
+      li.innerHTML = '<button class="link-button name" type="button" title="Show on the map"></button><small></small>';
+      li.querySelector('.name').textContent = s.name;
+      li.querySelector('.name').onclick = () => {
+        map.invalidateSize();
+        map.setView([s.lat, s.lon], Math.max(map.getZoom(), 15));
+        openStart(s);
+      };
+      const has = isLandmark(s) ? [landmarkType(s).icon]
+        : Object.entries(START_KINDS).filter(([k]) => s.info[k] && !START_LACKS.includes(s.info[k])).map(([, k]) => k.icon);
+      li.querySelector('small').textContent = [s.private ? t('private') : '', has.join(''), s.info.rating ? stars(s.info.rating) : '']
+        .filter(Boolean).join(' · ');
+      return li;
+    }));
+  }
 }
 
 // Saved routes whose first point is near a starting point, nearest first.
@@ -3468,34 +3494,63 @@ function routesFrom(s) {
   }).filter(o => o.d <= START_NEAR).sort((a, b) => a.d - b.d).map(o => o.r);
 }
 
+// Metres from a place to the nearest part of a line, on a flat map around the
+// place (plenty for tens of metres).
+function metresToLine(s, points) {
+  const kx = 111320 * Math.cos(s.lat * Math.PI / 180), ky = 110540;
+  const xy = p => [(p[1] - s.lon) * kx, (p[0] - s.lat) * ky];
+  let best = Infinity;
+  for (let i = 0; i < points.length; i++) {
+    const [bx, by] = xy(points[i]);
+    if (!i) {
+      best = Math.hypot(bx, by);
+      continue;
+    }
+    const [ax, ay] = xy(points[i - 1]);
+    const dx = bx - ax, dy = by - ay;
+    const f = dx || dy ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / (dx * dx + dy * dy))) : 0;
+    best = Math.min(best, Math.hypot(ax + dx * f, ay + dy * f));
+  }
+  return best;
+}
+
+// Saved routes that go past a landmark, shortest first.
+function routesPast(s) {
+  return routes.filter(r => metresToLine(s, routePoints(r.data)) <= LANDMARK_NEAR).sort((a, b) => a.distance - b.distance);
+}
+
 // The card, over the map.
 function openStart(s) {
   shownStart = s;
+  const landmark = isLandmark(s);
   document.getElementById('start-dialog-name').textContent = s.name;
   const rating = document.getElementById('start-dialog-rating');
   rating.hidden = !s.info.rating;
   rating.textContent = stars(s.info.rating);
   rating.title = t('{n} out of 5', { n: s.info.rating });
   document.getElementById('start-dialog-private').hidden = !s.private;
-  const info = Object.entries(START_KINDS).filter(([k]) => s.info[k]).map(([k, kind]) => {
+  const line = (icon, text, lacks = false) => {
     const li = document.createElement('li');
-    li.classList.toggle('lacks', START_LACKS.includes(s.info[k]));
+    li.classList.toggle('lacks', lacks);
     li.innerHTML = '<span class="icon" aria-hidden="true"></span><span></span>';
-    li.firstChild.textContent = kind.icon;
-    li.lastChild.textContent = t(kind[s.info[k]]);
+    li.firstChild.textContent = icon;
+    li.lastChild.textContent = text;
     return li;
-  });
+  };
+  const info = landmark ? [line(landmarkType(s).icon, t(landmarkType(s).name))]
+    : Object.entries(START_KINDS).filter(([k]) => s.info[k]).map(([k, kind]) => line(kind.icon, t(kind[s.info[k]]), START_LACKS.includes(s.info[k])));
   const list = document.getElementById('start-dialog-info');
   list.replaceChildren(...info);
   list.hidden = !info.length;
   const notes = document.getElementById('start-dialog-notes');
   notes.textContent = s.info.notes;
   notes.hidden = !s.info.notes;
-  document.getElementById('start-dialog-empty').hidden = Boolean(info.length || s.info.notes || s.info.rating);
-  const from = routesFrom(s);
+  document.getElementById('start-dialog-empty').hidden = landmark || Boolean(info.length || s.info.notes || s.info.rating);
+  const found = landmark ? routesPast(s) : routesFrom(s);
   const routesBox = document.getElementById('start-dialog-routes');
-  routesBox.hidden = !from.length;
-  routesBox.querySelector('ul').replaceChildren(...from.map(r => {
+  routesBox.hidden = !found.length;
+  routesBox.querySelector('h3').textContent = landmark ? t('Routes that pass by') : t('Routes from here');
+  routesBox.querySelector('ul').replaceChildren(...found.map(r => {
     const li = document.createElement('li');
     li.innerHTML = '<button class="link-button" type="button"></button> <small></small>';
     li.firstChild.textContent = r.name;
@@ -3507,7 +3562,11 @@ function openStart(s) {
     return li;
   }));
   // Viewers can plan a route (not save it); a view link only looks.
-  document.getElementById('start-dialog-plan').hidden = publicView();
+  const planButton = document.getElementById('start-dialog-plan');
+  planButton.hidden = publicView();
+  planButton.textContent = landmark ? t('Add to route') : t('Start a route here');
+  planButton.title = landmark ? t('Route on from your last point to the street nearest it, or start a route there')
+    : t('A new route from the nearest street: click on from there, or Make a loop');
   document.getElementById('start-dialog-directions').href = `https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lon}`;
   document.getElementById('start-dialog-owner').hidden = readOnly();
   if (!startDialog.open) startDialog.showModal();
@@ -3518,8 +3577,9 @@ document.getElementById('start-dialog-close').onclick = () => startDialog.close(
 startDialog.onclick = e => { if (e.target === startDialog) startDialog.close(); };
 startDialog.addEventListener('close', () => { shownStart = null; });
 
-// A new route from the street nearest the starting point: carry on clicking,
-// or Make a loop, which starts from a route's first point.
+// From a starting point: a new route from the street nearest it, to carry on
+// clicking from, or Make a loop, which starts from a route's first point.
+// From a landmark: the route goes on to the street nearest it (or starts there).
 document.getElementById('start-dialog-plan').onclick = () => {
   const s = shownStart;
   if (!areas.length) {
@@ -3532,12 +3592,14 @@ document.getElementById('start-dialog-plan').onclick = () => {
     alert(t("There's no street of your areas within 150 m of {name}. Add an area in Road Fill that covers it.", { name: s.name }));
     return;
   }
-  if (!mayDiscard()) return;
+  const onto = isLandmark(s) && plan.waypoints.length > 0;
+  if (!onto && !mayDiscard()) return;
   startDialog.close();
-  resetPlan();
+  if (!onto) resetPlan();
   addWaypoint([g.lat[i], g.lon[i]]);
-  planStatus.textContent = t('Starting at {name}. Click where to go next, or Make a loop from here.', { name: s.name });
-  map.setView([s.lat, s.lon], Math.max(map.getZoom(), 15));
+  planStatus.textContent = onto ? t('The route goes to {name} now.', { name: s.name })
+    : t('Starting at {name}. Click where to go next, or Make a loop from here.', { name: s.name });
+  if (!onto) map.setView([s.lat, s.lon], Math.max(map.getZoom(), 15));
 };
 
 document.getElementById('start-dialog-edit').onclick = () => {
@@ -3552,7 +3614,7 @@ document.getElementById('start-dialog-move').onclick = () => {
 };
 document.getElementById('start-dialog-delete').onclick = async () => {
   const s = shownStart;
-  if (!confirm(t('Delete the starting point "{name}"?', { name: s.name }))) return;
+  if (!confirm(t(isLandmark(s) ? 'Delete the landmark "{name}"?' : 'Delete the starting point "{name}"?', { name: s.name }))) return;
   try {
     await Store.deleteStart(s.id);
     startDialog.close();
@@ -3564,13 +3626,14 @@ document.getElementById('start-dialog-delete').onclick = async () => {
   }
 };
 
-// The next click on the map places a new starting point, or moves one. Esc,
-// or the add button again, stops.
+// The next click on the map places a new starting point or landmark, or moves
+// one. Esc, or the add button again, stops.
 function pickStartPlace(what) {
   placingStart = what;
   map.getContainer().classList.add('placing-start');
-  planStatus.textContent = what === true ? t('Click the map where you park or set off from. Esc to stop.')
-    : t('Click the map where {name} should be. Esc to stop.', { name: what.name });
+  planStatus.textContent = what.id ? t('Click the map where {name} should be. Esc to stop.', { name: what.name })
+    : isLandmark(what) ? t('Click the map where the landmark is. Esc to stop.')
+      : t('Click the map where you park or set off from. Esc to stop.');
 }
 
 function stopPlacingStart() {
@@ -3580,24 +3643,27 @@ function stopPlacingStart() {
   planStatus.textContent = '';
 }
 
-document.getElementById('start-add').onclick = () => {
-  if (placingStart) stopPlacingStart();
-  else pickStartPlace(true);
-};
+for (const kind of ['start', 'landmark']) {
+  document.getElementById(`${kind}-add`).onclick = () => {
+    const again = placingStart && !placingStart.id && placingStart.kind === kind;
+    stopPlacingStart();
+    if (!again) pickStartPlace({ kind });
+  };
+}
 document.addEventListener('keydown', e => { if (e.key === 'Escape') stopPlacingStart(); });
 
 async function placeStart(latlng) {
   const what = placingStart;
   stopPlacingStart();
   const at = { lat: latlng.lat, lon: latlng.lng };
-  if (what === true) editStart(at);
+  if (!what.id) editStart({ kind: what.kind, ...at });
   else await saveStart({ ...what, ...at });
 }
 
-// Stores a starting point and puts it in the list, in name order. Returns it, or null.
+// Stores a place and puts it in the list, in name order. Returns it, or null.
 async function saveStart(s) {
   try {
-    const saved = await Store.saveStart({ id: s.id, name: s.name, lat: s.lat, lon: s.lon, private: s.private, info: s.info });
+    const saved = await Store.saveStart({ id: s.id, kind: s.kind || 'start', name: s.name, lat: s.lat, lon: s.lon, private: s.private, info: s.info });
     starts = [...starts.filter(o => o.id !== saved.id), saved]
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
     drawStarts();
@@ -3609,8 +3675,8 @@ async function saveStart(s) {
   }
 }
 
-// The form for a new starting point (just {lat, lon}) or a saved one. Saving
-// opens its card.
+// The form for a new place (just {kind, lat, lon}) or a saved one. A starting
+// point has what's there, a landmark what it is. Saving opens its card.
 const startStars = document.getElementById('start-edit-stars');
 let startRating = 0;
 function showStarPicker() {
@@ -3630,27 +3696,34 @@ function showStarPicker() {
 
 function editStart(s) {
   const info = s.info || {};
-  document.getElementById('start-edit-title').textContent = s.id ? t('Edit the starting point') : t('A new starting point');
-  document.getElementById('start-edit-name').value = s.name || '';
+  const landmark = isLandmark(s);
+  document.getElementById('start-edit-title').textContent = landmark ? t(s.id ? 'Edit the landmark' : 'A new landmark')
+    : t(s.id ? 'Edit the starting point' : 'A new starting point');
+  const name = document.getElementById('start-edit-name');
+  name.value = s.name || '';
+  name.placeholder = landmark ? t('e.g. Old rail bridge') : t('e.g. Rec centre, north lot');
+  document.getElementById('start-edit-amenities').hidden = landmark;
+  document.getElementById('start-edit-type-row').hidden = !landmark;
+  document.getElementById('start-edit-type').value = landmark ? info.type || 'other' : 'other';
   for (const k of Object.keys(START_KINDS)) document.getElementById(`start-edit-${k}`).value = info[k] || '';
   document.getElementById('start-edit-notes').value = info.notes || '';
+  document.getElementById('start-edit-notes').placeholder = landmark ? t('What to look out for, the best time to see it…')
+    : t('Gate hours, which end to park at, the best way out to the trails…');
   document.getElementById('start-edit-private').checked = Boolean(s.private);
   startRating = info.rating || 0;
   showStarPicker();
   startEdit.returnValue = '';
   startEdit.showModal();
-  document.getElementById('start-edit-name').focus();
+  name.focus();
   startEdit.addEventListener('close', async () => {
     if (startEdit.returnValue !== 'ok') return;
+    const details = landmark ? { type: document.getElementById('start-edit-type').value }
+      : Object.fromEntries(Object.keys(START_KINDS).map(k => [k, document.getElementById(`start-edit-${k}`).value]));
     const changed = {
       ...s,
-      name: document.getElementById('start-edit-name').value.trim(),
+      name: name.value.trim(),
       private: document.getElementById('start-edit-private').checked,
-      info: {
-        ...Object.fromEntries(Object.keys(START_KINDS).map(k => [k, document.getElementById(`start-edit-${k}`).value])),
-        rating: startRating,
-        notes: document.getElementById('start-edit-notes').value.trim(),
-      },
+      info: { ...details, rating: startRating, notes: document.getElementById('start-edit-notes').value.trim() },
     };
     const saved = await saveStart(changed);
     if (saved) openStart(saved);

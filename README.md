@@ -55,9 +55,9 @@ their own empty track list.
 routes to anyone who has it, with no login: for a running club, say.
 - **What they see:** a plain map and the list of your saved routes, with the
   newest one open. They can switch between routes and download each as GPX.
-  Your shared starting points are on the map too, each with its card.
+  Your shared starting points and landmarks are on the map too, each with its card.
   Nothing else: no tracks, heatmap, street areas, trophies or route editing.
-  The server sends a view link nothing but the routes and starting points.
+  The server sends a view link nothing but the routes, starting points and landmarks.
 - **One route:** in **Planning**, click **Link** next to a saved route to get a
   link that opens straight to that route, with a 7-day view link of its own.
   The admin can instead leave the days blank to reuse their newest view link
@@ -338,6 +338,12 @@ you noted, the saved routes starting within 300 m, **Directions** (Google
 Maps), and **Start a route here**, which puts a route's first point on the
 nearest street (so **Make a loop** starts there too). View links and viewers
 see them, unless ticked **Private**.
+
+**Landmarks** (bridges, lookouts, monuments, public art, waterfalls, notable
+trees, beaches) work the same way, from **+ Add a landmark**: a name, what it
+is, a rating and notes. Their cards list the saved routes passing within 50 m,
+and **Add to route** routes on from the last point to it (or starts a route
+there). They're kept in the same table as starting points (`starts.kind`).
 
 **Fill with unrun streets** makes the route for you: set a length and press it
 for a loop over as many streets you haven't run as fit.

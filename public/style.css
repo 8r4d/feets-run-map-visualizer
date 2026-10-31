@@ -697,7 +697,7 @@ body {
   grid-template-columns: minmax(240px, 1fr) 340px minmax(240px, 1fr);  /* fits a 1300px window */
   /* The last row soaks up the tall columns' height, so the first column's
      rows stay tight under the title. */
-  grid-template-rows: auto auto auto auto auto 1fr;
+  grid-template-rows: auto auto auto auto auto auto 1fr;
   gap: 6px 24px;
   align-items: start;
 }
@@ -708,13 +708,14 @@ body {
 #mode-bar #plan-streets-toggle { grid-area: 4 / 1; }
 #mode-bar #plan-status { grid-area: 5 / 1; }
 #mode-bar #plan-actions {
-  grid-area: 1 / 2 / span 6;
+  grid-area: 1 / 2 / span 7;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-#mode-bar #routes { grid-area: 1 / 3 / span 6; }
+#mode-bar #routes { grid-area: 1 / 3 / span 7; }
 #mode-bar #starts { grid-area: 6 / 1; }
+#mode-bar #landmarks { grid-area: 7 / 1; }
 
 #mode-bar #plan-panel button {
   white-space: nowrap;
@@ -730,7 +731,8 @@ body {
   gap: 2px 10px;
 }
 
-#mode-bar #start-list {
+#mode-bar #start-list,
+#mode-bar #landmark-list {
   max-height: 110px;
   overflow-y: auto;
 }
@@ -1370,7 +1372,8 @@ body {
 }
 
 /* Starting points: the list in the Plan panel */
-#start-list {
+#start-list,
+#landmark-list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -1379,14 +1382,16 @@ body {
   gap: 4px;
 }
 
-#start-list li {
+#start-list li,
+#landmark-list li {
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: baseline;
   column-gap: 8px;
 }
 
-#start-list .name {
+#start-list .name,
+#landmark-list .name {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -1396,18 +1401,21 @@ body {
   text-align: left;
 }
 
-#start-list small {
+#start-list small,
+#landmark-list small {
   color: var(--muted);
   white-space: nowrap;
 }
 
-#starts .hint {
+#starts .hint,
+#landmarks .hint {
   margin: 0 0 6px;
   font-size: 12px;
   color: var(--muted);
 }
 
-#start-add {
+#start-add,
+#landmark-add {
   margin-top: 6px;
   font-size: 12px;
 }
@@ -1438,6 +1446,26 @@ body {
   stroke-width: 1.6;
   stroke-linejoin: round;
   stroke-linecap: round;
+}
+
+/* ...and landmarks: a round white badge with what it is (bridge, lookout...) */
+.landmark-spot span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  font-size: 16px;
+  line-height: 1;
+  background: #fff;
+  border: 2px solid #6a1b9a;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+}
+
+.landmark-spot.private span {
+  border-color: #5f6b73;
 }
 
 #map.placing-start,
@@ -2022,6 +2050,7 @@ body {
 #todo summary,
 #unrunnable summary,
 #starts summary,
+#landmarks summary,
 #routes summary {
   font-size: 13px;
 }
@@ -2029,6 +2058,7 @@ body {
 #todo .count,
 #unrunnable .count,
 #starts .count,
+#landmarks .count,
 #routes .count {
   font-weight: normal;
   color: var(--muted);

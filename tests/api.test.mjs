@@ -173,6 +173,21 @@ test('starting points: what is there, kept tidy, and private ones only for their
   assert.deepEqual((await client.call('starts')).body.map(s => s.name), ['North lot']);
 });
 
+test('landmarks: kept with starting points, with what they are', async () => {
+  const { client } = await member();
+  const bridge = (await client.call('start_save', { kind: 'landmark', name: 'Rail bridge', lat: 53.53, lon: -113.5,
+    info: { type: 'bridge', parking: 'free', rating: 4, notes: 'Best at sunset' } })).body;
+  assert.equal(bridge.kind, 'landmark');
+  assert.deepEqual(bridge.info, { type: 'bridge', rating: 4, notes: 'Best at sunset' }, "a landmark's own info, no parking");
+  const odd = (await client.call('start_save', { kind: 'landmark', name: 'Odd', lat: 1, lon: 1, info: { type: 'volcano' } })).body;
+  assert.equal(odd.info.type, '', 'an unknown type dropped');
+  const lot = (await client.call('start_save', { name: 'Lot', lat: 1, lon: 1, info: { type: 'bridge' } })).body;
+  assert.equal(lot.kind, 'start', 'a starting point unless it says');
+  assert.equal(lot.info.type, undefined);
+  assert.deepEqual((await client.call('starts')).body.map(s => `${s.kind}:${s.name}`), ['start:Lot', 'landmark:Odd', 'landmark:Rail bridge']);
+  assert.equal((await client.call('start_save', { kind: 'landmark', name: '', lat: 1, lon: 1 })).body.error, 'A landmark needs a name');
+});
+
 test('tracks: added with pace and climb, and only their owner sees them', async () => {
   const a = await member(), b = await member();
   const added = await a.client.call('add', trackBody(gpxText({ n: 60, step: 20, seconds: 6 })));

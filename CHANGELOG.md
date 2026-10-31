@@ -5,6 +5,16 @@ A new feature bumps MINOR, a fix bumps PATCH, and a change that breaks
 existing data or setups bumps MAJOR. The version shows in the sidebar's
 About box (`public/index.html`); keep it and this file in step.
 
+## 1.32.0 — 2026-10-31
+
+- Landmarks: mark bridges, lookouts, monuments, public art, waterfalls,
+  notable trees and beaches. In Planning, under Landmarks, choose + Add a
+  landmark and click the map; give it a name, what it is, a star rating and
+  notes. Each shows as a round badge of what it is, opening a card like a
+  starting point's, with the saved routes that pass within 50 m of it and
+  Add to route, which routes on from your last point to it (or starts a
+  route there). View links see them too, except private ones.
+
 ## 1.31.0 — 2026-10-31
 
 - Starting points: mark the places you park or set off from. In Planning,

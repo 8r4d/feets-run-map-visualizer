@@ -106,9 +106,10 @@ const Store = (() => {
     renameRoute: (id, name) => json('POST', `?action=route_rename&id=${id}`, { name }),  // → stored route
     setRoutePrivate: (id, isPrivate) => json('POST', `?action=route_private&id=${id}`, { private: isPrivate }),  // → stored route
     deleteRoute: id => json('POST', `?action=route_delete&id=${id}`),
-    // Starting points: { id, name, lat, lon, private, info: { parking, washrooms, lighting, water, rating, notes } }.
+    // Places: { id, kind ('start' or 'landmark'), name, lat, lon, private, info }. A starting point's info is
+    // { parking, washrooms, lighting, water, rating, notes }; a landmark's { type, rating, notes }.
     starts: () => json('GET', '?action=starts'),
-    saveStart: start => json('POST', '?action=start_save', start),  // { id?, name, lat, lon, private, info } → stored one
+    saveStart: start => json('POST', '?action=start_save', start),  // { id?, kind, name, lat, lon, private, info } → stored one
     deleteStart: id => json('POST', `?action=start_delete&id=${id}`),
 
     // Segments (see segments.js): { id, name, distance, points, createdAt, efforts: { track id: [[start, seconds]] } }.

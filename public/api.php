@@ -84,10 +84,12 @@
 //                                            their owner: view links and view-only accounts don't get them
 //   POST api.php?action=route_delete&id=ID
 //
-// Starting points: places you park or set off from, with what's there (see start_info)
-//   GET  api.php?action=starts               [{id, name, lat, lon, private, info, createdAt, updatedAt}], by name.
+// Places on the map: starting points (where you park or set off from, with what's there) and
+// landmarks (bridges, lookouts and the like). See start_info for each kind's info
+//   GET  api.php?action=starts               [{id, kind, name, lat, lon, private, info, createdAt, updatedAt}], by name.
 //                                            Like routes, private ones are only listed for their owner
-//   POST api.php?action=start_save           {id?, name, lat, lon, private?, info}; with id, replaces that one. Returns it
+//   POST api.php?action=start_save           {id?, kind, name, lat, lon, private?, info}; with id, replaces that one.
+//                                            kind: 'start' (the default) or 'landmark'. Returns it
 //   POST api.php?action=start_delete&id=ID
 //
 // Goals
@@ -355,13 +357,14 @@ const SCHEMA = [
     ) CHARACTER SET utf8mb4
     SQL,
     <<<SQL
-    CREATE TABLE IF NOT EXISTS starts (  -- starting points: where you park or set off from
+    CREATE TABLE IF NOT EXISTS starts (  -- places: starting points (where you park or set off from) and landmarks
       id          INT AUTO_INCREMENT PRIMARY KEY,
       user_id     INT          NOT NULL,
+      kind        VARCHAR(20)  NOT NULL DEFAULT 'start',  -- 'start' or 'landmark'
       name        VARCHAR(255) NOT NULL,
       lat         DOUBLE       NOT NULL,
       lon         DOUBLE       NOT NULL,
-      info        TEXT         NOT NULL,  -- JSON: what's there, see start_info()
+      info        TEXT         NOT NULL,  -- JSON: what's there, or what it is, see start_info()
       private     BOOLEAN      NOT NULL DEFAULT FALSE,  -- only listed for its owner, as with routes
       created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -591,6 +594,10 @@ function db(): PDO {
         // ...and view links that expire.
         if (!$pdo->query("SHOW COLUMNS FROM view_links LIKE 'expires_at'")->fetch()) {
             $pdo->exec('ALTER TABLE view_links ADD COLUMN expires_at TIMESTAMP NULL AFTER created_at');
+        }
+        // ...and landmarks beside starting points (1.32.0).
+        if (!$pdo->query("SHOW COLUMNS FROM starts LIKE 'kind'")->fetch()) {
+            $pdo->exec("ALTER TABLE starts ADD COLUMN kind VARCHAR(20) NOT NULL DEFAULT 'start' AFTER user_id");
         }
         // ...and private routes.
         if (!$pdo->query("SHOW COLUMNS FROM routes LIKE 'private'")->fetch()) {
@@ -2384,7 +2391,7 @@ function route_delete(int $userId, int $id): array {
     return ['ok' => true];
 }
 
-// --- Starting points ---
+// --- Places: starting points and landmarks ---
 // What's at a starting point. Each kind has a few answers, or '' for not
 // noted; anything else sent is dropped.
 const START_CHOICES = [
@@ -2393,15 +2400,23 @@ const START_CHOICES = [
     'lighting'  => ['lit', 'some', 'dark'],
     'water'     => ['yes', 'seasonal', 'no'],
 ];
+// What a landmark is.
+const LANDMARK_TYPES = ['bridge', 'lookout', 'monument', 'art', 'waterfall', 'tree', 'beach', 'other'];
 const START_NOTES_MAX = 2000;
 
-// {parking, washrooms, lighting, water, rating (0 for none, else 1-5), notes}.
-function start_info($info): array {
+// A starting point's {parking, washrooms, lighting, water, rating, notes}, or
+// a landmark's {type ('' if not given), rating, notes}. rating: 0 for none, else 1-5.
+function start_info($info, string $kind = 'start'): array {
     $info = is_array($info) ? $info : [];
     $out = [];
-    foreach (START_CHOICES as $key => $choices) {
-        $value = (string) ($info[$key] ?? '');
-        $out[$key] = in_array($value, $choices, true) ? $value : '';
+    if ($kind === 'landmark') {
+        $type = (string) ($info['type'] ?? '');
+        $out['type'] = in_array($type, LANDMARK_TYPES, true) ? $type : '';
+    } else {
+        foreach (START_CHOICES as $key => $choices) {
+            $value = (string) ($info[$key] ?? '');
+            $out[$key] = in_array($value, $choices, true) ? $value : '';
+        }
     }
     $out['rating'] = max(0, min(5, (int) ($info['rating'] ?? 0)));
     $out['notes'] = mb_substr(trim((string) ($info['notes'] ?? '')), 0, START_NOTES_MAX);
@@ -2409,12 +2424,13 @@ function start_info($info): array {
 }
 
 function start_row(array $row): array {
-    return ['id' => (int) $row['id'], 'name' => $row['name'], 'lat' => (float) $row['lat'], 'lon' => (float) $row['lon'],
-            'private' => (bool) $row['private'], 'info' => start_info(json_decode($row['info'], true)),
+    return ['id' => (int) $row['id'], 'kind' => $row['kind'], 'name' => $row['name'], 'lat' => (float) $row['lat'],
+            'lon' => (float) $row['lon'], 'private' => (bool) $row['private'],
+            'info' => start_info(json_decode($row['info'], true), $row['kind']),
             'createdAt' => $row['created_at'], 'updatedAt' => $row['updated_at']];
 }
 
-// All of the user's starting points by name, or just one ($onlyId). Private
+// All of the user's places by name, or just one ($onlyId). Private
 // ones are left out for view links and view-only accounts.
 function starts(int $userId, ?int $onlyId = null, bool $withPrivate = true): array {
     $stmt = db()->prepare('SELECT * FROM starts WHERE user_id = ?' . ($onlyId ? ' AND id = ?' : '')
@@ -2423,32 +2439,34 @@ function starts(int $userId, ?int $onlyId = null, bool $withPrivate = true): arr
     return array_map('start_row', $stmt->fetchAll());
 }
 
-// Stores a starting point: {id?, name, lat, lon, private?, info}. With an id
-// it replaces that one, if it's the user's own.
+// Stores a place: {id?, kind, name, lat, lon, private?, info}. With an id it
+// replaces that one, if it's the user's own.
 function start_save(int $userId, array $b): array {
+    $kind = ($b['kind'] ?? 'start') === 'landmark' ? 'landmark' : 'start';
+    $what = $kind === 'landmark' ? 'A landmark' : 'A starting point';
     $name = mb_substr(trim((string) ($b['name'] ?? '')), 0, 255);
     $lat = (float) ($b['lat'] ?? 0);
     $lon = (float) ($b['lon'] ?? 0);
     if ($name === '') {
-        fail('A starting point needs a name', 400);
+        fail("$what needs a name", 400);
     }
     if (!is_numeric($b['lat'] ?? null) || !is_numeric($b['lon'] ?? null) || abs($lat) > 90 || abs($lon) > 180) {
-        fail('A starting point needs a place on the map', 400);
+        fail("$what needs a place on the map", 400);
     }
-    $info = json_encode(start_info($b['info'] ?? []));
+    $info = json_encode(start_info($b['info'] ?? [], $kind));
     $private = empty($b['private']) ? 0 : 1;
     $id = (int) ($b['id'] ?? 0);
     if ($id) {
         $check = db()->prepare('SELECT id FROM starts WHERE id = ? AND user_id = ?');
         $check->execute([$id, $userId]);
         if (!$check->fetchColumn()) {
-            fail('Starting point not found', 404);
+            fail('Not found', 404);
         }
-        db()->prepare('UPDATE starts SET name = ?, lat = ?, lon = ?, info = ?, private = ? WHERE id = ?')
-            ->execute([$name, $lat, $lon, $info, $private, $id]);
+        db()->prepare('UPDATE starts SET kind = ?, name = ?, lat = ?, lon = ?, info = ?, private = ? WHERE id = ?')
+            ->execute([$kind, $name, $lat, $lon, $info, $private, $id]);
     } else {
-        db()->prepare('INSERT INTO starts (user_id, name, lat, lon, info, private) VALUES (?, ?, ?, ?, ?, ?)')
-            ->execute([$userId, $name, $lat, $lon, $info, $private]);
+        db()->prepare('INSERT INTO starts (user_id, kind, name, lat, lon, info, private) VALUES (?, ?, ?, ?, ?, ?, ?)')
+            ->execute([$userId, $kind, $name, $lat, $lon, $info, $private]);
         $id = (int) db()->lastInsertId();
     }
     return starts($userId, $id)[0];

@@ -493,6 +493,28 @@ test('starting points: placed on the map, with a card of what is there, also on 
   await page.eval(`document.getElementById('start-dialog-close').click()`);
   assert.match(await page.eval(`document.getElementById('start-list').textContent`), /Block lot.*🅿️.*★★★★☆/);
 
+  // A landmark part way along one side of the Block loop: it passes by.
+  await page.eval(`document.getElementById('landmark-add').click()`);
+  await page.eval(`void map.fire('click', { latlng: L.latLng(49.2803, -123.1172) })`);
+  await page.waitFor(`document.getElementById('start-edit').open`, { what: 'the form for a new landmark' });
+  assert.deepEqual(await page.eval(`[document.getElementById('start-edit-amenities').hidden, document.getElementById('start-edit-type-row').hidden]`),
+    [true, false], 'what it is, not parking and washrooms');
+  await page.eval(`
+    document.getElementById('start-edit-name').value = 'Corner arch';
+    document.getElementById('start-edit-type').value = 'monument';
+    document.querySelector('#start-edit .dialog-ok').click();`);
+  await page.waitFor(`document.getElementById('start-dialog').open`, { what: "the landmark's card" });
+  assert.deepEqual(await page.eval(`({
+    info: document.getElementById('start-dialog-info').textContent,
+    heading: document.querySelector('#start-dialog-routes h3').textContent,
+    routes: document.querySelector('#start-dialog-routes ul').textContent,
+    button: document.getElementById('start-dialog-plan').textContent })`),
+    { info: '🏛️Monument', heading: 'Routes that pass by', routes: 'Block loop 1.4 km', button: 'Add to route' });
+  assert.equal(await page.eval(`document.querySelector('.landmark-spot').textContent`), '🏛️');
+  await snap('landmark-card');
+  await page.eval(`document.getElementById('start-dialog-close').click()`);
+  assert.match(await page.eval(`document.getElementById('landmark-list').textContent`), /Corner arch.*🏛️/);
+
   // A view link sees it, and its card, but can't start a route or change it.
   const code = await page.eval(`Store.createViewLink('Starts').then(l => l.code)`);
   await page.goto(`${URL_BASE}?view=${code}`);
